@@ -1,0 +1,75 @@
+// CColStore - adapted from gta-reversed for clean-room C++ build
+// See src/CColStore/*.c for decompiled bodies.
+// TODO: verify each method against decomp.
+
+#pragma once
+#include <cstdint>
+// Base.h (plugin-sdk) replacements - gta-reversed integer typedefs
+using int8 = int8_t;
+using int16 = int16_t;
+using int32 = int32_t;
+using uint8 = uint8_t;
+using uint16 = uint16_t;
+using uint32 = uint32_t;
+#include "CRect.h"
+#include "CVector.h"
+#include "CPool.h"
+// TODO: adapt full enum from gta-reversed source/game_sa/Enums/eAreaCodes.h
+// (verified: enum eAreaCodes : int32). eAreaCodesS32 is the plugin-sdk WEnum
+// int32 alias - verify its exact definition before relying on it.
+enum eAreaCodes : int32;
+using eAreaCodesS32 = int32; // TODO: verify - assumed WEnum underlying-type alias
+
+// thanks to jte for reversing this
+struct ColDef {
+    CRect  m_Area;
+    char   name[18]{};
+    int16  m_nModelIdStart;
+    int16  m_nModelIdEnd;
+    uint16 m_nRefCount;
+    bool   m_bActive;
+    bool   m_bCollisionIsRequired;
+    bool   m_bProcedural;
+    bool   m_bInterior;
+
+    static void* operator new(size_t size);
+    static void  operator delete(void* data);
+};
+// TODO: static_assert(sizeof(ColDef) == 0x2C) - verify layout
+
+using CColPool = CPool<ColDef>;
+class CColStore {
+public:
+    static CVector ms_vecCollisionNeeded; // game address: 0x965580
+    static bool ms_bCollisionNeeded; // game address: 0x965558
+    static eAreaCodesS32 ms_EntityAreaCode; // game address: 0x965554
+
+public:
+
+    static void Initialise();
+    static void Shutdown();
+    static int32 AddColSlot(const char* name);
+    static void AddCollisionNeededAtPosn(const CVector& pos);
+    static void AddRef(int32 colNum);
+    static int32 FindColSlot() { return -1; }
+    static int32 FindColSlot(const char*);
+    static void BoundingBoxesPostProcess();
+    static void EnsureCollisionIsInMemory(const CVector& pos);
+    static CRect* GetBoundingBox(int32 colSlot);
+    static void IncludeModelIndex(int32 colSlot, int32 modelId);
+    static bool HasCollisionLoaded(const CVector& pos, eAreaCodes areaCode);
+    static void LoadAllBoundingBoxes();
+    static void LoadAllCollision();
+    static void LoadCol(int32 colSlot, const char* filename);
+    static bool LoadCol(int32 colSlot, uint8* data, int32 dataSize);
+    static void LoadCollision(CVector pos, bool bIgnorePlayerVeh);
+    static void RemoveAllCollision();
+    static void RemoveCol(int32 colSlot);
+    static void RemoveColSlot(int32 colSlot);
+    static void RemoveRef(int32 colNum);
+    static void RequestCollision(const CVector& pos, eAreaCodes areaCode);
+    static void SetCollisionRequired(const CVector& pos, eAreaCodes areaCode);
+
+    static ColDef* GetInSlot(int32 slot);
+    static CColPool* GetPool();
+};

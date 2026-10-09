@@ -1,0 +1,37 @@
+// CPlayerInfo - minimal stand-in (gta-reversed/source/game_sa/PlayerInfo.h).
+// This file is part of a clean-room engine reimplementation for interoperability research.
+// Game assets are loaded from the user's own install at runtime and never shipped.
+//
+// Only the members used by the currently-converted TUs are defined here.
+// Types verified 2026-10-09 vs gta-reversed PlayerInfo.h.
+// The full class lands with the player batch. Added 2026-10-09 for CAutomobile.
+// Members added 2026-10-09 for CHud (m_nDisplayMoney, m_nLastTimeEnergyLost);
+// local per-TU shims in CHud/CWeapon/CExplosion.cpp removed in favor of this header.
+
+#pragma once
+
+#include <cstdint>
+
+class CVehicle;
+class CPlayerPed;
+
+class CPlayerInfo {
+public:
+    CVehicle* m_pRemoteVehicle;       // gta-reversed: CVehicle* m_pRemoteVehicle
+    uint32_t  m_nCarLess3WheelCounter; // gta-reversed: uint32 m_nCarLess3WheelCounter
+    uint32_t  m_nVehicleTimeCounter;   // gta-reversed: uint32 m_nVehicleTimeCounter
+    uint32_t  m_nHavocCaused;          // gta-reversed: uint32 m_nHavocCaused
+    float     m_fCurrentChaseValue;    // gta-reversed: float m_fCurrentChaseValue
+    uint8_t   m_nMaxHealth;            // gta-reversed: uint8 m_nMaxHealth
+    int32_t   m_nMoney;                // gta-reversed: int32 m_nMoney
+    bool      m_bFastReload;           // gta-reversed: bool m_bFastReload
+    uint32_t  m_nLastTimeBigGunFired;  // gta-reversed: uint32 m_nLastTimeBigGunFired (added 2026-10-09)
+    CPlayerPed* m_pPed{};       // gta-reversed: CPlayerPed* m_pPed (added 2026-10-09 for CPed)
+    int32_t   m_nMaxArmour;             // gta-reversed: int32 m_nMaxArmour (added 2026-10-09 for CVehicle)
+    bool      m_bCanDoDriveBy{};          // gta-reversed: bool m_bCanDoDriveBy (added 2026-10-09 for CPed)
+    int32_t   m_nDisplayMoney{};          // gta-reversed: int32 m_nDisplayMoney (added 2026-10-09 for CHud)
+    uint32_t  m_nLastTimeEnergyLost{};    // gta-reversed: uint32 m_nLastTimeEnergyLost (added 2026-10-09 for CHud)
+    // TODO(port): stub (added 2026-10-09 for CVehicle)
+    void AddHealth(int32_t amount) { (void)amount; }
+    // TODO(port): full CPlayerInfo layout from gta-reversed PlayerInfo.h
+};

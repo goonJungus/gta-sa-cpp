@@ -1,0 +1,6 @@
+151	CCamera
+116	CCam
+16	CIdleCam
+6	CCurves
+3	<global>
+3	CHandShaker

@@ -1,0 +1,634 @@
+// CExplosion - adapted from gta-reversed for clean-room C++ build
+// Method implementations. Decompiled reference: src/CExplosion/*.c
+// Bodies cross-checked against gta-reversed/source/game_sa/Explosion.cpp.
+//
+// Decomp-vs-gta-reversed: no divergences found (AddExplosion/Update and the
+// small accessors match the .c files; Initialise is ClearAllExplosions per
+// the 0x736A40 hook; GetFree/SetCreator/SetVictim are NOTSA).
+
+#include "CExplosion.h"
+
+#include "CTimer.h"
+#include "CEntity.h"
+#include "CPlayerPed.h"
+#include "CPlayerInfo.h"
+#include "CWorld.h"
+#include "CPad.h"
+#include "CFireManager.h"
+#include "ColTypes.h"
+
+#include <cmath>   // std::fabs
+#include <cstdint>
+#include <cstdlib> // RAND_MAX
+
+// NOTE on includes (pre-existing tree issues, see BUILD_NOTES):
+// - FxManager.h / FxSystem.h are NOT included: FxSystem.h's
+//   `using eBoneTag = int32;` clashes with CPed.h's opaque
+//   `enum eBoneTag : int16_t;` forward declaration (pre-existing tree issue).
+// The affected subsystems are shimmed below instead.
+
+// ============================================================================
+// TODO(port): external subsystem shims.
+// Minimal declarations for subsystems not yet ported to cpp/. Each entry is
+// verified against gta-reversed/source/game_sa and the decompiled bodies in
+// src/CExplosion/*.c. Delete entries as their subsystem lands; do not grow
+// this list. None of these introduce link-time dependencies for /c or `ar`
+// static-library builds.
+// ============================================================================
+
+// --- CGeneral (gta-reversed source/game_sa/General.h)
+struct CGeneral {
+    static uint32_t GetRandomNumber();
+    static float    GetRandomNumberInRange(float min, float max);
+    static int32_t  GetRandomNumberInRange(int32_t min, int32_t max);
+};
+template<typename T>
+constexpr T sq(T x) { return x * x; } // gta-reversed helper
+
+// --- Crime (gta-reversed source/game_sa/Enums/eCrimeType.h, Crime.h)
+enum class eCrimeType : int32_t {
+    CRIME_EXPLOSION = 17,
+};
+struct CCrime {
+    static void ReportCrime(eCrimeType crimeType, CEntity* entity, CPed* ped2);
+};
+
+
+// --- RenderWare matrix (forward-declared; full type belongs to the RW layer)
+// (CPlayerInfo was a local shim here; full definition now in include/CPlayerInfo.h)
+
+struct RwMatrix;
+
+// --- FxSystem_c / FxManager_c (signatures verified against include/FxSystem.h
+// and include/FxManager.h; see NOTE above)
+class FxSystem_c {
+public:
+    void PlayAndKill();
+};
+class FxManager_c {
+public:
+    FxSystem_c* CreateFxSystem(const char* name, const CVector& point, RwMatrix* objectMatrix, bool ignoreBoundingChecks = false);
+    FxSystem_c* CreateFxSystem(const char* name, const RwMatrix& transform, RwMatrix* objectMatrix, bool ignoreBoundingChecks = false);
+};
+extern FxManager_c& g_fxMan;
+
+// --- CWaterLevel (gta-reversed source/game_sa/WaterLevel.h)
+struct CWaterLevel {
+    static bool GetWaterLevelNoWaves(CVector posn, float* pWaterLevel, void* pUnknown1, void* pUnknown2);
+};
+
+// --- CInterestingEvents (gta-reversed source/game_sa/InterestingEvents.h)
+struct CInterestingEvents {
+    enum class EType : int32_t {
+        EVENT_ATTRACTOR = 27,
+    };
+    static void Add(EType type, CEntity* entity);
+};
+extern CInterestingEvents g_InterestingEvents;
+
+// --- CShadows (gta-reversed source/game_sa/Shadows.h)
+enum class eShadowType : uint8_t {
+    SHADOW_DEFAULT = 0,
+};
+struct CShadows {
+    static void AddPermanentShadow(eShadowType type, void* texture, CVector* posn, float topX, float topY,
+                                   float rightX, float rightY, int16_t intensity, uint8_t red, uint8_t green,
+                                   uint8_t blue, float drawDistance, uint32_t time, float upDistance);
+};
+extern void* gpShadowHeliTex;
+
+// --- CCamera (signatures verified against include/CCamera.h; see NOTE in
+// src/CFire.cpp for why the header isn't included)
+class CCamera {
+public:
+    void CamShake(float strength, CVector pos);
+};
+extern CCamera& TheCamera;
+
+// --- CGameLogic (gta-reversed source/game_sa/GameLogic.h)
+struct CGameLogic {
+    static bool IsCoopGameGoingOn();
+};
+
+// --- CPointLights (gta-reversed source/game_sa/PointLights.h)
+enum class ePointLightType : uint8_t {
+    PLTYPE_POINTLIGHT = 0,
+};
+struct CPointLights {
+    static void AddLight(ePointLightType lightType, CVector point, CVector direction, float radius,
+                         float red, float green, float blue, uint8_t fogType = 0,
+                         bool generateExtraShadows = false, CEntity* entityAffected = nullptr);
+};
+
+// --- CStats (gta-reversed source/game_sa/Stats.h, Enums/eStats.h)
+struct CStats {
+    static void IncrementStat(int32_t stat, float value);
+};
+constexpr int32_t STAT_FIRES_STARTED = 216; // gta-reversed Enums/eStats.h
+
+// --- CCreepingFire (gta-reversed source/game_sa/CreepingFire.h)
+struct CCreepingFire {
+    static void TryToStartFireAtCoors(CVector pos, uint8_t nGens, bool arg2, bool isScript, float arg4);
+};
+
+// --- CBoundingBox is in include/ColTypes.h (IsPointWithin added there - it
+// was a TODO; needed by TestForExplosionInArea).
+
+// --- audio event id (gta-reversed source/game_sa/Enums/eAudioEvents.h)
+constexpr int32_t AE_EXPLOSION = 129;
+
+// Static data (were StaticRef<> at fixed game addresses; see CExplosion.h)
+CAEExplosionAudioEntity    CExplosion::m_ExplosionAudioEntity{}; // 0xC888D0
+std::array<CExplosion, 16> CExplosion::aExplosions{};            // 0xC88950
+
+// 0x736A40
+void CExplosion::Initialise() {
+    ClearAllExplosions();
+}
+
+// 0x7368F0
+void CExplosion::Shutdown() {
+    // NOP
+}
+
+// 0x736840
+void CExplosion::ClearAllExplosions() {
+    for (auto& exp : aExplosions) {
+        exp.m_vecPosition = CVector{ 0.0f, 0.0f, 0.0f };
+        exp.m_nType = EXPLOSION_GRENADE;
+        exp.m_fRadius = 1.0f;
+        exp.m_fVisibleDistance = 0.0f;
+        exp.m_fPropagationRate = 0.0f;
+        exp.m_fGroundZ = 0.0f;
+        exp.m_pCreator = nullptr;
+        exp.m_pVictim = nullptr;
+        exp.m_nExpireTime = 0.0f;
+        exp.m_nActiveCounter = 0;
+        exp.m_nCreatedTime = 0.0f;
+        exp.m_bMakeSound = true;
+        exp.m_nFuelTimer = 0;
+
+        for (auto i = 0; i < NUM_FUEL; i++) {
+            exp.m_vecFuelDirection[i] = CVector{ 0.0f, 0.0f, 0.0f };
+            exp.m_fFuelOffsetDistance[i] = 0.0f;
+            exp.m_fFuelSpeed[i] = 0.0f;
+        }
+    }
+}
+
+// 0x736900
+uint8_t CExplosion::GetExplosionActiveCounter(uint8_t id) {
+    return aExplosions[id].m_nActiveCounter;
+}
+
+// 0x736910
+void CExplosion::ResetExplosionActiveCounter(uint8_t id) {
+    aExplosions[id].m_nActiveCounter = 0;
+}
+
+// 0x736920
+bool CExplosion::DoesExplosionMakeSound(uint8_t id) {
+    return aExplosions[id].m_bMakeSound;
+}
+
+// 0x736930
+int32_t CExplosion::GetExplosionType(uint8_t id) {
+    return aExplosions[id].m_nType;
+}
+
+// 0x736940
+const CVector& CExplosion::GetExplosionPosition(uint8_t id) {
+    return aExplosions[id].m_vecPosition;
+}
+
+// 0x736950
+bool CExplosion::TestForExplosionInArea(eExplosionType type, float minX, float maxX, float minY, float maxY, float minZ, float maxZ) {
+    for (auto& exp : aExplosions) {
+        if (!exp.m_nActiveCounter)
+            continue;
+
+        if (exp.m_nType != type && type != eExplosionType::EXPLOSION_UNDEFINED)
+            continue;
+
+        const CBoundingBox boundingBox{ { minX, minY, minZ }, { maxX, maxY, maxZ } };
+        if (boundingBox.IsPointWithin(exp.m_vecPosition))
+            return true;
+    }
+    return false;
+}
+
+// 0x7369E0
+void CExplosion::RemoveAllExplosionsInArea(CVector pos, float radius) {
+    for (auto& exp : aExplosions) {
+        if (!exp.m_nActiveCounter)
+            continue;
+
+        if (DistanceBetweenPointsSquared(exp.m_vecPosition, pos) < sq(radius)) {
+            exp.m_nActiveCounter = 0;
+        }
+    }
+}
+
+// NOTSA
+CExplosion* CExplosion::GetFree() {
+    for (auto& exp : aExplosions) {
+        if (!exp.m_nActiveCounter)
+            return &exp;
+    }
+    return nullptr;
+}
+
+// NOTSA
+void CExplosion::SetCreator(CEntity* newCreator) noexcept {
+    CEntity::SafeCleanUpRef(m_pCreator);
+    CEntity::SafeRegisterRef(newCreator);
+    m_pCreator = newCreator;
+}
+
+// NOTSA
+void CExplosion::SetVictim(CEntity* newVictim) noexcept {
+    CEntity::SafeCleanUpRef(m_pVictim);
+    CEntity::SafeRegisterRef(newVictim);
+    m_pVictim = newVictim;
+}
+
+// NOTSA
+bool DoesNeedToVehProcessBombTimer(eExplosionType type) {
+    switch (type) {
+    case eExplosionType::EXPLOSION_ROCKET:
+    case eExplosionType::EXPLOSION_QUICK_CAR:
+    case eExplosionType::EXPLOSION_MINE:
+    case eExplosionType::EXPLOSION_OBJECT:
+    case eExplosionType::EXPLOSION_TANK_FIRE:
+        return true;
+    }
+    return false;
+}
+
+// 0x736A50
+void CExplosion::AddExplosion(CEntity* victim, CEntity* creator, eExplosionType type, CVector pos, uint32_t lifetime, uint8_t usesSound, float cameraShake, uint8_t bInvisible) {
+    if (FindPlayerPed() == creator) {
+        auto& info = FindPlayerInfo();
+        info.m_nHavocCaused += 5;
+        info.m_fCurrentChaseValue += 7.0f;
+    }
+
+    auto* exp = GetFree();
+    if (!exp)
+        return;
+
+    exp->m_vecPosition = pos;
+    exp->m_nType = type;
+    exp->m_fRadius = 1.0f;
+    exp->m_fVisibleDistance = 0.0f;
+    exp->m_fGroundZ = 0.0f;
+    exp->m_fDamagePercentage = 1.0f;
+    exp->m_nActiveCounter = 1;
+    exp->m_bMakeSound = usesSound;
+    exp->m_nFuelTimer = 0;
+
+    exp->SetCreator(creator);
+    exp->SetVictim(victim);
+
+    for (auto i = 0; i < NUM_FUEL; i++) {
+        float& fOffsetDistance = exp->m_fFuelOffsetDistance[i];
+        float& fFuelSpeed = exp->m_fFuelSpeed[i];
+        CVector& vecFuelDir = exp->m_vecFuelDirection[i];
+
+        if (i && CGeneral::GetRandomNumber() >= RAND_MAX / 2) {
+            fOffsetDistance = 0.0f;
+        } else {
+            vecFuelDir = CVector{
+                2 * CGeneral::GetRandomNumberInRange(0.0f, 1.0f) - 1.0f,
+                2 * CGeneral::GetRandomNumberInRange(0.0f, 1.0f) - 1.0f,
+                    CGeneral::GetRandomNumberInRange(0.2f, 1.0f)
+            };
+            fOffsetDistance = CGeneral::GetRandomNumberInRange(0.5f, 2.0f);
+            fFuelSpeed = CGeneral::GetRandomNumberInRange(20.0f, 30.0f);
+        }
+    }
+
+    exp->m_nParticlesExpireTime = lifetime ? CTimer::GetTimeInMS() + lifetime : 0;
+
+    const auto PlaySoundIfEnabled = [&](float volume = 0.0f) {
+        if (exp->m_bMakeSound) {
+            m_ExplosionAudioEntity.AddAudioEvent(AE_EXPLOSION, exp->m_vecPosition, volume);
+        }
+    };
+
+    // Originally most likely a separate function
+    // but this way its nicer
+    const auto CreateAndPlayFxWithSound = [&](const char* name, float volume = 0.0f) {
+        FxSystem_c* fx{ nullptr };
+        if (exp->m_pVictim) {
+            if (exp->m_pVictim->GetRwObject()) {
+                if (RwMatrix* matrix = exp->m_pVictim->GetModellingMatrix()) {
+                    CVector expToVictimDir = pos - exp->m_pVictim->GetPosition();
+                    fx = g_fxMan.CreateFxSystem(name, expToVictimDir, matrix, false);
+                }
+            }
+        } else {
+            fx = g_fxMan.CreateFxSystem(name, exp->m_vecPosition, nullptr, false);
+        }
+        if (fx) {
+            PlaySoundIfEnabled(volume);
+            fx->PlayAndKill();
+        }
+    };
+
+    if (bInvisible) {
+        exp->m_fRadius = 0.0f;
+        exp->m_fVisibleDistance = 0.0f;
+    }
+
+    bool bNoFire = false;
+    switch (type) {
+    case eExplosionType::EXPLOSION_GRENADE: {
+        if (!bInvisible) {
+            exp->m_fRadius = 9.0f;
+            exp->m_fVisibleDistance = 300.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 750);
+        exp->m_fPropagationRate = 0.5f;
+        if (exp->m_pVictim) {
+
+        } else {
+            CreateAndPlayFxWithSound("explosion_small");
+        }
+        break;
+    }
+    case eExplosionType::EXPLOSION_MOLOTOV: {
+        if (!bInvisible) {
+            exp->m_fRadius = 6.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 3000);
+
+        bool bHit = false;
+        const float fGroundPos = CWorld::FindGroundZFor3DCoord({ pos.x, pos.y, pos.z + 3.0f }, &bHit, nullptr);
+        if (bHit)
+            pos.z = fGroundPos;
+
+        float fWaterLevel{};
+        if (CWaterLevel::GetWaterLevelNoWaves(pos, &fWaterLevel, nullptr, nullptr)) {
+            /* must be done like this because of call order */
+            if (pos.z < fWaterLevel) {
+                bNoFire = true;
+                break;
+            }
+        }
+
+        CreateAndPlayFxWithSound("explosion_molotov", -36.0f);
+
+        break;
+    }
+    case eExplosionType::EXPLOSION_ROCKET:
+    case eExplosionType::EXPLOSION_WEAK_ROCKET: {
+        if (!bInvisible) {
+            exp->m_fRadius = 10.0f;
+            exp->m_fVisibleDistance = 300.0f;
+        }
+        if (type == eExplosionType::EXPLOSION_WEAK_ROCKET) {
+            exp->m_fVisibleDistance = 200.0f;
+            exp->m_fDamagePercentage = 0.2f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 750);
+        exp->m_fPropagationRate = 0.5f;
+
+        CreateAndPlayFxWithSound("explosion_small");
+        break;
+    }
+    case eExplosionType::EXPLOSION_CAR:
+    case eExplosionType::EXPLOSION_QUICK_CAR: {
+        if (!bInvisible) {
+            exp->m_fRadius = 9.0f;
+            exp->m_fVisibleDistance = 300.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 4250);
+        exp->m_fPropagationRate = 0.5f;
+        exp->m_nCreatedTime = static_cast<float>(CTimer::GetTimeInMS());
+
+        if (exp->m_pVictim) {
+            CCrime::ReportCrime(eCrimeType::CRIME_EXPLOSION, exp->m_pVictim->AsPed(), nullptr); /* won't do anything as second ped is nullptr */
+        }
+        CreateAndPlayFxWithSound("explosion_medium");
+        break;
+    }
+    case eExplosionType::EXPLOSION_BOAT:
+    case eExplosionType::EXPLOSION_AIRCRAFT: {
+        if (!bInvisible) {
+            exp->m_fRadius = 25.0f;
+            exp->m_fVisibleDistance = 600.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 3000);
+        exp->m_nCreatedTime = static_cast<float>(CTimer::GetTimeInMS());
+
+        CreateAndPlayFxWithSound("explosion_large");
+        break;
+    }
+    case eExplosionType::EXPLOSION_MINE: {
+        if (!bInvisible) {
+            exp->m_fRadius = 10.0f;
+            exp->m_fVisibleDistance = 150.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 750);
+        exp->m_fPropagationRate = 0.5f;
+
+        PlaySoundIfEnabled();
+        /* No fx for this */
+        break;
+    }
+    case eExplosionType::EXPLOSION_OBJECT: {
+        if (!bInvisible) {
+            exp->m_fRadius = 10.0f;
+            exp->m_fVisibleDistance = 150.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 750);
+        exp->m_fPropagationRate = 0.5f;
+        if (exp->m_bMakeSound)
+            m_ExplosionAudioEntity.AddAudioEvent(AE_EXPLOSION, exp->m_vecPosition, 0.0f);
+        break;
+    }
+    case eExplosionType::EXPLOSION_TANK_FIRE: {
+        if (!bInvisible) {
+            exp->m_fRadius = 10.0f;
+            exp->m_fVisibleDistance = 150.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 750);
+        exp->m_fPropagationRate = 0.5f;
+
+        CreateAndPlayFxWithSound("explosion_large");
+        break;
+    }
+    case eExplosionType::EXPLOSION_SMALL: {
+        if (!bInvisible) {
+            exp->m_fRadius = 3.0f;
+            exp->m_fVisibleDistance = 90.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 750);
+        exp->m_fPropagationRate = 0.5f;
+
+        CreateAndPlayFxWithSound("explosion_small");
+        break;
+    }
+    case eExplosionType::EXPLOSION_RC_VEHICLE: {
+        if (!bInvisible) {
+            exp->m_fRadius = 3.0f;
+            exp->m_fVisibleDistance = 90.0f;
+        }
+        exp->m_nExpireTime = static_cast<float>(CTimer::GetTimeInMS() + lifetime + 750);
+        exp->m_fPropagationRate = 0.5f;
+
+        CreateAndPlayFxWithSound("explosion_tiny");
+        break;
+    }
+    }
+
+    if (!bNoFire) {
+        switch (type) {
+        case eExplosionType::EXPLOSION_MOLOTOV:
+        case eExplosionType::EXPLOSION_ROCKET:
+        case eExplosionType::EXPLOSION_WEAK_ROCKET:
+        case eExplosionType::EXPLOSION_OBJECT: {
+            const auto numFires = (type == eExplosionType::EXPLOSION_MOLOTOV) ? (CGeneral::GetRandomNumber() - 2) % 4 : (CGeneral::GetRandomNumber() + 1) % 4;
+
+            if (numFires) {
+                for (auto i = 0; i < numFires; i++) {
+                    CVector firePos = exp->m_vecPosition + CVector{ CGeneral::GetRandomNumberInRange(-4.0f, 4.0f), CGeneral::GetRandomNumberInRange(-4.0f, 4.0f), 0.0f };
+                    bool bHitGround{};
+                    firePos.z = CWorld::FindGroundZFor3DCoord({ firePos.x, firePos.y, firePos.z + 3.0f }, &bHitGround, nullptr); // 0x73735C
+                    if (bHitGround && std::fabs(firePos.z - exp->m_vecPosition.z) < 10.0f) {
+                        gFireManager.StartFire(firePos, 0.8f, 0, exp->m_pCreator, static_cast<uint32_t>(CGeneral::GetRandomNumberInRange(5600.0f, 12600.0f) * 0.4f), 3, 1);
+                    }
+                }
+                if (creator && creator->GetIsTypePed() && creator->AsPed()->IsPlayer()) {
+                    CStats::IncrementStat(STAT_FIRES_STARTED, 1.0f);
+                }
+            }
+            break;
+        }
+        }
+    }
+
+    if (victim)
+        g_InterestingEvents.Add(CInterestingEvents::EType::EVENT_ATTRACTOR, victim);
+
+    CShadows::AddPermanentShadow(eShadowType::SHADOW_DEFAULT, gpShadowHeliTex, &pos, 8.0f, 0.0f, 0.0f, -8.0f, 200, 0, 0, 0, 10.0f, 30000, 1.0f);
+
+    if (exp->m_fVisibleDistance != 0.0f && !exp->m_nParticlesExpireTime) {
+        CWorld::TriggerExplosion(pos, exp->m_fRadius, exp->m_fVisibleDistance, victim, creator, DoesNeedToVehProcessBombTimer(type), exp->m_fDamagePercentage);
+    }
+
+    if (type == eExplosionType::EXPLOSION_MOLOTOV) {
+        TheCamera.CamShake(cameraShake == -1.0f ? 0.2f : cameraShake, pos);
+    } else {
+        if (cameraShake == -1.0f)
+            cameraShake = 0.6f;
+        TheCamera.CamShake(cameraShake, pos);
+
+        CPad::GetPad(0)->StartShake_Distance(300, 128, pos);
+        if (CGameLogic::IsCoopGameGoingOn())
+            CPad::GetPad(1)->StartShake_Distance(300, 128, pos);
+    }
+}
+
+// 0x737620
+void CExplosion::Update() {
+    for (auto& exp : aExplosions) {
+        if (!exp.m_nActiveCounter)
+            continue;
+
+        if (exp.m_nParticlesExpireTime) {
+            if (CTimer::GetTimeInMS() > exp.m_nParticlesExpireTime) {
+                exp.m_nParticlesExpireTime = 0;
+                if (exp.m_fVisibleDistance != 0.0f) {
+                    CWorld::TriggerExplosion(
+                        exp.m_vecPosition,
+                        exp.m_fRadius,
+                        exp.m_fVisibleDistance,
+                        exp.m_pVictim,
+                        exp.m_pCreator,
+                        DoesNeedToVehProcessBombTimer(exp.m_nType),
+                        exp.m_fDamagePercentage
+                    );
+                }
+            }
+        } else {
+            exp.m_fRadius += CTimer::GetTimeStep() * exp.m_fPropagationRate;
+            switch (exp.m_nType) {
+            case eExplosionType::EXPLOSION_GRENADE:
+            case eExplosionType::EXPLOSION_ROCKET:
+            case eExplosionType::EXPLOSION_WEAK_ROCKET:
+            case eExplosionType::EXPLOSION_AIRCRAFT:
+            case eExplosionType::EXPLOSION_MINE:
+            case eExplosionType::EXPLOSION_OBJECT: {
+                if (CTimer::GetFrameCounter() % 2) {
+                    CPointLights::AddLight(ePointLightType::PLTYPE_POINTLIGHT, exp.m_vecPosition, {}, 20.0f, 1.0f, 1.0f, 0.5f, 0, false, nullptr);
+                }
+                if (exp.m_nType == eExplosionType::EXPLOSION_AIRCRAFT && CGeneral::GetRandomNumberInRange(0, 100) < 5) {
+                    if (exp.m_pVictim) {
+                        CExplosion::AddExplosion(exp.m_pVictim, exp.m_pCreator, eExplosionType::EXPLOSION_ROCKET, exp.m_pVictim->GetPosition(), 0, true, -1.0f, false);
+                    }
+                }
+                break;
+            }
+            case eExplosionType::EXPLOSION_MOLOTOV: {
+                const CVector& pos = exp.m_vecPosition;
+                CWorld::SetPedsOnFire(pos.x, pos.y, pos.z, 6.0f, exp.m_pCreator);
+                CWorld::SetWorldOnFire(pos, 6.0f, exp.m_pCreator);
+                CWorld::SetCarsOnFire(pos, 0.1f, exp.m_pCreator);
+
+                if (exp.m_nActiveCounter < 10 && exp.m_nActiveCounter == 1) {
+                    CEntity* hitEntity;
+                    CColPoint colPoint{};
+                    const bool bGroundHit = CWorld::ProcessVerticalLine(pos, -1000.0f, colPoint, hitEntity, true, false, false, false, true, false, nullptr);
+                    exp.m_fGroundZ = bGroundHit ? colPoint.m_vecPoint.z : pos.z;
+                }
+                break;
+            }
+            case eExplosionType::EXPLOSION_CAR:
+            case eExplosionType::EXPLOSION_QUICK_CAR:
+            case eExplosionType::EXPLOSION_BOAT: {
+                if (exp.m_pVictim && CGeneral::GetRandomNumber() % 32 == 0) {
+                    CVector rndOffset = { CGeneral::GetRandomNumberInRange(-0.5f, 0.5f), CGeneral::GetRandomNumberInRange(-0.5f, 0.5f), 0.0f };
+                    rndOffset.Normalise();
+                    rndOffset *= CGeneral::GetRandomNumberInRange(1.0f, 2.0f);
+                    CCreepingFire::TryToStartFireAtCoors(exp.m_vecPosition + rndOffset, 0, true, false, 10.0f);
+                }
+                if (CTimer::GetFrameCounter() % 2) {
+                    CPointLights::AddLight(ePointLightType::PLTYPE_POINTLIGHT, exp.m_vecPosition, {}, 15.0f, 1.0f, 0.7f, 0.5f, 0, true, nullptr);
+                }
+                break;
+            }
+            }
+
+            if (static_cast<uint32_t>(exp.m_nExpireTime) - CTimer::GetTimeInMS() <= 0)
+                exp.m_nActiveCounter = 0;
+            else
+                exp.m_nActiveCounter++;
+
+            exp.m_nFuelTimer += static_cast<int32_t>(CTimer::GetTimeStepInMS());
+
+            if (exp.m_nFuelTimer > 200)
+                continue;
+
+            switch (exp.m_nType) {
+            case eExplosionType::EXPLOSION_CAR:
+            case eExplosionType::EXPLOSION_QUICK_CAR:
+            case eExplosionType::EXPLOSION_BOAT:
+            case eExplosionType::EXPLOSION_AIRCRAFT: {
+                const float fFuelTimerProgress = static_cast<float>(exp.m_nFuelTimer) / 1000.0f;
+                for (auto i = 0; i < NUM_FUEL; i++) {
+                    const float& fOffsetDistance = exp.m_fFuelOffsetDistance[i];
+                    if (fOffsetDistance > 0.0f) {
+                        CVector fxPos = exp.m_vecPosition + exp.m_vecFuelDirection[i] * (fOffsetDistance + fFuelTimerProgress * exp.m_fFuelSpeed[i]);
+                        if (auto* fx = g_fxMan.CreateFxSystem("explosion_fuel_car", fxPos, nullptr, false)) {
+                            fx->PlayAndKill();
+                        }
+                    }
+                }
+                break;
+            }
+            }
+        }
+    }
+}

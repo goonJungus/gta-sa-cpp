@@ -1,0 +1,11 @@
+51	CWeapon
+27	CFireManager
+15	CWeaponEffects
+12	CExplosion
+11	CShotInfo
+9	CFire
+6	CBulletInfo
+5	CBulletTraces
+4	CCreepingFire
+1	CBulletTrace
+1	<global>

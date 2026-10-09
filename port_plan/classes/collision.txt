@@ -1,0 +1,12 @@
+115	CCollision
+29	CCollisionData
+23	CColModel
+23	CColAccel
+17	CColSphere
+13	<global>
+9	CCollisionPlugin
+7	CColourSet
+6	CColTrianglePlane
+2	CColModelPool
+2	tColLighting
+1	CCollisionEventScanner

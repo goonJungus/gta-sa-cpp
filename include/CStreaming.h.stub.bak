@@ -1,0 +1,18 @@
+// CStreaming.h - minimal stand-in.
+// This file is part of a clean-room engine reimplementation for interoperability research.
+// Game assets are loaded from the user's own install at runtime and never shipped.
+//
+// Only the parts used by the currently-converted TUs are defined here.
+// Added 2026-10-09 for CAutomobile.
+
+#pragma once
+
+// Minimal CStreaming stand-in.
+// TODO(port): full streaming system.
+class CStreaming {
+public:
+    // TODO(port): real streaming flag.
+    inline static bool m_bStreamHarvesterModelsThisFrame = false;
+    // TODO(port): stub (added 2026-10-09 for CPed)
+    static void SetMissionDoesntRequireModel(int32_t modelIndex) { (void)modelIndex; }
+};

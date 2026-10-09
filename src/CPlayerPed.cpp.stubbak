@@ -1,0 +1,304 @@
+// CPlayerPed.cpp - GTA SA 1.0 clean-room C++ conversion
+// Method implementations. Decompiled reference: src/CPlayerPed/*.c
+// Stub implementations - fill in logic from the decompiled .c files noted.
+
+#include "CPlayerPed.h"
+#include <array>
+#include <cstdint>
+
+bool CPlayerPed::bHasDisplayedPlayerQuitEnterCarHelpText{}; // game address: 0xC0BC15
+bool CPlayerPed::bDebugPlayerInvincible{}; // game address: none (plain static in gta-reversed)
+bool CPlayerPed::bDebugTargeting{}; // game address: none (plain static in gta-reversed)
+bool CPlayerPed::bDebugTapToTarget{}; // game address: none (plain static in gta-reversed)
+
+std::array<bool, 7> abTempNeverLeavesGroup{}; // game address: 0xC0BC08
+int32_t gPlayIdlesAnimBlockIndex{}; // game address: 0xC0BC10
+
+CPlayerPed::CPlayerPed(int32_t playerId,  bool bGroupCreated) : CPed(PED_TYPE_PLAYER1) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)playerId;
+    (void)bGroupCreated;
+}
+
+void CPlayerPed::ProcessControl() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::SetMoveAnim() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+bool CPlayerPed::Load() {    // TODO: decomp src/CPlayerPed/*.c
+    return false;
+}
+
+bool CPlayerPed::Save() {    // TODO: decomp src/CPlayerPed/*.c
+    return false;
+}
+
+CPad* CPlayerPed::GetPadFromPlayer() const {    // TODO: decomp src/CPlayerPed/*.c
+    return nullptr;
+}
+
+bool CPlayerPed::CanPlayerStartMission() {    // TODO: decomp src/CPlayerPed/*.c
+    return false;
+}
+
+bool CPlayerPed::IsHidden() {    // TODO: decomp src/CPlayerPed/*.c
+    return false;
+}
+
+void CPlayerPed::ReApplyMoveAnims() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+bool CPlayerPed::DoesPlayerWantNewWeapon(eWeaponType weaponType,  bool arg1) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)weaponType;
+    (void)arg1;
+    return false;
+}
+
+void CPlayerPed::ProcessPlayerWeapon(CPad* pad) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)pad;
+}
+
+void CPlayerPed::PickWeaponAllowedFor2Player() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::UpdateCameraWeaponModes(CPad* pad) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)pad;
+}
+
+void CPlayerPed::ProcessAnimGroups() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::ClearWeaponTarget() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+float CPlayerPed::GetWeaponRadiusOnScreen() {    // TODO: decomp src/CPlayerPed/*.c
+    return 0.0f;
+}
+
+float CPlayerPed::FindTargetPriority(CEntity* entity) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)entity;
+    return 0.0f;
+}
+
+void CPlayerPed::Clear3rdPersonMouseTarget() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::Busted() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+eWantedLevel CPlayerPed::GetWantedLevel() const {    // TODO: decomp src/CPlayerPed/*.c
+    return {};
+}
+
+void CPlayerPed::SetWantedLevel(eWantedLevel level) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)level;
+}
+
+void CPlayerPed::SetWantedLevelNoDrop(eWantedLevel level) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)level;
+}
+
+void CPlayerPed::CheatWantedLevel(eWantedLevel level) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)level;
+}
+
+bool CPlayerPed::CanIKReachThisTarget(CVector posn,  CWeapon* weapon,  bool arg2) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)posn;
+    (void)weapon;
+    (void)arg2;
+    return false;
+}
+
+CPlayerInfo* CPlayerPed::GetPlayerInfoForThisPlayerPed() {    // TODO: decomp src/CPlayerPed/*.c
+    return nullptr;
+}
+
+void CPlayerPed::DoStuffToGoOnFire() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::AnnoyPlayerPed(bool arg0) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)arg0;
+}
+
+void CPlayerPed::ClearAdrenaline() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::DisbandPlayerGroup() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::MakeGroupRespondToPlayerTakingDamage(CEventDamage& damageEvent) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)damageEvent;
+}
+
+void CPlayerPed::TellGroupToStartFollowingPlayer(bool arg0,  bool arg1,  bool arg2) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+}
+
+void CPlayerPed::MakePlayerGroupDisappear() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::MakePlayerGroupReappear() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::ResetSprintEnergy() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+bool CPlayerPed::HandleSprintEnergy(bool sprint,  float adrenalineConsumedPerTimeStep) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)sprint;
+    (void)adrenalineConsumedPerTimeStep;
+    return false;
+}
+
+float CPlayerPed::ControlButtonSprint(eSprintType sprintType) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)sprintType;
+    return 0.0f;
+}
+
+float CPlayerPed::GetButtonSprintResults(eSprintType sprintType) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)sprintType;
+    return 0.0f;
+}
+
+void CPlayerPed::ResetPlayerBreath() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::HandlePlayerBreath(bool bDecreaseAir,  float fMultiplier) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)bDecreaseAir;
+    (void)fMultiplier;
+}
+
+void CPlayerPed::SetRealMoveAnim() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::MakeChangesForNewWeapon(eWeaponType weaponType) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)weaponType;
+}
+
+void CPlayerPed::Compute3rdPersonMouseTarget(bool meleeWeapon) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)meleeWeapon;
+}
+
+void CPlayerPed::DrawTriangleForMouseRecruitPed() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+bool CPlayerPed::DoesTargetHaveToBeBroken(CEntity* entity,  CWeapon* weapon) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)entity;
+    (void)weapon;
+    return false;
+}
+
+void CPlayerPed::KeepAreaAroundPlayerClear() {    // TODO: decomp src/CPlayerPed/*.c
+}
+
+void CPlayerPed::SetPlayerMoveBlendRatio(CVector* arg0) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)arg0;
+}
+
+CPed* CPlayerPed::FindPedToAttack() {    // TODO: decomp src/CPlayerPed/*.c
+    return nullptr;
+}
+
+void CPlayerPed::ForceGroupToAlwaysFollow(bool enable) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)enable;
+}
+
+void CPlayerPed::ForceGroupToNeverFollow(bool enable) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)enable;
+}
+
+void CPlayerPed::MakeThisPedJoinOurGroup(CPed* ped) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)ped;
+}
+
+bool CPlayerPed::PlayerWantsToAttack() {    // TODO: decomp src/CPlayerPed/*.c
+    return false;
+}
+
+void CPlayerPed::SetInitialState(bool bGroupCreated) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)bGroupCreated;
+}
+
+void CPlayerPed::MakeChangesForNewWeapon(uint32_t weaponSlot) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)weaponSlot;
+}
+
+void CPlayerPed::EvaluateTarget(CEntity* target,  CEntity*& outTarget,  float& outTargetPriority,  float maxDistance,  float arg4,  bool arg5) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)target;
+    (void)outTarget;
+    (void)outTargetPriority;
+    (void)maxDistance;
+    (void)arg4;
+    (void)arg5;
+}
+
+void CPlayerPed::EvaluateNeighbouringTarget(CEntity* target,  CEntity** outTarget,  float* outTargetPriority,  float maxDistance,  float arg4,  bool arg5) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)target;
+    (void)outTarget;
+    (void)outTargetPriority;
+    (void)maxDistance;
+    (void)arg4;
+    (void)arg5;
+}
+
+void CPlayerPed::ProcessGroupBehaviour(CPad* pad) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)pad;
+}
+
+bool CPlayerPed::PlayerHasJustAttackedSomeone() {    // TODO: decomp src/CPlayerPed/*.c
+    return false;
+}
+
+void CPlayerPed::ProcessWeaponSwitch(CPad* pad) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)pad;
+}
+
+bool CPlayerPed::FindWeaponLockOnTarget() {    // TODO: decomp src/CPlayerPed/*.c
+    return false;
+}
+
+bool CPlayerPed::FindNextWeaponLockOnTarget(CEntity* arg0,  bool arg1) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)arg0;
+    (void)arg1;
+    return false;
+}
+
+CWanted* CPlayerPed::GetWanted() {    // TODO: decomp src/CPlayerPed/*.c
+    return nullptr;
+}
+
+const CWanted* CPlayerPed::GetWanted() const {    // TODO: decomp src/CPlayerPed/*.c
+    return nullptr;
+}
+
+void CPlayerPed::RemovePlayerPed(int32_t playerId) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)playerId;
+}
+
+void CPlayerPed::DeactivatePlayerPed(int32_t playerId) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)playerId;
+}
+
+void CPlayerPed::ReactivatePlayerPed(int32_t playerId) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)playerId;
+}
+
+bool CPlayerPed::PedCanBeTargettedVehicleWise(CPed* ped) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)ped;
+    return false;
+}
+
+void CPlayerPed::SetupPlayerPed(int playerId) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)playerId;
+}
+
+bool LOSBlockedBetweenPeds(CEntity* entity1,  CEntity* entity2) {    // TODO: decomp src/CPlayerPed/*.c
+    (void)entity1;
+    (void)entity2;
+    return false;
+}
+
+// Declared-only in the header (no stub): incomplete-type reference
+// returns - define when the real classes land:
+//   CPedGroup& CPlayerPed::GetPlayerGroup();

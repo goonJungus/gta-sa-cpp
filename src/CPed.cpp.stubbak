@@ -1,0 +1,767 @@
+// CPed.cpp - GTA SA 1.0 clean-room C++ conversion
+// Method implementations. Decompiled reference: src/CPed/*.c
+// Stub implementations - fill in logic from the decompiled .c files noted.
+
+#include "CPed.h"
+
+void CPed::SetModelIndex(uint32_t modelIndex) {    // TODO: decomp src/CPed/*.c
+    (void)modelIndex;
+}
+
+void CPed::DeleteRwObject() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::ProcessControl() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::Teleport(CVector destination,  bool resetRotation) {    // TODO: decomp src/CPed/*.c
+    (void)destination;
+    (void)resetRotation;
+}
+
+void CPed::SpecialEntityPreCollisionStuff(CPhysical* colPhysical,  bool bIgnoreStuckCheck,  bool& bCollisionDisabled,  bool& bCollidedEntityCollisionIgnored,  bool& bCollidedEntityUnableToMove,  bool& bThisOrCollidedEntityStuck) {    // TODO: decomp src/CPed/*.c
+    (void)colPhysical;
+    (void)bIgnoreStuckCheck;
+    (void)bCollisionDisabled;
+    (void)bCollidedEntityCollisionIgnored;
+    (void)bCollidedEntityUnableToMove;
+    (void)bThisOrCollidedEntityStuck;
+}
+
+uint8_t CPed::SpecialEntityCalcCollisionSteps(bool& bProcessCollisionBeforeSettingTimeStep,  bool& unk2) {    // TODO: decomp src/CPed/*.c
+    (void)bProcessCollisionBeforeSettingTimeStep;
+    (void)unk2;
+    return 0;
+}
+
+void CPed::PreRender() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::Render() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::SetupLighting() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::RemoveLighting(bool bRemove) {    // TODO: decomp src/CPed/*.c
+    (void)bRemove;
+}
+
+void CPed::FlagToDestroyWhenNextProcessed() {    // TODO: decomp src/CPed/*.c
+}
+
+int32_t CPed::ProcessEntityCollision(CEntity* entity,  CColPoint* colPoint) {    // TODO: decomp src/CPed/*.c
+    (void)entity;
+    (void)colPoint;
+    return 0;
+}
+
+void CPed::SetMoveAnim() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::Save() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::Load() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void* CPed::operator new(unsigned size) {    // TODO: decomp src/CPed/*.c
+    (void)size;
+    return nullptr;
+}
+
+void* CPed::operator new(unsigned size,  int32_t poolRef) {    // TODO: decomp src/CPed/*.c
+    (void)size;
+    (void)poolRef;
+    return nullptr;
+}
+
+void CPed::operator delete(void* data) {    // TODO: decomp src/CPed/*.c
+    (void)data;
+}
+
+void CPed::operator delete(void* data,  int poolRef) {    // TODO: decomp src/CPed/*.c
+    (void)data;
+    (void)poolRef;
+}
+
+CPed::CPed(ePedType pedType) : CPhysical() {    // TODO: decomp src/CPed/*.c
+    (void)pedType;
+}
+
+CPed::~CPed() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::PedIsInvolvedInConversation() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::PedIsReadyForConversation(bool arg0) {    // TODO: decomp src/CPed/*.c
+    (void)arg0;
+    return false;
+}
+
+bool CPed::PedCanPickUpPickUp() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::CreateDeadPedMoney() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::CreateDeadPedPickupCoors(float& outPickupX,  float& outPickupY,  float& outPickupZ) {    // TODO: decomp src/CPed/*.c
+    (void)outPickupX;
+    (void)outPickupY;
+    (void)outPickupZ;
+}
+
+void CPed::CreateDeadPedWeaponPickups() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::Initialise() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::SetPedStats(ePedStats statsType) {    // TODO: decomp src/CPed/*.c
+    (void)statsType;
+}
+
+void CPed::Update() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::SetMoveState(eMoveState moveState) {    // TODO: decomp src/CPed/*.c
+    (void)moveState;
+}
+
+void CPed::SetMoveAnimSpeed(CAnimBlendAssociation* association) {    // TODO: decomp src/CPed/*.c
+    (void)association;
+}
+
+void CPed::StopNonPartialAnims() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::RestartNonPartialAnims() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::CanUseTorsoWhenLooking() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::SetLookFlag(float lookHeading,  bool likeUnused,  bool arg2) {    // TODO: decomp src/CPed/*.c
+    (void)lookHeading;
+    (void)likeUnused;
+    (void)arg2;
+}
+
+void CPed::SetLookFlag(CEntity* lookingTo,  bool likeUnused,  bool arg2) {    // TODO: decomp src/CPed/*.c
+    (void)lookingTo;
+    (void)likeUnused;
+    (void)arg2;
+}
+
+void CPed::SetAimFlag(CEntity* aimingTo) {    // TODO: decomp src/CPed/*.c
+    (void)aimingTo;
+}
+
+void CPed::ClearAimFlag() {    // TODO: decomp src/CPed/*.c
+}
+
+int32_t CPed::GetLocalDirection(const CVector2D& point) const {    // TODO: decomp src/CPed/*.c
+    (void)point;
+    return 0;
+}
+
+bool CPed::IsPedShootable() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::UseGroundColModel() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::CanPedReturnToState() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::CanSetPedState() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::CanBeArrested() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::CanStrafeOrMouseControl() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::CanBeDeleted() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::CanBeDeletedEvenInVehicle() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::RemoveGogglesModel() {    // TODO: decomp src/CPed/*.c
+}
+
+int32_t CPed::GetWeaponSlot(eWeaponType weaponType) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+    return 0;
+}
+
+void CPed::GrantAmmo(eWeaponType weaponType,  uint32_t ammo) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+    (void)ammo;
+}
+
+void CPed::SetAmmo(eWeaponType weaponType,  uint32_t ammo) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+    (void)ammo;
+}
+
+bool CPed::DoWeHaveWeaponAvailable(eWeaponType weaponType) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+    return false;
+}
+
+bool CPed::DoGunFlash(int32_t lifetime,  bool bRightHand) {    // TODO: decomp src/CPed/*.c
+    (void)lifetime;
+    (void)bRightHand;
+    return false;
+}
+
+void CPed::SetGunFlashAlpha(bool rightHand) {    // TODO: decomp src/CPed/*.c
+    (void)rightHand;
+}
+
+void CPed::ResetGunFlashAlpha() {    // TODO: decomp src/CPed/*.c
+}
+
+float CPed::GetBikeRidingSkill() const {    // TODO: decomp src/CPed/*.c
+    return 0.0f;
+}
+
+void CPed::ShoulderBoneRotation(RpClump* clump) {    // TODO: decomp src/CPed/*.c
+    (void)clump;
+}
+
+void CPed::SetLookTimer(uint32_t time) {    // TODO: decomp src/CPed/*.c
+    (void)time;
+}
+
+bool CPed::IsPlayer() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::SetPedPositionInCar() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::RestoreHeadingRate() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::RestoreHeadingRateCB(CAnimBlendAssociation* association,  void* data) {    // TODO: decomp src/CPed/*.c
+    (void)association;
+    (void)data;
+}
+
+void CPed::SetRadioStation() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::PositionAttachedPed() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::Undress(char* modelName) {    // TODO: decomp src/CPed/*.c
+    (void)modelName;
+}
+
+void CPed::Dress() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::IsAlive() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::UpdateStatEnteringVehicle() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::UpdateStatLeavingVehicle() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::GetTransformedBonePosition(RwV3d& inOutPos,  eBoneTagU32 boneId,  bool updateSkinBones) {    // TODO: decomp src/CPed/*.c
+    (void)inOutPos;
+    (void)boneId;
+    (void)updateSkinBones;
+}
+
+void CPed::ReleaseCoverPoint() {    // TODO: decomp src/CPed/*.c
+}
+
+CTaskSimpleHoldEntity* CPed::GetHoldingTask() {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+CEntity* CPed::GetEntityThatThisPedIsHolding() {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+void CPed::DropEntityThatThisPedIsHolding(bool bDeleteHeldEntity) {    // TODO: decomp src/CPed/*.c
+    (void)bDeleteHeldEntity;
+}
+
+bool CPed::CanThrowEntityThatThisPedIsHolding() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::IsPlayingHandSignal() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::StopPlayingHandSignal() {    // TODO: decomp src/CPed/*.c
+}
+
+float CPed::GetWalkAnimSpeed() {    // TODO: decomp src/CPed/*.c
+    return 0.0f;
+}
+
+void CPed::SetPedDefaultDecisionMaker() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::CanSeeEntity(CEntity* entity,  float limitAngle) {    // TODO: decomp src/CPed/*.c
+    (void)entity;
+    (void)limitAngle;
+    return false;
+}
+
+bool CPed::PositionPedOutOfCollision(int32_t exitDoor,  CVehicle* vehicle,  bool findClosestNode) {    // TODO: decomp src/CPed/*.c
+    (void)exitDoor;
+    (void)vehicle;
+    (void)findClosestNode;
+    return false;
+}
+
+bool CPed::PositionAnyPedOutOfCollision() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::OurPedCanSeeThisEntity(CEntity* entity,  bool isSpotted) {    // TODO: decomp src/CPed/*.c
+    (void)entity;
+    (void)isSpotted;
+    return false;
+}
+
+void CPed::SortPeds(CPed** pedList,  int32_t arg1,  int32_t arg2) {    // TODO: decomp src/CPed/*.c
+    (void)pedList;
+    (void)arg1;
+    (void)arg2;
+}
+
+void CPed::ClearLookFlag() {    // TODO: decomp src/CPed/*.c
+}
+
+float CPed::WorkOutHeadingForMovingFirstPerson(float heading) {    // TODO: decomp src/CPed/*.c
+    (void)heading;
+    return 0.0f;
+}
+
+void CPed::UpdatePosition() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::ProcessBuoyancy() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::IsPedInControl() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::RemoveWeaponModel(int32_t modelIndex) {    // TODO: decomp src/CPed/*.c
+    (void)modelIndex;
+}
+
+void CPed::AddGogglesModel(int32_t modelIndex,  bool& inOutGogglesState) {    // TODO: decomp src/CPed/*.c
+    (void)modelIndex;
+    (void)inOutGogglesState;
+}
+
+void CPed::PutOnGoggles() {    // TODO: decomp src/CPed/*.c
+}
+
+eWeaponSkill CPed::GetWeaponSkill(eWeaponType weaponType) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+    return {};
+}
+
+void CPed::SetWeaponSkill(eWeaponType weaponType,  eWeaponSkill skill) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+    (void)skill;
+}
+
+void CPed::ClearLook() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::TurnBody() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::IsPointerValid() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+CVector CPed::GetBonePosition(eBoneTag boneId,  bool updateSkinBones) {    // TODO: decomp src/CPed/*.c
+    (void)boneId;
+    (void)updateSkinBones;
+    return {};
+}
+
+void CPed::GetBonePosition(CVector* outVec,  eBoneTag bone,  bool updateSkinBones) {    // TODO: decomp src/CPed/*.c
+    (void)outVec;
+    (void)bone;
+    (void)updateSkinBones;
+}
+
+void CPed::GiveObjectToPedToHold(int32_t modelIndex,  uint8_t replace) {    // TODO: decomp src/CPed/*.c
+    (void)modelIndex;
+    (void)replace;
+}
+
+void CPed::SetPedState(ePedState pedState) {    // TODO: decomp src/CPed/*.c
+    (void)pedState;
+}
+
+void CPed::SetCharCreatedBy(ePedCreatedBy createdBy) {    // TODO: decomp src/CPed/*.c
+    (void)createdBy;
+}
+
+void CPed::CalculateNewVelocity() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::CalculateNewOrientation() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::ClearAll() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::DoFootLanded(bool leftFoot,  uint8_t arg1) {    // TODO: decomp src/CPed/*.c
+    (void)leftFoot;
+    (void)arg1;
+}
+
+void CPed::PlayFootSteps() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::AddWeaponModel(int32_t modelIndex) {    // TODO: decomp src/CPed/*.c
+    (void)modelIndex;
+}
+
+void CPed::TakeOffGoggles() {    // TODO: decomp src/CPed/*.c
+}
+
+eWeaponSlot CPed::GiveWeapon(eWeaponType weaponType,  uint32_t ammo,  bool likeUnused) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+    (void)ammo;
+    (void)likeUnused;
+    return {};
+}
+
+void CPed::GiveWeaponSet1() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::GiveWeaponSet2() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::GiveWeaponSet3() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::GiveWeaponSet4() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::SetCurrentWeapon(int32_t slot) {    // TODO: decomp src/CPed/*.c
+    (void)slot;
+}
+
+void CPed::SetCurrentWeapon(eWeaponType weaponType) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+}
+
+void CPed::ClearWeapon(eWeaponType weaponType) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+}
+
+void CPed::ClearWeapons() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::RemoveWeaponWhenEnteringVehicle(int32_t arg0) {    // TODO: decomp src/CPed/*.c
+    (void)arg0;
+}
+
+void CPed::ReplaceWeaponWhenExitingVehicle() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::ReplaceWeaponForScriptedCutscene() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::RemoveWeaponForScriptedCutscene() {    // TODO: decomp src/CPed/*.c
+}
+
+eWeaponSkill CPed::GetWeaponSkill() {    // TODO: decomp src/CPed/*.c
+    return {};
+}
+
+void CPed::PreRenderAfterTest() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::SetIdle() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::SetLook(float heading) {    // TODO: decomp src/CPed/*.c
+    (void)heading;
+}
+
+void CPed::SetLook(CEntity* entity) {    // TODO: decomp src/CPed/*.c
+    (void)entity;
+}
+
+void CPed::Look() {    // TODO: decomp src/CPed/*.c
+}
+
+CEntity* CPed::AttachPedToEntity(CEntity* entity,  CVector offset,  uint16_t arg2,  float arg3,  eWeaponType weaponType) {    // TODO: decomp src/CPed/*.c
+    (void)entity;
+    (void)offset;
+    (void)arg2;
+    (void)arg3;
+    (void)weaponType;
+    return nullptr;
+}
+
+void CPed::AttachPedToBike(CEntity* entity,  CVector offset,  uint16_t arg2,  float arg3,  float arg4,  eWeaponType weaponType) {    // TODO: decomp src/CPed/*.c
+    (void)entity;
+    (void)offset;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)weaponType;
+}
+
+void CPed::DettachPedFromEntity() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::SetAimFlag(float heading) {    // TODO: decomp src/CPed/*.c
+    (void)heading;
+}
+
+bool CPed::CanWeRunAndFireWithWeapon() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::RequestDelayedWeapon() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::GiveDelayedWeapon(eWeaponType weaponType,  uint32_t ammo) {    // TODO: decomp src/CPed/*.c
+    (void)weaponType;
+    (void)ammo;
+}
+
+void CPed::GiveWeaponAtStartOfFight() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::GiveWeaponWhenJoiningGang() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::GetPedTalking() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::DisablePedSpeech(bool stopCurrentSpeech) {    // TODO: decomp src/CPed/*.c
+    (void)stopCurrentSpeech;
+}
+
+void CPed::EnablePedSpeech() {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::DisablePedSpeechForScriptSpeech(bool stopCurrentSpeech) {    // TODO: decomp src/CPed/*.c
+    (void)stopCurrentSpeech;
+}
+
+void CPed::EnablePedSpeechForScriptSpeech() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::CanPedHoldConversation() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::SayScript(eAudioEvents scriptID,  bool overrideSilence,  bool isForceAudible,  bool isFrontEnd) {    // TODO: decomp src/CPed/*.c
+    (void)scriptID;
+    (void)overrideSilence;
+    (void)isForceAudible;
+    (void)isFrontEnd;
+}
+
+int16_t CPed::Say(eGlobalSpeechContext gCtx,  uint32_t startTimeDelay,  float probability,  bool overrideSilence,  bool isForceAudible,  bool isFrontEnd) {    // TODO: decomp src/CPed/*.c
+    (void)gCtx;
+    (void)startTimeDelay;
+    (void)probability;
+    (void)overrideSilence;
+    (void)isForceAudible;
+    (void)isFrontEnd;
+    return 0;
+}
+
+void CPed::RemoveBodyPart(ePedNode pedNode,  char localDir) {    // TODO: decomp src/CPed/*.c
+    (void)pedNode;
+    (void)localDir;
+}
+
+void CPed::SpawnFlyingComponent(int32_t arg0,  char arg1) {    // TODO: decomp src/CPed/*.c
+    (void)arg0;
+    (void)arg1;
+}
+
+uint8_t CPed::DoesLOSBulletHitPed(CColPoint& colPoint) {    // TODO: decomp src/CPed/*.c
+    (void)colPoint;
+    return 0;
+}
+
+void CPed::RemoveWeaponAnims(int32_t likeUnused,  float blendDelta) {    // TODO: decomp src/CPed/*.c
+    (void)likeUnused;
+    (void)blendDelta;
+}
+
+bool CPed::IsPedHeadAbovePos(float zPos) {    // TODO: decomp src/CPed/*.c
+    (void)zPos;
+    return false;
+}
+
+void CPed::KillPedWithCar(CVehicle* car,  float fDamageIntensity,  bool bPlayDeadAnimation) {    // TODO: decomp src/CPed/*.c
+    (void)car;
+    (void)fDamageIntensity;
+    (void)bPlayDeadAnimation;
+}
+
+void CPed::DeadPedMakesTyresBloody() {    // TODO: decomp src/CPed/*.c
+}
+
+bool CPed::IsInVehicleThatHasADriver() {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+CWanted* CPed::GetPlayerWanted() const {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+CPedGroup* CPed::GetGroup() const {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+int32_t CPed::GetGroupId() {    // TODO: decomp src/CPed/*.c
+    return 0;
+}
+
+CPedClothesDesc* CPed::GetClothesDesc() {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+bool CPed::IsInVehicleAsPassenger() const noexcept {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+CCopPed* CPed::AsCop() {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+CCivilianPed* CPed::AsCivilian() {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+CEmergencyPed* CPed::AsEmergency() {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+CPlayerPed* CPed::AsPlayer() {    // TODO: decomp src/CPed/*.c
+    return nullptr;
+}
+
+bool CPed::IsFollowerOfGroup(const CPedGroup& group) const {    // TODO: decomp src/CPed/*.c
+    (void)group;
+    return false;
+}
+
+void CPed::CreateDeadPedPickupCoors(CVector& pickupPos) {    // TODO: decomp src/CPed/*.c
+    (void)pickupPos;
+}
+
+int32_t CPed::GetPadNumber() const {    // TODO: decomp src/CPed/*.c
+    return 0;
+}
+
+CVector CPed::GetSeatPositionInVehicle() const {    // TODO: decomp src/CPed/*.c
+    return {};
+}
+
+bool CPed::IsJoggingOrFaster() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::IsRunningOrSprinting() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::IsPedStandingInPlace() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+bool CPed::IsRightArmBlockedNow() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+CVector CPed::GetRealPosition() const {    // TODO: decomp src/CPed/*.c
+    return {};
+}
+
+bool CPed::CanBeCriminal() const {    // TODO: decomp src/CPed/*.c
+    return false;
+}
+
+void CPed::RenderThinBody() const {    // TODO: decomp src/CPed/*.c
+}
+
+void CPed::RenderBigHead() const {    // TODO: decomp src/CPed/*.c
+}
+
+RwObject* SetPedAtomicVisibilityCB(RwObject* rwObject,  void* data) {    // TODO: decomp src/CPed/*.c
+    (void)rwObject;
+    (void)data;
+    return nullptr;
+}
+
+bool IsPedPointerValid(CPed* ped) {    // TODO: decomp src/CPed/*.c
+    (void)ped;
+    return false;
+}
+
+bool IsPedPointerValid_NotInWorld(CPed* ped) {    // TODO: decomp src/CPed/*.c
+    (void)ped;
+    return false;
+}
+
+bool SayJacked(CPed* jacked,  CVehicle* vehicle,  uint32_t offset) {    // TODO: decomp src/CPed/*.c
+    (void)jacked;
+    (void)vehicle;
+    (void)offset;
+    return false;
+}
+
+bool SayJacking(CPed* jacker,  CPed* jacked,  CVehicle* vehicle,  uint32_t offset) {    // TODO: decomp src/CPed/*.c
+    (void)jacker;
+    (void)jacked;
+    (void)vehicle;
+    (void)offset;
+    return false;
+}
+
+// Declared-only in the header (no stub): incomplete-type reference
+// returns - define when the real classes land:
+//   CEventHandlerHistory& CPed::GetEventHandlerHistory();
+//   RpHAnimHierarchy& CPed::GetAnimHierarchy();
+//   CAnimBlendClumpData& CPed::GetAnimBlendData();

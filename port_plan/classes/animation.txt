@@ -1,0 +1,13 @@
+73	CAnimBlendAssocGroup
+26	CAnimBlendAssociation
+24	IKChain_c
+22	CAnimBlendStaticAssociation
+22	CAnimBlendSequence
+22	CAnimBlendNode
+20	CAnimBlendHierarchy
+18	IKChainManager_c
+17	CAnimBlendClumpData
+17	BoneNode_c
+11	CPedIK
+8	BoneNodeManager_c
+6	<global>

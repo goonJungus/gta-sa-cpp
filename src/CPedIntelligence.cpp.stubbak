@@ -1,0 +1,278 @@
+// CPedIntelligence.cpp - GTA SA 1.0 clean-room C++ conversion
+// Method implementations. Decompiled reference: src/CPedIntelligence/*.c
+// Stub implementations - fill in logic from the decompiled .c files noted.
+
+#include "CPedIntelligence.h"
+
+float CPedIntelligence::STEALTH_KILL_RANGE{}; // game address: 0x8D2398
+float CPedIntelligence::LIGHT_AI_LEVEL_MAX{}; // game address: 0x8D2380
+float CPedIntelligence::flt_8D2384{}; // game address: 0x8D2384
+float CPedIntelligence::flt_8D2388{}; // game address: 0x8D2388
+
+void* CPedIntelligence::operator new(unsigned size) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)size;
+    return nullptr;
+}
+
+void CPedIntelligence::operator delete(void* object) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)object;
+}
+
+CPedIntelligence::CPedIntelligence(CPed* ped) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)ped;
+}
+
+CPedIntelligence::~CPedIntelligence() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+void CPedIntelligence::SetPedDecisionMakerType(int32_t newType) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)newType;
+}
+
+void CPedIntelligence::SetPedDecisionMakerTypeInGroup(int32_t newType) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)newType;
+}
+
+void CPedIntelligence::RestorePedDecisionMakerType() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+void CPedIntelligence::SetHearingRange(float range) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)range;
+}
+
+void CPedIntelligence::SetSeeingRange(float range) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)range;
+}
+
+bool CPedIntelligence::IsInHearingRange(const CVector& posn) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)posn;
+    return false;
+}
+
+bool CPedIntelligence::IsInSeeingRange(const CVector& posn) const {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)posn;
+    return false;
+}
+
+bool CPedIntelligence::FindRespectedFriendInInformRange() {    // TODO: decomp src/CPedIntelligence/*.c
+    return false;
+}
+
+bool CPedIntelligence::IsRespondingToEvent(eEventType eventType) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)eventType;
+    return false;
+}
+
+void CPedIntelligence::AddTaskPhysResponse(CTask* task,  int32_t unUsed) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)task;
+    (void)unUsed;
+}
+
+void CPedIntelligence::AddTaskEventResponseTemp(CTask* task,  int32_t unUsed) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)task;
+    (void)unUsed;
+}
+
+void CPedIntelligence::AddTaskEventResponseNonTemp(CTask* task,  int32_t unUsed) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)task;
+    (void)unUsed;
+}
+
+void CPedIntelligence::AddTaskPrimaryMaybeInGroup(CTask* task,  bool bAffectsPed) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)task;
+    (void)bAffectsPed;
+}
+
+CTask* CPedIntelligence::FindTaskByType(eTaskType taskId) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)taskId;
+    return nullptr;
+}
+
+CTaskSimpleFight* CPedIntelligence::GetTaskFighting() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CTaskSimpleUseGun* CPedIntelligence::GetTaskUseGun() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CTaskSimpleThrowProjectile* CPedIntelligence::GetTaskThrow() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CTaskSimpleHoldEntity* CPedIntelligence::GetTaskHold(bool bIgnoreCheckingForSimplestActiveTask) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)bIgnoreCheckingForSimplestActiveTask;
+    return nullptr;
+}
+
+CTaskSimpleSwim* CPedIntelligence::GetTaskSwim() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CTaskSimpleDuck* CPedIntelligence::GetTaskDuck(bool bIgnoreCheckingForSimplestActiveTask) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)bIgnoreCheckingForSimplestActiveTask;
+    return nullptr;
+}
+
+CTaskSimpleJetPack* CPedIntelligence::GetTaskJetPack() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CTaskSimpleInAir* CPedIntelligence::GetTaskInAir() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CTaskSimpleClimb* CPedIntelligence::GetTaskClimb() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CTaskSimpleDuck* CPedIntelligence::GetTaskSecondaryDuck() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+bool CPedIntelligence::GetUsingParachute() {    // TODO: decomp src/CPedIntelligence/*.c
+    return false;
+}
+
+void CPedIntelligence::SetTaskDuckSecondary(uint16_t nLengthOfDuck) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)nLengthOfDuck;
+}
+
+void CPedIntelligence::ClearTaskDuckSecondary() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+void CPedIntelligence::ClearTasks(bool bClearPrimaryTasks,  bool bClearSecondaryTasks) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)bClearPrimaryTasks;
+    (void)bClearSecondaryTasks;
+}
+
+void CPedIntelligence::FlushImmediately(bool bSetPrimaryDefaultTask) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)bSetPrimaryDefaultTask;
+}
+
+C2dEffect* CPedIntelligence::GetEffectInUse() const {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+void CPedIntelligence::SetEffectInUse(C2dEffect* effect) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)effect;
+}
+
+void CPedIntelligence::ProcessAfterProcCol() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+void CPedIntelligence::ProcessAfterPreRender() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+void CPedIntelligence::ProcessEventHandler() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+bool CPedIntelligence::IsFriendlyWith(const CPed& ped) const {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)ped;
+    return false;
+}
+
+bool CPedIntelligence::IsThreatenedBy(const CPed& ped) const {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)ped;
+    return false;
+}
+
+bool CPedIntelligence::Respects(CPed* ped) const {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)ped;
+    return false;
+}
+
+bool CPedIntelligence::IsInACarOrEnteringOne() {    // TODO: decomp src/CPedIntelligence/*.c
+    return false;
+}
+
+bool CPedIntelligence::AreFriends(const CPed& ped1,  const CPed& ped2) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)ped1;
+    (void)ped2;
+    return false;
+}
+
+bool CPedIntelligence::IsPedGoingSomewhereOnFoot() {    // TODO: decomp src/CPedIntelligence/*.c
+    return false;
+}
+
+eMoveState CPedIntelligence::GetMoveStateFromGoToTask() {    // TODO: decomp src/CPedIntelligence/*.c
+    return {};
+}
+
+void CPedIntelligence::FlushIntelligence() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+bool CPedIntelligence::TestForStealthKill(CPed* pTarget,  bool bFullTest) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)pTarget;
+    (void)bFullTest;
+    return false;
+}
+
+void CPedIntelligence::RecordEventForScript(int32_t eventId,  int32_t eventPriority) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)eventId;
+    (void)eventPriority;
+}
+
+bool CPedIntelligence::HasInterestingEntites() {    // TODO: decomp src/CPedIntelligence/*.c
+    return false;
+}
+
+bool CPedIntelligence::IsInterestingEntity(CEntity* entity) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)entity;
+    return false;
+}
+
+void CPedIntelligence::LookAtInterestingEntities() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+void CPedIntelligence::RemoveAllInterestingEntities() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+bool CPedIntelligence::IsPedGoingForCarDoor() {    // TODO: decomp src/CPedIntelligence/*.c
+    return false;
+}
+
+float CPedIntelligence::CanSeeEntityWithLights(CEntity* entity,  int32_t unUsed) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)entity;
+    (void)unUsed;
+    return 0.0f;
+}
+
+void CPedIntelligence::ProcessStaticCounter() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+void CPedIntelligence::ProcessFirst() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+void CPedIntelligence::Process() {    // TODO: decomp src/CPedIntelligence/*.c
+}
+
+CTask* CPedIntelligence::GetActivePrimaryTask() const {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+float CPedIntelligence::GetPedFOVRange() const {    // TODO: decomp src/CPedIntelligence/*.c
+    return 0.0f;
+}
+
+void CPedIntelligence::IncrementAngerAtPlayer(uint8_t anger) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)anger;
+}
+
+bool CPedIntelligence::IsUsingGun() {    // TODO: decomp src/CPedIntelligence/*.c
+    return false;
+}
+
+class CVehicle* CPedIntelligence::GetEnteringVehicle() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CEntity** CPedIntelligence::GetPedEntities() {    // TODO: decomp src/CPedIntelligence/*.c
+    return nullptr;
+}
+
+CEntity* CPedIntelligence::GetPedEntity(uint32_t index) {    // TODO: decomp src/CPedIntelligence/*.c
+    (void)index;
+    return nullptr;
+}

@@ -1,0 +1,9 @@
+2178	CRT
+493	<global>
+10	VideoPlayer
+8	SlotState
+8	CJoySticks
+5	CQuadTreeNode
+3	CRenPar
+1	CSimpleVariablesSaveStructure
+1	ULI

@@ -1,0 +1,28 @@
+# Build output
+build/
+_build/
+out/
+
+# Staging / transfer artifacts — never committed
+*.zip
+*.b64
+*.p1
+*.p2
+*$f
+_scratch/
+
+# MSVC / VS
+.vs/
+*.user
+*.VC.db
+*.VC.opendb
+*.aps
+*.ncb
+*.opendb
+*.sdf
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile

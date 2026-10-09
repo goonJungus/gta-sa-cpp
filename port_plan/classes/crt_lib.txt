@@ -1,0 +1,9 @@
+1093	<global>
+141	std
+57	exception
+4	iterator
+2	ULI
+2	CDialog
+2	const_iterator
+1	__crt_strtox
+1	CChevronOwnerDrawMenu

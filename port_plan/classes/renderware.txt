@@ -1,0 +1,17 @@
+1951	<global>
+1051	CRT
+225	RenderWare
+116	CVisibilityPlugins
+86	CCustomCarEnvMapPipeline
+35	VideoPlayer
+32	CCustomBuildingDNPipeline
+22	CCustomBuildingPipeline
+21	D3DResourceSystem
+17	CCustomBuildingRenderer
+17	CCustomCarPlateMgr
+17	ULI
+16	D3DTextureBuffer
+14	CCustomRoadsignMgr
+13	D3DIndexDataBuffer
+9	C2dEffect
+2	CJoySticks

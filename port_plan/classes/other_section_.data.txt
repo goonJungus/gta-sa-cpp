@@ -1,0 +1,8 @@
+125	<global>
+23	ATL
+4	const_iterator
+4	iterator
+4	CMFCComObject<ATL
+2	CDialog
+1	CChevronOwnerDrawMenu
+1	CBlobProperty

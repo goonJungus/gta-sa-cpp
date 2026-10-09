@@ -1,0 +1,275 @@
+// CBaseModelInfo - adapted from gta-reversed for clean-room C++ build
+// Source: gta-reversed/source/game_sa/Models/BaseModelInfo.h
+// (https://github.com/gta-reversed/gta-reversed)
+// Original authors: GTA Community (plugin-sdk contributors)
+// This file is part of a clean-room engine reimplementation for interoperability research.
+// Game assets are loaded from the user's own install at runtime and never shipped.
+//
+// Adaptations: stripped InjectHooks(), friend InjectHooksMain, NOTSA_EXPORT_VTABLE,
+//   VALIDATE_SIZE (now a guarded static_assert), NOTSA_WENUM_DEFS_FOR(eVehicleMod)
+//   (replaced with a C++17 bit-width check; std::bit_width is C++20).
+// Replaced includes:
+//   <Base.h>, "RenderWare.h" -> RenderWare types forward-declared below;
+//       the clean-room renderer provides real definitions later.
+//   "ColModel.h"  -> class CColModel (forward-declared; ported as CColModel.h)
+//   "KeyGen.h"    -> SetModelName() moved to the .cpp stub (needs CKeyGen)
+//   "Plugins/TwoDEffectPlugin/2dEffect.h" -> class C2dEffect (forward-declared)
+//   "eModelID.h"  -> not needed here (no MODEL_* constants used); TODO when ported.
+// NOTE: the original Get2dEffects() returned an rng::views::iota/transform pipeline -
+//   dropped here (needs C++ ranges); iterate Get2dEffect(i) for i in [0, m_n2dfxCount).
+
+#pragma once
+
+#include <cstdint>
+#include <cassert>
+#include <string>
+#include <unordered_map>
+
+// ---- RenderWare forward declarations (clean-room renderer provides these later) ----
+struct RwObject;
+struct RwMatrix;
+struct RpClump;
+struct RpAtomic;
+
+// RenderWare object type ids (plugin-sdk RenderWare.h: rpATOMIC=1, rpCLUMP=2).
+// TODO: move to a RenderWare types header once the RW layer is ported.
+enum RwObjectType : uint32_t {
+    rwNULLOBJECT = 0,
+    rpATOMIC     = 1,
+    rpCLUMP      = 2,
+};
+
+// ---- Forward declarations (ported in later subsystems) ----
+class CTimeInfo;
+class CColModel;
+class C2dEffect;
+
+class CAtomicModelInfo;
+class CClumpModelInfo;
+class CDamageAtomicModelInfo;
+class CLodAtomicModelInfo;
+class CLodTimeModelInfo;
+class CPedModelInfo;
+class CTimeModelInfo;
+class CVehicleModelInfo;
+class CWeaponModelInfo;
+
+enum ModelInfoType : uint8_t {
+    MODEL_INFO_ATOMIC  = 1,
+    MODEL_INFO_TIME    = 3,
+    MODEL_INFO_WEAPON  = 4,
+    MODEL_INFO_CLUMP   = 5,
+    MODEL_INFO_VEHICLE = 6,
+    MODEL_INFO_PED     = 7,
+    MODEL_INFO_LOD     = 8
+};
+
+enum eModelInfoSpecialType : uint8_t {
+    TREE             = 1,
+    PALM             = 2,
+    GLASS_TYPE_1     = 4,
+    GLASS_TYPE_2     = 5,
+    TAG              = 6,
+    GARAGE_DOOR      = 7,
+    CRANE            = 9,
+    UNKNOWN          = 10,
+    BREAKABLE_STATUE = 11,
+};
+
+enum class eVehicleMod : uint8_t {
+    // Upgrades
+    UPGRADE_BONNET            = 0,  // 0x0
+    UPGRADE_BONNET_LEFT_RIGHT = 1,  // 0x1
+    UPGRADE_SPOILER           = 2,  // 0x2
+    UPGRADE_WING              = 3,  // 0x3
+    UPGRADE_FRONT_BULLBAR     = 4,  // 0x4
+    UPGRADE_REAR_BULLBAR      = 5,  // 0x5
+    UPGRADE_FRONT_LIGHTS      = 6,  // 0x6
+    UPGRADE_ROOF              = 7,  // 0x7
+    UPGRADE_NITRO             = 8,  // 0x8
+    UPGRADE_HYDRAULICS        = 9,  // 0x9
+    UPGRADE_STEREO            = 10, // 0xA
+
+    // Replacement parts
+    REPLACEMENT_CHASSIS       = 11, // 0xB
+    REPLACEMENT_WHEEL         = 12, // 0xC
+    REPLACEMENT_EXHAUST       = 13, // 0xD
+    REPLACEMENT_FRONT_BUMPER  = 14, // 0xE
+    REPLACEMENT_REAR_BUMPER   = 15, // 0xF
+    REPLACEMENT_MISC          = 16, // 0x10
+
+    // Keep these at the bottom
+    NUM,
+    NUM_BITS_REQUIRED = 5
+};
+// C++17 replacement for NOTSA_WENUM_DEFS_FOR + std::bit_width (C++20) check.
+static_assert(static_cast<unsigned>(eVehicleMod::NUM) <= (1u << static_cast<unsigned>(eVehicleMod::NUM_BITS_REQUIRED)),
+    "eVehicleMod needs more bits than NUM_BITS_REQUIRED");
+
+// originally an abstract class
+class CBaseModelInfo {
+public:
+    uint32_t m_nKey;
+    uint16_t m_nRefCount;
+    int16_t  m_nTxdIndex;
+    uint8_t  m_nAlpha;
+    uint8_t  m_n2dfxCount;
+    int16_t  m_n2dEffectIndex;
+    int16_t  m_nObjectInfoIndex;
+    union {
+        uint16_t m_nFlags;
+        struct {
+            uint8_t m_nFlagsUpperByte;
+            uint8_t m_nFlagsLowerByte;
+        };
+        struct {
+            /* https://github.com/multitheftauto/mtasa-blue/blob/master/Client/game_sa/CModelInfoSA.h */
+            uint8_t bHasBeenPreRendered : 1; // we use this because we need to apply changes only once
+            uint8_t bDrawLast : 1;
+            uint8_t bAdditiveRender : 1;
+            uint8_t bDontWriteZBuffer : 1;
+            uint8_t bDontCastShadowsOn : 1;
+            uint8_t bDoWeOwnTheColModel : 1;
+            uint8_t bIsBackfaceCulled : 1;
+            uint8_t bIsLod : 1;
+
+            // 1st byte
+            union {
+                struct { // Atomic flags
+                    uint8_t bIsRoad : 1;
+                    uint8_t bAtomicFlag0x200 : 1;
+                    uint8_t bDontCollideWithFlyer : 1;
+                    uint8_t nSpecialType : 4;
+                    uint8_t bWetRoadReflection : 1;
+                };
+                struct { // Vehicle flags
+                    uint8_t bUsesVehDummy : 1;
+                    uint8_t : 1;
+                    uint8_t CarMod : 5; //!< Value is one of `eVehicleMod` (see NUM_BITS_REQUIRED)
+                    uint8_t bUseCommonVehicleDictionary : 1;
+                };
+                struct { // Clump flags
+                    uint8_t bHasAnimBlend : 1;
+                    uint8_t bHasComplexHierarchy : 1;
+                    uint8_t bAnimSomething : 1;
+                    uint8_t bOwnsCollisionModel : 1;
+                    uint8_t : 3;
+                    uint8_t bTagDisabled : 1;
+                };
+            };
+        };
+    };
+
+    CColModel* m_pColModel;     // 20
+    float      m_fDrawDistance; // 24
+
+protected:
+    RwObject* m_pRwObject; //< Use GetRpClump()/GetRpAtomic() to access
+
+public:
+    CBaseModelInfo();
+    virtual ~CBaseModelInfo() { assert(0); }
+
+    virtual CAtomicModelInfo* AsAtomicModelInfoPtr();
+    virtual CDamageAtomicModelInfo* AsDamageAtomicModelInfoPtr();
+    virtual CLodAtomicModelInfo* AsLodAtomicModelInfoPtr();
+    virtual ModelInfoType GetModelType() = 0;
+    virtual CTimeInfo* GetTimeInfo();
+    virtual void Init();
+    virtual void Shutdown();
+    virtual void DeleteRwObject() = 0;
+    virtual uint32_t GetRwModelType() const = 0;
+    virtual RwObject* CreateInstance() = 0;                 // todo: check order
+    virtual RwObject* CreateInstance(RwMatrix* matrix) = 0; // todo: check order
+    virtual void SetAnimFile(const char* filename);
+    virtual void ConvertAnimFileIndex();
+    virtual int32_t GetAnimFileIndex();
+
+    void SetTexDictionary(const char* txdName);
+    void ClearTexDictionary();
+    void AddTexDictionaryRef();
+    void RemoveTexDictionaryRef();
+    void AddRef();
+    void RemoveRef();
+    // initPairedModel defines if we need to set col model for time model
+    void SetColModel(CColModel* colModel, bool bIsLodModel = false);
+    void Init2dEffects();
+    void DeleteCollisionModel();
+    // index is a number of effect (max number is (m_n2dfxCount - 1))
+    C2dEffect* Get2dEffect(int32_t index) const; // todo: change ret type to `C2dEffectBase*`
+    void Add2dEffect(C2dEffect* effect);
+
+    // Those further ones are completely inlined in final version, not present at all in android version;
+    CVehicleModelInfo* AsVehicleModelInfoPtr() { return reinterpret_cast<CVehicleModelInfo*>(this); }
+    CPedModelInfo*     AsPedModelInfoPtr()     { return reinterpret_cast<CPedModelInfo*>(this); }
+    CWeaponModelInfo*  AsWeaponModelInfoPtr()  { return reinterpret_cast<CWeaponModelInfo*>(this); }
+
+    [[nodiscard]] CColModel* GetColModel() const { return m_pColModel; }
+
+    [[nodiscard]] bool GetIsDrawLast() const { return bDrawLast; }
+    [[nodiscard]] bool HasBeenPreRendered() const { return bHasBeenPreRendered; }
+    [[nodiscard]] bool HasComplexHierarchy() const { return bHasComplexHierarchy; }
+    [[nodiscard]] bool IsBackfaceCulled() const { return bIsBackfaceCulled; }
+    [[nodiscard]] bool IsLod() const { return bIsLod; }
+    [[nodiscard]] bool IsRoad() const { return bIsRoad; }
+    void SetHasBeenPreRendered(int32_t bPreRendered) { bHasBeenPreRendered = bPreRendered; }
+    void SetIsLod(bool bLod) { bIsLod = bLod; }
+    void SetOwnsColModel(bool bOwns) { bDoWeOwnTheColModel = bOwns; }
+    void IncreaseAlpha() {
+        if (m_nAlpha >= 239)
+            m_nAlpha = 255;
+        else
+            m_nAlpha += 16;
+    };
+    [[nodiscard]] auto GetModelName() const noexcept { return m_nKey; }
+    // Was inline in the original (used CKeyGen::GetUppercaseKey); moved to the .cpp
+    // stub until CKeyGen is ported.
+    void SetModelName(const char* modelName);
+
+    inline static std::unordered_map<uint32_t, std::string> g_HashToStringMap; // NOTSA
+    // TODO:
+    // Normally, the variable `m_modelName[21]` should be implemented in this class after `m_nKey`,
+    // since it exists in III, VC, and Mobile SA, but is missing here.
+    // Furthermore, the debug output from R* when using `GetModelName` clearly implies that it returns the model name, not hashes
+    std::string GetModelNameAsString() {
+        auto it = g_HashToStringMap.find(m_nKey);
+        if (it != g_HashToStringMap.end()) {
+            return it->second;
+        }
+        return std::to_string(m_nKey);
+    }
+
+    [[nodiscard]] bool IsSwayInWind1()         const { return nSpecialType == eModelInfoSpecialType::TREE; }               // 0x0800
+    [[nodiscard]] bool IsSwayInWind2()         const { return nSpecialType == eModelInfoSpecialType::PALM; }               // 0x1000
+    [[nodiscard]] bool SwaysInWind()           const { return IsSwayInWind1() || IsSwayInWind2(); }
+    [[nodiscard]] bool IsGlassType1()          const { return nSpecialType == eModelInfoSpecialType::GLASS_TYPE_1; }       // 0x2000
+    [[nodiscard]] bool IsGlassType2()          const { return nSpecialType == eModelInfoSpecialType::GLASS_TYPE_2; }       // 0x2800
+    [[nodiscard]] bool IsGlass()               const { return IsGlassType1() || IsGlassType2(); }
+    [[nodiscard]] bool IsTagModel()            const { return nSpecialType == eModelInfoSpecialType::TAG; }                // 0x3000
+    [[nodiscard]] bool IsGarageDoor()          const { return nSpecialType == eModelInfoSpecialType::GARAGE_DOOR; }        // 0x3800
+    [[nodiscard]] bool IsBreakableStatuePart() const { return nSpecialType == eModelInfoSpecialType::BREAKABLE_STATUE; }
+    [[nodiscard]] bool IsCrane()               const { return nSpecialType == eModelInfoSpecialType::CRANE; }              // 0x4800
+
+    void SetBaseModelInfoFlags(uint32_t flags); // Wrapper for the static function. I honestly think this is how they did it..
+
+    // NOTSA helpers
+    auto CreateInstanceAddRef() {
+        auto* inst = CreateInstance();
+        AddRef();
+        return inst;
+    }
+
+    // NOTE: original asserted RwObjectGetType(m_pRwObject) == GetRwModelType();
+    // the assert needs the RW type-query API, so it is dropped until the RW layer lands.
+    RwObject* GetRwObject() const noexcept { return m_pRwObject; }
+    RpClump*  GetRpClump()  const noexcept { return reinterpret_cast<RpClump*>(m_pRwObject); }
+    RpAtomic* GetRpAtomic() const noexcept { return reinterpret_cast<RpAtomic*>(m_pRwObject); }
+};
+
+// Layout check: gta-reversed VALIDATE_SIZE(CBaseModelInfo, 0x20), enforced only on
+// 32-bit targets (the original binary is 32-bit; 64-bit dev builds skip it).
+#if INTPTR_MAX == INT32_MAX
+static_assert(sizeof(CBaseModelInfo) == 0x20, "CBaseModelInfo layout drift");
+#endif
+
+void SetBaseModelInfoFlags(CBaseModelInfo* modelInfo, uint32_t dwFlags);
