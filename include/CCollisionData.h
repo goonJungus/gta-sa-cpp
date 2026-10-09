@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <span>
 
-class CColSphere;
+#include "CColSphere.h"
 class CColBox;
 class CColLine;
 class CColDisk;

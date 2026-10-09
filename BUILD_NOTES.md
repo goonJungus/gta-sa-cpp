@@ -2586,3 +2586,10 @@ unions first (a previous worker hit the same C1202 class on CPed.cpp).
 - `src/CPedIntelligence.cpp`: conflicting local RenderWare decls removed.
 - `src/CPlayerPed.cpp`: anim-stub overload disambiguated; 4 `__anon`
   call-site fixes; `IsHidden()` byte-packing rewritten.
+
+## 2026-10-09 - FULL BUILD CLEAN
+- Full cmake --build: EXIT 0, 0 errors
+- gta_sa.lib produced (13.3 MB, Debug)
+- Final fix: CCollisionData.h GetSpheres() - replaced class CColSphere fwd-decl with include CColSphere.h (std::span needs complete type)
+- Error trajectory: 507 -> 259 -> 4 -> 1 -> 0
+
