@@ -21,7 +21,6 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <tuple>
 #include <cstdio>
 #include <cstdarg>
 #include <cmath>
@@ -93,11 +92,6 @@ static D3DMATRIX QuatToD3DMatrix(float qx, float qy, float qz, float qw,
 struct MapObject {
     std::vector<D3DRenderMesh*> meshes;
     D3DMATRIX worldMatrix;
-    // World-space collision AABB (from DFF vertex bounds).
-    float cMinX = 0, cMinY = 0, cMinZ = 0;
-    float cMaxX = 0, cMaxY = 0, cMaxZ = 0;
-    bool solid = true;   // false = walk-through visual (roads, grass, tags...)
-    std::string name;
 };
 
 // ---- Simple 8x8 bitmap font for debug overlay ----
@@ -358,60 +352,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         return d3dTex;
     };
 
-    // Transform a point by a row-major D3DMATRIX (translation in m[3]).
-    auto xformPt = [](const D3DMATRIX& m, float x, float y, float z,
-                      float& ox, float& oy, float& oz) {
-        ox = x*m.m[0][0] + y*m.m[1][0] + z*m.m[2][0] + m.m[3][0];
-        oy = x*m.m[0][1] + y*m.m[1][1] + z*m.m[2][1] + m.m[3][1];
-        oz = x*m.m[0][2] + y*m.m[1][2] + z*m.m[2][2] + m.m[3][2];
-    };
-
-    // Helper: load a DFF (base name, no extension) from IMG, place with a full
-    // quaternion, build a world-space collision AABB. If solid, the object is
-    // sunk so its base sits at sinkZ (local street level).
-    auto loadModelEx = [&](const std::string& dffBase, const std::string& txdName,
-                           float x, float y, float z,
-                           float qx, float qy, float qz, float qw,
-                           bool solid, float sinkZ,
-                           std::vector<MapObject>& out) -> bool {
-        std::string df = dffBase + ".dff";
-        if (!img.HasFile(df)) { Log("  SKIP: DFF not in IMG: %s", df.c_str()); return false; }
-        std::vector<uint8_t> dffData = img.Extract(df);
-        if (dffData.empty()) { Log("  FAIL: extract %s", df.c_str()); return false; }
+    // Helper: load a DFF from IMG and build MapObjects
+    auto loadHouse = [&](const char* dffName, const char* txdName,
+                         float x, float y, float z, float yawRad,
+                         std::vector<MapObject>& out) -> bool {
+        if (!img.HasFile(dffName)) { Log("  SKIP: DFF not in IMG: %s", dffName); return false; }
+        std::vector<uint8_t> dffData = img.Extract(dffName);
+        if (dffData.empty()) { Log("  FAIL: extract %s", dffName); return false; }
         DffModel dff = DffLoader::LoadFromMemory(dffData.data(), dffData.size());
-        if (!dff.valid) { Log("  FAIL: parse %s", df.c_str()); return false; }
+        if (!dff.valid) { Log("  FAIL: parse %s", dffName); return false; }
         ensureTxd(txdName);
+        float hy = yawRad * 0.5f;
         MapObject obj;
-        obj.name = dffBase;
-        obj.solid = solid;
-        obj.worldMatrix = QuatToD3DMatrix(qx, qy, qz, qw, x, y, z);
-        // Model-space bounds from DFF vertices.
-        float mnx=1e30f, mny=1e30f, mnz=1e30f, mxx=-1e30f, mxy=-1e30f, mxz=-1e30f;
-        for (auto& dm : dff.meshes) {
-            for (auto& v : dm.vertices) {
-                if (v.x<mnx) mnx=v.x; if (v.x>mxx) mxx=v.x;
-                if (v.y<mny) mny=v.y; if (v.y>mxy) mxy=v.y;
-                if (v.z<mnz) mnz=v.z; if (v.z>mxz) mxz=v.z;
-            }
-        }
-        // World-space AABB: transform the 8 corners.
-        float wmnx=1e30f, wmny=1e30f, wmnz=1e30f, wmxx=-1e30f, wmxy=-1e30f, wmxz=-1e30f;
-        for (int cxi=0;cxi<2;cxi++) for (int cyi=0;cyi<2;cyi++) for (int czi=0;czi<2;czi++) {
-            float px=cxi?mxx:mnx, py=cyi?mxy:mny, pz=czi?mxz:mnz, ox, oy, oz;
-            xformPt(obj.worldMatrix, px, py, pz, ox, oy, oz);
-            if (ox<wmnx) wmnx=ox; if (ox>wmxx) wmxx=ox;
-            if (oy<wmny) wmny=oy; if (oy>wmxy) wmxy=oy;
-            if (oz<wmnz) wmnz=oz; if (oz>wmxz) wmxz=oz;
-        }
-        if (solid) {
-            float dz = sinkZ - wmnz;   // sink base onto the local street level
-            obj.worldMatrix.m[3][2] += dz;
-            wmnz += dz; wmxz += dz;
-            if (dz < -0.05f || dz > 0.05f)
-                Log("  SINK: %s dz=%+.2f", df.c_str(), dz);
-        }
-        obj.cMinX=wmnx; obj.cMinY=wmny; obj.cMinZ=wmnz;
-        obj.cMaxX=wmxx; obj.cMaxY=wmxy; obj.cMaxZ=wmxz;
+        obj.worldMatrix = QuatToD3DMatrix(0, 0, sinf(hy), cosf(hy), x, y, z);
         for (auto& dm : dff.meshes) {
             const MeshVertex* verts = reinterpret_cast<const MeshVertex*>(dm.vertices.data());
             D3DRenderMesh* mesh = g_renderer.CreateMesh(verts, (uint32_t)dm.vertices.size(),
@@ -420,38 +373,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (!dm.textureName.empty()) mesh->texture = getD3dTexture(dm.textureName);
             obj.meshes.push_back(mesh);
         }
-        if (obj.meshes.empty()) { Log("  FAIL: 0 meshes %s", df.c_str()); return false; }
+        if (obj.meshes.empty()) { Log("  FAIL: 0 meshes %s", dffName); return false; }
         out.push_back(std::move(obj));
-        Log("  OK: %s (%u meshes) modelZ=[%.1f,%.1f] worldAABB=[%.1f,%.1f,%.1f]-[%.1f,%.1f,%.1f] solid=%d",
-            df.c_str(), (unsigned)out.back().meshes.size(), mnz, mxz,
-            wmnx, wmny, wmnz, wmxx, wmxy, wmxz, solid?1:0);
+        Log("  OK: %s (%u meshes)", dffName, (unsigned)out.back().meshes.size());
         return true;
     };
 
-    // Legacy wrapper (yaw-only, no sink) used by --housetest / --grove.
-    auto loadHouse = [&](const char* dffName, const char* txdName,
-                         float x, float y, float z, float yawRad,
-                         std::vector<MapObject>& out) -> bool {
-        std::string dn = dffName ? dffName : "";
-        if (dn.size() > 4 && dn.substr(dn.size()-4) == ".dff") dn.resize(dn.size()-4);
-        float hy = yawRad * 0.5f;
-        return loadModelEx(dn, txdName ? txdName : "", x, y, z,
-                           0, 0, sinf(hy), cosf(hy), false, 0.0f, out);
-    };
-
     std::vector<MapObject> mapObjects;
-    std::vector<std::tuple<float,float,float>> roadPts; // x,y,z of road instances (play mode)
-    int solidCount = 0;
 
-    // ---- Ground plane (grass-colored safety net under the real geometry) ----
+    // ---- Ground plane (large grass-colored quad at z=0) ----
     auto buildGround = [&]() -> D3DRenderMesh* {
-        // 8000x8000 quad centered on Grove Street (2500,-1680) at z=10,
-        // below the lowest road (~11.1). Real roads/land/houses sit on top.
+        // 2000x2000 quad, grass green
         MeshVertex verts[4] = {
-            {-1500, -5680, 10,  0,0,1,  0,0},
-            { 6500, -5680, 10,  0,0,1,  1,0},
-            { 6500,  2320, 10,  0,0,1,  1,1},
-            {-1500,  2320, 10,  0,0,1,  0,1},
+            {-1000, -1000, 0,  0,0,1,  0,0},
+            { 1000, -1000, 0,  0,0,1,  1,0},
+            { 1000,  1000, 0,  0,0,1,  1,1},
+            {-1000,  1000, 0,  0,0,1,  0,1},
         };
         uint16_t idx[6] = {0,1,2, 0,2,3};
         // Tint via vertex color? Our FVF has no color. Use untextured (white) for now.
@@ -483,119 +420,48 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     D3DRenderMesh* groundMesh = buildGround();
     if (groundMesh) groundMesh->texture = groundTex;
 
-    // ---- Player state (first-person, real human scale) ----
-    float playerX = 2505.0f, playerY = -1710.0f, playerZ = 13.7f; // eye
-    float yaw = 1.5708f;  // radians, facing north (+Y) toward CJ's house
-    float pitch = 0.0f;   // radians, positive = look up
-    float velZ = 0.0f;    // vertical velocity for jumping
+    // ---- Player state (first-person) ----
+    float playerX = 2450.0f, playerY = -1650.0f, playerZ = 3.0f; // eye height
+    float yaw = 0.0f;    // radians, 0 = facing +X (east)
+    float pitch = 0.0f;  // radians, positive = look up
+    float velZ = 0.0f;   // vertical velocity for jumping
     bool onGround = true;
-    const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters
-    const float GROUND_Z = 12.0f;    // nominal Ganton street level (feet)
-    const float WALK_SPEED = 5.0f;
-    const float RUN_SPEED = 10.0f;
-    const float JUMP_VEL = 8.5f;     // ~1.6 m jump apex
-    const float GRAVITY = 22.0f;
-    const float PLAYER_RADIUS = 0.5f;
-    const float PLAYER_HEIGHT = 1.8f;
+    const float EYE_HEIGHT = 3.0f;
+    const float WALK_SPEED = 25.0f;
+    const float RUN_SPEED = 50.0f;
 
     if (playMode) {
-        Log("PLAY MODE: Grove Street from real game data (LAe2.ipl + LAe2.ide)");
-        // LOD instance name -> HD model name (verified against LAe2.ide).
-        auto lodToHd = [](const std::string& lod) -> std::string {
-            if (lod == "lod1carlshou1_lae") return "carlshou1_lae2"; // CJ's house
-            if (lod == "lod1swetho1_lae")   return "sweetshou1_lae2"; // Sweet's house
-            if (lod == "lodrydhou_lae2")    return "rydhou01_lae2";   // Ryder's house
-            if (lod == "lod1rydkyr1_lae")   return "rydhou01_lae2";   // Ryder's 2nd bldg
-            if (lod.compare(0, 3, "lod") == 0) return lod.substr(3);  // generic strip
-            return lod;
+        Log("PLAY MODE: building REAL Grove Street scene");
+        // Real Grove Street: north-south cul-de-sac in Ganton.
+        // Uses actual game models: Smoke's, Sweet's, Ryder's houses.
+        // CJ's (Johnson) house at north end. Street runs along Y.
+        struct PH { const char* dff; const char* txd; float x, y, yaw; };
+        PH houses[] = {
+            // CJ's house (Johnson House) at the north end, facing south
+            {"bdupshouse_lae.dff",    "bdupshouse_lae", 2510.0f, -1570.0f, 3.14159f},
+            // Big Smoke's house (west side, facing east)
+            {"laesmokeshse.dff",      "laesmokecnthus", 2480.0f, -1620.0f, -1.5708f},
+            // Sweet's house (east side, facing west) - main + door
+            {"sweetshou1_lae2.dff",   "contachou1_lae2", 2540.0f, -1640.0f, 1.5708f},
+            {"sweetsdoor_lae2.dff",   "contachou1_lae2", 2540.0f, -1640.0f, 1.5708f},
+            // Ryder's house (west side, facing east)
+            {"ryder2.dff",            "ryderholes",     2480.0f, -1670.0f, -1.5708f},
+            {"ryder3.dff",            "ryderholes",     2480.0f, -1670.0f, -1.5708f},
+            // Additional Ganton houses for street feel (east side)
+            {"compmedhos3_lae.dff",   "comedhos1_la",   2540.0f, -1690.0f, 1.5708f},
+            {"cehillhouse04.dff",     "lahillshilhse",  2540.0f, -1740.0f, 1.5708f},
+            // West side fill
+            {"compmedhos1_lae.dff",   "comedhos1_la",   2480.0f, -1720.0f, -1.5708f},
+            {"ganghous01_lax.dff",    "ganghouse1_lax", 2480.0f, -1770.0f, -1.5708f},
         };
-        // Roads / grass / bridges / drains / tags are visual, not solid.
-        auto isSolid = [](const std::string& hd) -> bool {
-            if (hd.find("road") != std::string::npos)     return false;
-            if (hd.find("lnd") != std::string::npos)      return false;
-            if (hd.find("hubgrass") != std::string::npos) return false;
-            if (hd.find("bridge") != std::string::npos)   return false;
-            if (hd.find("drai") != std::string::npos)     return false;
-            if (hd.find("tag_") != std::string::npos)     return false;
-            if (hd.find("lbd") != std::string::npos)      return false;
-            return true;
-        };
-        // IDE model -> TXD map (definitive texture source).
-        std::unordered_map<std::string, std::string> ideTxd;
-        {
-            std::vector<IdeObject> objs; std::unordered_map<int,size_t> byId;
-            const char* ideFiles[] = { "data/maps/LA/LAe2.ide", "data/maps/LA/LAe.ide", "data/maps/LA/LAxref.ide" };
-            for (const char* ide : ideFiles) {
-                objs.clear(); byId.clear();
-                if (IdeLoader::Load(FindGameFile(ide), objs, byId)) {
-                    for (auto& o : objs) ideTxd[o.modelName] = o.txdName;
-                    Log("PLAY: IDE %s: %u entries", ide, (unsigned)objs.size());
-                } else Log("PLAY: IDE load FAILED: %s", ide);
-            }
+        int loaded = 0;
+        for (auto& h : houses) {
+            if (loadHouse(h.dff, h.txd, h.x, h.y, 0.0f, h.yaw, mapObjects)) loaded++;
         }
-        // IPL instances in the Grove Street box (real game placements).
-        std::vector<IplInstance> insts;
-        if (!IplLoader::Load(FindGameFile("data/maps/LA/LAe2.ipl"), insts))
-            Log("PLAY: IPL load FAILED");
-        Log("PLAY: %u IPL instances total", (unsigned)insts.size());
-        auto inGroveBox = [](const IplInstance& in) {
-            return in.interior == 0 &&
-                   in.x >= 2400 && in.x <= 2600 &&
-                   in.y >= -1800 && in.y <= -1550;
-        };
-        // Pass 1: collect road points (street-level reference).
-        for (auto& in : insts) {
-            if (!inGroveBox(in)) continue;
-            std::string hd = lodToHd(in.modelName);
-            if (hd.find("road") != std::string::npos && in.z < 16.5f)
-                roadPts.push_back(std::make_tuple(in.x, in.y, in.z)); // surface streets only
-        }
-        Log("PLAY: %u road reference points", (unsigned)roadPts.size());
-        // Pass 2: load everything at its real position/rotation.
-        int loaded = 0, skipped = 0;
-        for (auto& in : insts) {
-            if (!inGroveBox(in)) continue;
-            std::string hd = lodToHd(in.modelName);
-            std::string dffBase = hd;
-            if (!img.HasFile(hd + ".dff")) {
-                if (img.HasFile(in.modelName + ".dff")) dffBase = in.modelName; // LOD fallback
-                else { Log("  SKIP: no DFF for %s", in.modelName.c_str()); skipped++; continue; }
-            }
-            std::string txd;
-            auto ti = ideTxd.find(dffBase);
-            if (ti != ideTxd.end()) txd = ti->second;
-            else {
-                auto tl = ideTxd.find(in.modelName);
-                txd = (tl != ideTxd.end()) ? tl->second : "laeast2_lod";
-            }
-            bool solid = isSolid(dffBase);
-            // Local street level = nearest road z (real terrain undulates).
-            float groundZ = 12.0f, best = 1e30f;
-            for (auto& rp : roadPts) {
-                float dx = in.x - std::get<0>(rp), dy = in.y - std::get<1>(rp);
-                float d2 = dx*dx + dy*dy;
-                if (d2 < best) { best = d2; groundZ = std::get<2>(rp); }
-            }
-            if (loadModelEx(dffBase, txd, in.x, in.y, in.z,
-                            in.qx, in.qy, in.qz, in.qw,
-                            solid, groundZ, mapObjects)) {
-                loaded++;
-                if (solid) solidCount++;
-                // Doors share their house's transform (modeled at house origin).
-                if (in.modelName == "lod1swetho1_lae")
-                    loadModelEx("sweetsdoor_lae2", "contachou1_lae2",
-                                in.x, in.y, groundZ,
-                                in.qx, in.qy, in.qz, in.qw, false, 0.0f, mapObjects);
-                if (in.modelName == "lodcjsaveg")
-                    loadModelEx("cjgaragedoor", "contachou1_lae2",
-                                in.x, in.y, groundZ,
-                                in.qx, in.qy, in.qz, in.qw, false, 0.0f, mapObjects);
-            } else skipped++;
-        }
-        Log("PLAY: %d loaded (%d solid), %d skipped", loaded, solidCount, skipped);
-        // Player starts on Grove Street, looking north toward CJ's house.
-        playerX = 2505.0f; playerY = -1710.0f; playerZ = GROUND_Z + EYE_HEIGHT;
-        yaw = 1.5708f; pitch = 0.0f;
+        Log("PLAY: %d/10 houses loaded", loaded);
+        // Player starts mid-street, looking north toward CJ's house (closer for scale)
+        playerX = 2510.0f; playerY = -1680.0f; playerZ = EYE_HEIGHT;
+        yaw = 1.5708f; pitch = 0.0f; // facing north toward CJ's house
         // Hide cursor for mouse look
         ShowCursor(FALSE);
         // Center mouse
@@ -603,6 +469,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         POINT c = {(rc.right-rc.left)/2, (rc.bottom-rc.top)/2};
         ClientToScreen(g_hwnd, &c);
         SetCursorPos(c.x, c.y);
+
     } else if (houseTest) {
         Log("HOUSE TEST MODE");
         struct HD { const char* dff; const char* txd; float x, y, z; };
@@ -719,45 +586,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (GetAsyncKeyState('A') & 0x8000) { mx -= rightX; my -= rightY; }
             float mlen = sqrtf(mx*mx + my*my);
             if (mlen > 0.001f) { mx /= mlen; my /= mlen; }
-            // ---- Player ground height = nearest road z ----
-            float gz = 12.0f;
-            {
-                float bd = 1e30f;
-                for (auto& rp : roadPts) {
-                    float dx = playerX - std::get<0>(rp);
-                    float dy = playerY - std::get<1>(rp);
-                    float d2 = dx*dx + dy*dy;
-                    if (d2 < bd) { bd = d2; gz = std::get<2>(rp); }
-                }
-            }
-            // ---- AABB collision: slide along walls ----
-            auto hitsSolid = [&](float px, float py) -> bool {
-                float fz = playerZ - EYE_HEIGHT;
-                for (auto& o : mapObjects) {
-                    if (!o.solid) continue;
-                    if (px + PLAYER_RADIUS < o.cMinX || px - PLAYER_RADIUS > o.cMaxX) continue;
-                    if (py + PLAYER_RADIUS < o.cMinY || py - PLAYER_RADIUS > o.cMaxY) continue;
-                    if (fz + PLAYER_HEIGHT < o.cMinZ || fz > o.cMaxZ) continue;
-                    return true;
-                }
-                return false;
-            };
-            float nx = playerX + mx * speed * dt;
-            float ny = playerY + my * speed * dt;
-            if (!hitsSolid(nx, playerY)) playerX = nx;
-            if (!hitsSolid(playerX, ny)) playerY = ny;
+            playerX += mx * speed * dt;
+            playerY += my * speed * dt;
 
-            // ---- Jump / gravity (feet rest on gz) ----
+            // ---- Jump / gravity ----
             if (onGround && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
-                velZ = JUMP_VEL;
+                velZ = 12.0f;
                 onGround = false;
             }
             if (!onGround) {
-                velZ -= GRAVITY * dt;
+                velZ -= 30.0f * dt; // gravity
                 playerZ += velZ * dt;
-                if (playerZ <= gz + EYE_HEIGHT) {
-                    playerZ = gz + EYE_HEIGHT; velZ = 0; onGround = true;
-                }
+                if (playerZ <= EYE_HEIGHT) { playerZ = EYE_HEIGHT; velZ = 0; onGround = true; }
             }
 
             // ---- Build view matrix from yaw/pitch ----
@@ -770,16 +610,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
 
         g_renderer.BeginFrame(0.4f, 0.6f, 0.9f);
-
-        // Distance fog in play mode (hides the ground-plane edge).
-        if (playMode) {
-            float fogStart = 400.0f, fogEnd = 2500.0f;
-            dev->SetRenderState(D3DRS_FOGENABLE, TRUE);
-            dev->SetRenderState(D3DRS_FOGVERTEXMODE, D3DFOG_LINEAR);
-            dev->SetRenderState(D3DRS_FOGCOLOR, 0xFF6699E6);
-            dev->SetRenderState(D3DRS_FOGSTART, *(DWORD*)&fogStart);
-            dev->SetRenderState(D3DRS_FOGEND, *(DWORD*)&fogEnd);
-        }
 
         // Ground plane (identity world matrix)
         if (groundMesh) {
@@ -796,18 +626,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
         // ---- Debug overlay (play mode) ----
         if (playMode) {
-            dev->SetRenderState(D3DRS_FOGENABLE, FALSE); // keep text unfogged
             char dbg[512];
             snprintf(dbg, sizeof(dbg),
                 "FPS: %.0f\n"
                 "Pos: %.1f, %.1f, %.1f\n"
                 "Yaw: %.1f deg\n"
-                "Objects: %u (%d solid)\n"
+                "Objects: %u\n"
                 "WASD move  Mouse look\n"
                 "Shift run  Space jump\n"
                 "Arrows look  ESC quit",
                 fps, playerX, playerY, playerZ,
-                yaw * 57.2958f, (unsigned)mapObjects.size(), solidCount);
+                yaw * 57.2958f, (unsigned)mapObjects.size());
             DrawDebugText(dev, dbg, 12.0f, 12.0f, 2.0f, 0xFFFFFF00); // yellow
         }
 
