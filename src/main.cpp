@@ -32,6 +32,7 @@
 #include "ImgLoader.h"
 #include "IdeLoader.h"
 #include "IplLoader.h"
+#include "BinaryIpl.h"
 
 static D3DRenderer g_renderer;
 static bool g_running = true;
@@ -671,6 +672,76 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
         Log("PLAY: %d/4 cul-de-sac houses loaded (collision OFF, LOD streaming ON)", loaded);
 
+        // Ring houses + strip mall + pawn shop - HD instances from binary stream IPLs
+        // (lae2_stream0/2.ipl in gta3.img). The full cul-de-sac circle per Q's
+        // reference screenshots. Positions = stream HD instances (preferred over
+        // text-IPL LOD positions). baseZ measured from DFF bbox (see grove_heights).
+        CulHouse ringHouses[] = {
+            // compfukhouse3 #1 - west side of circle
+            // HD: 3589 compfukhouse3 / comedhos1_la / 80m (LAxref.ide)
+            {"RING_HOUSE_W", "compfukhouse3", "comedhos1_la", 80.0f,
+             "LODpfukhouse3", "gangholod1_lax",
+             2451.7344f, -1637.4844f, 15.1328f,
+             0.0f, 0.0f, -1.0f, 0.0f, 12.405f},
+            // compfukhouse3 #2 - north side of circle
+            {"RING_HOUSE_N", "compfukhouse3", "comedhos1_la", 80.0f,
+             "LODpfukhouse3", "gangholod1_lax",
+             2498.3047f, -1638.3281f, 15.1797f,
+             0.0f, 0.0f, -1.0f, 0.0f, 12.452f},
+            // compfukhouse3 #3 - east side of circle
+            {"RING_HOUSE_E", "compfukhouse3", "comedhos1_la", 80.0f,
+             "LODpfukhouse3", "gangholod1_lax",
+             2528.6328f, -1658.4453f, 16.8906f,
+             0.0f, 0.0f, -0.7071f, 0.7071f, 14.163f},
+            // ganghous02_LAx - north-west of circle (stream HD instance)
+            // HD: 3648 ganghous02_LAx / ganghouse1_lax / 80m (LAxref.ide)
+            {"GANG_HOUSE_2", "ganghous02_LAx", "ganghouse1_lax", 80.0f,
+             "LODganghous02_LAx", "gangholod1_lax",
+             2470.8203f, -1640.8203f, 15.0234f,
+             0.0f, 0.0f, -0.7071f, 0.7071f, 12.280f},
+            // ganghous05_LAx - south-east, near Sweet's (stream HD instance)
+            // HD: 3646 ganghous05_LAx / ganghouse1_lax / 80m (LAxref.ide)
+            {"GANG_HOUSE_5", "ganghous05_LAx", "ganghouse1_lax", 80.0f,
+             "LODgnghos05_LAx", "gangholod1_lax",
+             2520.1875f, -1694.8516f, 14.8828f,
+             0.0f, 0.0f, 0.3420f, 0.9397f, 11.046f},
+            // Strip mall - north side of circle (stream HD instance)
+            // HD: 17699 mcstraps_LAe2 / contachou1_lae2 / 70m (LAe2.ide)
+            {"STRIP_MALL", "mcstraps_LAe2", "contachou1_lae2", 70.0f,
+             "LODmcstraps_LAe2", "laeast2_lod",
+             2485.9062f, -1639.3281f, 16.9531f,
+             0.0f, 0.0f, 0.7071f, 0.7071f, 12.314f},
+            // Pawn shop - south of circle (stream HD instance)
+            // HD: 17521 Pawnshp_lae2 / lae2newtempbx / 60m (LAe2.ide)
+            {"PAWN_SHOP", "Pawnshp_lae2", "lae2newtempbx", 60.0f,
+             "LODPwnshp_lae2", "laeast2_lod",
+             2502.0156f, -1714.2031f, 16.0234f,
+             0.0f, 0.0f, 0.0f, 1.0f, 12.520f},
+        };
+        int ringLoaded = 0;
+        for (auto& h : ringHouses) {
+            MapObject obj;
+            obj.name = h.name;
+            obj.solid = false;  // Q: no collision for now
+            float placeZ = h.z;      // raw stream-IPL Z (Rockstar authored)
+            obj.worldMatrix = QuatToD3DMatrix(h.qx, h.qy, h.qz, h.qw, h.x, h.y, placeZ);
+            obj.objX = h.x; obj.objY = h.y; obj.objZ = placeZ;
+            obj.lodDist = h.hdDist;
+            bool hdOk = loadMeshes(h.hdDff, h.hdTxd, h.name, obj.meshes);
+            bool lodOk = loadMeshes(h.lodDff, h.lodTxd, h.name, obj.lodMeshes);
+            obj.hasLod = lodOk;
+            if (hdOk) {
+                mapObjects.push_back(std::move(obj));
+                ringLoaded++;
+                Log("  BLDG OK: %s base=%.2f ground=%.2f HD=%s",
+                    h.name, h.baseZ, GROUND_Z, h.hdDff);
+            } else {
+                Log("  BLDG FAIL: %s (HD missing)", h.name);
+            }
+        }
+        Log("PLAY: %d/7 ring buildings loaded (collision OFF, LOD streaming ON)", ringLoaded);
+
+
         // Grove Street roads - real IPL placements, scoped to cul-de-sac box.
         // Roads are IPL inst models with bIsRoad flag (IDE objs field 5 = 1).
         // Real engine renders them via CRenderer::RenderRoads (ambient-only lighting).
@@ -718,6 +789,153 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
         }
         Log("PLAY: %d/3 Grove Street roads loaded (collision OFF)", roadsLoaded);
+
+        // ---- Binary stream IPL: Grove Street props & vegetation ----
+        // Rockstar streams HD instances + props via binary IPLs in gta3.img
+        // (lae2_stream*.ipl). The text IPLs only hold LOD placeholders.
+        // This loads the real prop/vegetation placements: palms, trees,
+        // bushes, grass, street lamps, hydrants, poles, fences, trash.
+        Log("STREAM: loading binary IPL props/vegetation...");
+        {
+            // Build model-ID -> (modelName, txdName) from IDEs.
+            // Prop TXDs live in vegepart (vegetation), dynamic/dynamic2
+            // (lamps, hydrants, poles), barriers (fences).
+            const char* ideFiles[] = {
+                "data\\maps\\generic\\vegepart.ide",
+                "data\\maps\\generic\\barriers.ide",
+                "data\\maps\\generic\\dynamic.ide",
+                "data\\maps\\generic\\dynamic2.ide",
+                "data\\maps\\generic\\multiobj.ide",
+                "data\\maps\\generic\\procobj.ide",
+                "data\\maps\\LA\\LAe2.ide",
+                "data\\maps\\LA\\LAxref.ide",
+                "data\\maps\\interior\\int_LA.ide",
+            };
+            std::unordered_map<int, IdeObject> ideById;
+            for (auto ideRel : ideFiles) {
+                std::vector<IdeObject> ideObjs;
+                std::unordered_map<int, size_t> ideIdx;
+                if (IdeLoader::Load(FindGameFile(ideRel), ideObjs, ideIdx)) {
+                    for (auto& o : ideObjs) ideById[o.id] = o;
+                } else {
+                    Log("STREAM: IDE not found: %s", ideRel);
+                }
+            }
+            Log("STREAM: IDE table: %u model IDs", (unsigned)ideById.size());
+
+            // Category matchers (IDE model names are lowercase).
+            auto isVegetation = [](const std::string& n) -> bool {
+                return n.rfind("veg_", 0) == 0 || n.rfind("sm_veg", 0) == 0 ||
+                       n.rfind("sm_bush", 0) == 0 || n == "new_bushtest" ||
+                       n.find("grass") != std::string::npos;
+            };
+            auto isLamp = [](const std::string& n) -> bool {
+                return n.find("lamppost") != std::string::npos ||
+                       n.find("streetlamp") != std::string::npos;
+            };
+            auto isProp = [](const std::string& n) -> bool {
+                return n.find("fire_hydrant") != std::string::npos ||
+                       n.find("telgrphpole") != std::string::npos ||
+                       n.find("trafficlight") != std::string::npos ||
+                       n.find("blackbag") != std::string::npos ||
+                       n.find("cardboardbox") != std::string::npos ||
+                       n.find("dyn_f_") != std::string::npos ||
+                       n.find("dyn_mesh") != std::string::npos;
+            };
+            auto isAlreadyPlaced = [](const std::string& n) -> bool {
+                // Houses, ring buildings, and roads are placed by the
+                // hardcoded blocks above; don't duplicate them.
+                static const char* placed[] = {
+                    "carlshou1_lae2", "sweetshou1_lae2", "rydhou01_lae2",
+                    "ganghous01_lax", "compfukhouse3", "ganghous02_lax",
+                    "ganghous05_lax", "mcstraps_lae2", "pawnshp_lae2",
+                    "lae2_roads89", "lae2_roads46", "lae2_roads50",
+                };
+                for (auto p : placed) if (n == p) return true;
+                return false;
+            };
+            auto skipReasonFor = [](const std::string& n, std::string& reason) -> bool {
+                if (n.find("door") != std::string::npos) { reason = "needs door anim"; return true; }
+                if (n.find("fuckcar") != std::string::npos) { reason = "needs vehicle code"; return true; }
+                if (n.find("graffiti") != std::string::npos ||
+                    n.find("ryder_holes") != std::string::npos ||
+                    n.find("faux") != std::string::npos) { reason = "needs decal system"; return true; }
+                return false;
+            };
+
+            const char* streamFiles[] = { "lae2_stream0.ipl", "lae2_stream2.ipl" };
+            int vegCount = 0, lampCount = 0, propCount = 0, skipCount = 0;
+            for (auto sf : streamFiles) {
+                if (!img.HasFile(sf)) { Log("STREAM: not in IMG: %s", sf); continue; }
+                std::vector<uint8_t> iplData = img.Extract(sf);
+                if (iplData.empty()) { Log("STREAM: extract failed: %s", sf); continue; }
+                std::vector<BinIplInstance> insts;
+                if (!BinaryIplLoader::LoadFromMemory(iplData.data(), iplData.size(), insts)) {
+                    Log("STREAM: parse failed: %s", sf);
+                    continue;
+                }
+                Log("STREAM: %s: %u instances", sf, (unsigned)insts.size());
+                for (auto& in : insts) {
+                    // Cul-de-sac box.
+                    if (in.x < 2400.0f || in.x > 2600.0f ||
+                        in.y < -1760.0f || in.y > -1590.0f)
+                        continue;
+                    auto it = ideById.find(in.modelId);
+                    if (it == ideById.end()) {
+                        Log("  STREAM SKIP: unknown model ID %d at (%.1f, %.1f, %.1f)",
+                            in.modelId, in.x, in.y, in.z);
+                        skipCount++;
+                        continue;
+                    }
+                    const std::string& mname = it->second.modelName;
+                    const std::string& txd = it->second.txdName;
+                    if (isAlreadyPlaced(mname))
+                        continue;  // houses/roads placed above; silent
+                    std::string reason;
+                    if (skipReasonFor(mname, reason)) {
+                        Log("  STREAM SKIP: %s at (%.1f, %.1f, %.1f) (%s)",
+                            mname.c_str(), in.x, in.y, in.z, reason.c_str());
+                        skipCount++;
+                        continue;
+                    }
+                    bool veg = isVegetation(mname);
+                    bool lamp = !veg && isLamp(mname);
+                    bool prop = !veg && !lamp && isProp(mname);
+                    if (!veg && !lamp && !prop) {
+                        Log("  STREAM SKIP: %s at (%.1f, %.1f, %.1f) (out of scope)",
+                            mname.c_str(), in.x, in.y, in.z);
+                        skipCount++;
+                        continue;
+                    }
+                    // Place it. solid=false (no collision pass yet).
+                    // NOTE: interior is logged, not filtered: Rockstar's data
+                    // uses interior 256/512 for some exterior bushes/poles.
+                    MapObject obj;
+                    obj.name = mname;
+                    obj.solid = false;
+                    obj.worldMatrix = QuatToD3DMatrix(
+                        in.qx, in.qy, in.qz, in.qw, in.x, in.y, in.z);
+                    obj.objX = in.x; obj.objY = in.y; obj.objZ = in.z;
+                    obj.lodDist = it->second.drawDistance;
+                    obj.hasLod = false;  // props: HD only, always drawn
+                    const char* tag = veg ? "VEG" : (lamp ? "LAMP" : "PROP");
+                    std::vector<D3DRenderMesh*> meshes;
+                    if (loadMeshes(mname, txd, tag, meshes)) {
+                        obj.meshes = std::move(meshes);
+                        mapObjects.push_back(std::move(obj));
+                        if (veg) vegCount++; else if (lamp) lampCount++; else propCount++;
+                        Log("  %s OK: %s at (%.2f, %.2f, %.2f) interior=%d txd=%s",
+                            tag, mname.c_str(), in.x, in.y, in.z,
+                            in.interior, txd.c_str());
+                    } else {
+                        Log("  %s FAIL: %s (DFF load failed)", tag, mname.c_str());
+                        skipCount++;
+                    }
+                }
+            }
+            Log("STREAM: placed VEG=%d LAMP=%d PROP=%d SKIP=%d",
+                vegCount, lampCount, propCount, skipCount);
+        }
 
         // Player starts on the cul-de-sac, looking north toward CJ's house.
         // Cul-de-sac center ~ (2490, -1685). Start south of houses, clear of everything.
