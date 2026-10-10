@@ -807,6 +807,46 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
         Log("PLAY: %d/4 cul-de-sac houses loaded (collision ON, LOD streaming ON)", loaded);
 
+        // CJ's garage - east of CJ's house. The garage building is model
+        // 17950 cjsaveg (despite the name, it uses building textures: brick,
+        // ws_peeling2, ws_rottenwall - NOT vegetation). The door is 17951
+        // cjgaragedoor on the garage's north face. Both from binary stream
+        // lae2_stream0.ipl (retail HD placements). LOD: 17952 LODcjsaveg.
+        CulHouse garageParts[] = {
+            // Garage building - HD: 17950 cjsaveg / contachou1_lae2 / 100m
+            {"CJ_GARAGE", "cjsaveg", "contachou1_lae2", 100.0f,
+             "LODcjsaveg", "laeast2_lod",
+             2505.4765625f, -1695.2890625f, 14.6953125f,
+             0.0f, 0.0f, 0.0f, 1.0f, 12.445f},
+            // Garage door - HD: 17951 cjgaragedoor / contachou1_lae2 / 100m, no LOD
+            {"CJ_GARAGE_DOOR", "cjgaragedoor", "contachou1_lae2", 100.0f,
+             "NOLOD_GARAGEDOOR", "NOLOD",
+             2505.5234375f, -1690.9921875f, 14.328125f,
+             0.0f, 0.0f, 0.7071068f, 0.7071068f, 12.548f},
+        };
+        int garageLoaded = 0;
+        for (auto& h : garageParts) {
+            MapObject obj;
+            obj.name = h.name;
+            obj.solid = false;  // attachColBoxes() below enables real COL collision when boxes exist
+            float placeZ = h.z;      // raw IPL Z (Rockstar authored)
+            obj.worldMatrix = QuatToD3DMatrix(h.qx, h.qy, h.qz, h.qw, h.x, h.y, placeZ);
+            obj.objX = h.x; obj.objY = h.y; obj.objZ = placeZ;
+            obj.lodDist = h.hdDist;
+            bool hdOk = loadMeshes(h.hdDff, h.hdTxd, h.name, obj.meshes);
+            bool lodOk = loadMeshes(h.lodDff, h.lodTxd, h.name, obj.lodMeshes);
+            obj.hasLod = lodOk;
+            if (hdOk) {
+                attachColBoxes(obj, h.hdDff, h.name);
+                mapObjects.push_back(std::move(obj));
+                garageLoaded++;
+                Log("  GARAGE OK: %s base=%.2f HD=%s", h.name, h.baseZ, h.hdDff);
+            } else {
+                Log("  GARAGE FAIL: %s (HD missing)", h.name);
+            }
+        }
+        Log("PLAY: %d/2 CJ garage parts loaded (building solid via COL boxes)", garageLoaded);
+
         // Ring houses + strip mall + pawn shop - HD instances from binary stream IPLs
         // (lae2_stream0/2.ipl in gta3.img). The full cul-de-sac circle per Q's
         // reference screenshots. Positions = stream HD instances (preferred over
@@ -1091,7 +1131,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (veg) vegCount++; else if (lamp) lampCount++; else propCount++;
                         Log("  %s OK: %s at (%.2f, %.2f, %.2f) interior=%d txd=%s",
                             tag, mname.c_str(), in.x, in.y, in.z,
-                            in.interior, txd.c_str());
+                            in.areaAndFlags, txd.c_str());
                     } else {
                         Log("  %s FAIL: %s (DFF load failed)", tag, mname.c_str());
                         skipCount++;

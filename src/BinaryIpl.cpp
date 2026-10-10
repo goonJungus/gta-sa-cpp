@@ -31,7 +31,7 @@ bool BinaryIplLoader::LoadFromMemory(const uint8_t* data, size_t size,
         std::memcpy(&inst.qz, r + 20, 4);
         std::memcpy(&inst.qw, r + 24, 4);
         std::memcpy(&inst.modelId, r + 28, 4);
-        std::memcpy(&inst.interior, r + 32, 4);
+        std::memcpy(&inst.areaAndFlags, r + 32, 4);
         std::memcpy(&inst.lodIndex, r + 36, 4);
         out.push_back(inst);
     }
