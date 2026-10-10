@@ -20,9 +20,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # CL environment variable because MSBuild rejects /Zm8000 as fatal D8000,
 # while cl.exe accepts it (D9014 warning only). Verified 2026-10-09:
 # CL=/Zm8000 => 0 errors. Note: /Zm2000 does NOT fix C1202, /Zm8000 does.
-if(MSVC)
-    set(ENV{CL} "$ENV{CL} /Zm8000")
-endif()
+# CL=/Zm8000 removed 2026-10-09: set it manually when building gta_sa lib
 
 # Static library
 add_library(gta_sa STATIC
@@ -166,6 +164,9 @@ add_executable(gtasa_cpp
     src/D3DRenderer.cpp
     src/DffLoader.cpp
     src/TxdLoader.cpp
+    src/ImgLoader.cpp
+    src/IdeLoader.cpp
+    src/IplLoader.cpp
 )
 target_include_directories(gtasa_cpp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

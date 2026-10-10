@@ -1,28 +1,32 @@
-// gtasa_cpp.exe - standalone GTA San Andreas C++ rewrite entry point.
-// Milestone 3: TXD texture loading. Loads models/generic/wheels.DFF
-// (arrow.DFF is untextured) plus every models/*.txd, binds each mesh's
-// texture, and renders the wheel set in a grid.
+// gtasa_cpp.exe - Milestone 4: IMG archive + IDE/IPL map loading.
+// Loads Grove Street area (LAe) from gta3.img, places objects with
+// correct positions/rotations, renders textured map.
 //
-// Test args: --frames N  (quit after N frames, for automated runs)
-//            --screenshot <bmp path>  (save backbuffer before exit)
-//            --log <path>  (diagnostic log; default m3_test.log next to exe)
+// Test args: --frames N  (quit after N frames)
+//            --screenshot <bmp path>
+//            --log <path>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include <d3d9.h>
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <cstdio>
 #include <cstdarg>
+#include <cmath>
 #include "D3DRenderer.h"
 #include "DffLoader.h"
 #include "TxdLoader.h"
+#include "ImgLoader.h"
+#include "IdeLoader.h"
+#include "IplLoader.h"
 
 static D3DRenderer g_renderer;
 static bool g_running = true;
 static const wchar_t* WINDOW_CLASS = L"GTASACppWindow";
-static const wchar_t* WINDOW_TITLE = L"GTA SA C++ (M3: textures)";
+static const wchar_t* WINDOW_TITLE = L"GTA SA C++ (M4: map)";
 
 static FILE* g_log = nullptr;
 static void Log(const char* fmt, ...) {
@@ -50,8 +54,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProc(hwnd, msg, wp, lp);
 }
 
-// Game files live next to the original install; the exe finds them via
-// the GTA_SA_DIR env var or the decomp-time location.
 static std::string GameDir() {
     const char* env = getenv("GTA_SA_DIR");
     if (env && *env)
@@ -63,52 +65,46 @@ static std::string FindGameFile(const std::string& rel) {
     return GameDir() + "\\" + rel;
 }
 
-// Load every models/*.txd (skipping macOS "._" metadata files) into a
-// lowercase-name -> texture map. First file wins on duplicates.
-static std::unordered_map<std::string, TxdTexture> LoadAllTxds() {
-    std::unordered_map<std::string, TxdTexture> map;
-    std::string pattern = FindGameFile("models\\*.txd");
-    WIN32_FIND_DATAA fd = {};
-    HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) {
-        Log("no TXD files found at %s", pattern.c_str());
-        return map;
-    }
-    int files = 0, texTotal = 0;
-    do {
-        std::string name = fd.cFileName;
-        if (name.rfind("._", 0) == 0)
-            continue;  // AppleDouble metadata, not a TXD
-        std::string path = FindGameFile(std::string("models\\") + name);
-        std::vector<TxdTexture> texs = TxdLoader::Load(path);
-        files++;
-        for (auto& t : texs) {
-            texTotal++;
-            std::string key = TxdLoader::KeyOf(t.name);
-            if (map.find(key) == map.end())
-                map.emplace(key, std::move(t));
-        }
-        Log("txd %s: %u textures", name.c_str(), (unsigned)texs.size());
-    } while (FindNextFileA(h, &fd));
-    FindClose(h);
-    Log("loaded %d TXD files, %d textures (%u unique names)",
-        files, texTotal, (unsigned)map.size());
-    return map;
-}
-
 static void WideToUtf8(LPCWSTR w, char* out, int outSize) {
     WideCharToMultiByte(CP_ACP, 0, w, -1, out, outSize - 1, nullptr, nullptr);
     out[outSize - 1] = '\0';
 }
 
+// Convert quaternion to D3DMATRIX (D3D is row-major, left-handed).
+// D3DMATRIX is a union with m[4][4]; we fill it row by row.
+static D3DMATRIX QuatToD3DMatrix(float qx, float qy, float qz, float qw,
+                                 float tx, float ty, float tz) {
+    D3DMATRIX m;
+    float xx = qx * qx, yy = qy * qy, zz = qz * qz;
+    float xy = qx * qy, xz = qx * qz, yz = qy * qz;
+    float wx = qw * qx, wy = qw * qy, wz = qw * qz;
+
+    m.m[0][0] = 1 - 2 * (yy + zz);  m.m[0][1] = 2 * (xy - wz);      m.m[0][2] = 2 * (xz + wy);      m.m[0][3] = 0;
+    m.m[1][0] = 2 * (xy + wz);      m.m[1][1] = 1 - 2 * (xx + zz);  m.m[1][2] = 2 * (yz - wx);      m.m[1][3] = 0;
+    m.m[2][0] = 2 * (xz - wy);      m.m[2][1] = 2 * (yz + wx);      m.m[2][2] = 1 - 2 * (xx + yy);  m.m[2][3] = 0;
+    m.m[3][0] = tx;                 m.m[3][1] = ty;                 m.m[3][2] = tz;                 m.m[3][3] = 1;
+    return m;
+}
+
+// A placed map object.
+struct MapObject {
+    std::vector<D3DRenderMesh*> meshes;
+    D3DMATRIX worldMatrix;
+};
+
+struct CachedModel {
+    DffModel dff;
+    std::string txdName;
+    bool loaded = false;
+};
+
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const int WIDTH = 1280;
     const int HEIGHT = 720;
 
-    // ---- test args ----
-    int maxFrames = 0;          // 0 = run until closed
+    int maxFrames = 0;
     std::string shotPath;
-    std::string logPath = "m3_test.log";
+    std::string logPath = "m4_test.log";
     {
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -118,127 +114,252 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             std::string a = arg;
             if (a == "--frames" && i + 1 < argc) {
                 char n[64] = {};
-                WideToUtf8(argv[++i], n, sizeof(n));
+                WideToUtf8(argv[i + 1], n, sizeof(n));
                 maxFrames = atoi(n);
+                i++;
             } else if (a == "--screenshot" && i + 1 < argc) {
                 char p[512] = {};
-                WideToUtf8(argv[++i], p, sizeof(p));
+                WideToUtf8(argv[i + 1], p, sizeof(p));
                 shotPath = p;
+                i++;
             } else if (a == "--log" && i + 1 < argc) {
                 char p[512] = {};
-                WideToUtf8(argv[++i], p, sizeof(p));
+                WideToUtf8(argv[i + 1], p, sizeof(p));
                 logPath = p;
+                i++;
             }
         }
         LocalFree(argv);
     }
+
     g_log = fopen(logPath.c_str(), "w");
+    Log("gtasa_cpp M4 starting");
 
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = WINDOW_CLASS;
-    if (!RegisterClassExW(&wc))
-        return 1;
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    RegisterClassExW(&wc);
 
-    RECT rc = { 0, 0, WIDTH, HEIGHT };
-    AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-    HWND hwnd = CreateWindowExW(
-        0, WINDOW_CLASS, WINDOW_TITLE,
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        rc.right - rc.left, rc.bottom - rc.top,
+    HWND hwnd = CreateWindowExW(0, WINDOW_CLASS, WINDOW_TITLE,
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, WIDTH, HEIGHT,
         nullptr, nullptr, hInst, nullptr);
-    if (!hwnd)
-        return 2;
+    if (!hwnd) {
+        Log("CreateWindow failed");
+        return 1;
+    }
 
     if (!g_renderer.Init(hwnd, WIDTH, HEIGHT)) {
-        Log("FATAL: D3D9 init failed");
-        MessageBoxW(hwnd, L"Failed to initialize D3D9", WINDOW_TITLE, MB_ICONERROR);
-        return 3;
+        Log("D3DRenderer::Init failed");
+        return 1;
     }
-    Log("D3D9 init OK (adapter: %s)", g_renderer.GetAdapterDesc());
+    Log("D3D9 initialized: %s", g_renderer.GetAdapterDesc());
 
-    // Camera: wheels are small (r ~ 0.6); frame a grid of them.
-    g_renderer.SetProjMatrix(MatrixPerspectiveFov(3.14159f / 4.0f,
-        (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
-    g_renderer.SetViewMatrix(MatrixLookAt(0, 5.5f, 12.5f, 0, 0, 0, 0, 1, 0));
+    // ---- Open IMG ----
+    ImgLoader img;
+    std::string imgPath = FindGameFile("models\\gta3.img");
+    if (!img.Open(imgPath)) {
+        Log("Failed to open %s", imgPath.c_str());
+        return 1;
+    }
+    Log("IMG opened: %u entries", (unsigned)img.EntryCount());
 
-    // ---- M3: load TXDs, then the textured test model ----
-    auto txdMap = LoadAllTxds();
+    // ---- Load IDE ----
+    std::vector<IdeObject> ideObjects;
+    std::unordered_map<int, size_t> ideById;
+    std::unordered_map<std::string, size_t> ideByName;
 
-    std::vector<D3DRenderMesh*> meshes;
-    std::string dffPath = FindGameFile("models\\generic\\wheels.DFF");
-    DffModel model = DffLoader::Load(dffPath);
-    Log("DFF %s: valid=%d meshes=%u", dffPath.c_str(),
-        (int)model.valid, (unsigned)model.meshes.size());
+    const char* ideFiles[] = {
+        "data\\maps\\LA\\LAe.ide",
+        "data\\maps\\LA\\LAe2.ide",
+    };
+    for (const char* f : ideFiles) {
+        std::string path = FindGameFile(f);
+        size_t before = ideObjects.size();
+        if (IdeLoader::Load(path, ideObjects, ideById))
+            Log("IDE %s: %u objects", f, (unsigned)(ideObjects.size() - before));
+        else
+            Log("IDE %s: FAILED", f);
+    }
+    for (size_t i = 0; i < ideObjects.size(); i++)
+        ideByName[ideObjects[i].modelName] = i;
+    Log("Total IDE objects: %u", (unsigned)ideObjects.size());
 
-    int texBound = 0, texMissing = 0, texFailed = 0;
-    const int GRID_COLS = 7;
-    const float GRID_GAP = 1.6f;
-    for (size_t mi = 0; mi < model.meshes.size(); mi++) {
-        auto& dm = model.meshes[mi];
-        // Lay meshes out in a grid so every wheel is visible.
-        float gx = (float)(mi % GRID_COLS) - (GRID_COLS - 1) * 0.5f;
-        float gz = (float)(mi / GRID_COLS) - 2.5f;
-        std::vector<MeshVertex> verts(dm.vertices.size());
-        for (size_t i = 0; i < verts.size(); i++) {
-            verts[i].x = dm.vertices[i].x + gx * GRID_GAP;
-            verts[i].y = dm.vertices[i].y;
-            verts[i].z = dm.vertices[i].z + gz * GRID_GAP;
-            verts[i].nx = dm.vertices[i].nx;
-            verts[i].ny = dm.vertices[i].ny;
-            verts[i].nz = dm.vertices[i].nz;
-            verts[i].u = dm.vertices[i].u;
-            verts[i].v = dm.vertices[i].v;
+    // ---- Load IPL ----
+    std::vector<IplInstance> instances;
+    const char* iplFiles[] = {
+        "data\\maps\\LA\\LAe.ipl",
+        "data\\maps\\LA\\LAe2.ipl",
+    };
+    for (const char* f : iplFiles) {
+        std::string path = FindGameFile(f);
+        size_t before = instances.size();
+        if (IplLoader::Load(path, instances))
+            Log("IPL %s: %u instances", f, (unsigned)(instances.size() - before));
+        else
+            Log("IPL %s: FAILED", f);
+    }
+    Log("Total instances: %u", (unsigned)instances.size());
+
+    // ---- Filter to Grove Street area ----
+    const float cx = 2500.0f, cy = -1700.0f, halfSize = 200.0f;
+    std::vector<IplInstance> filtered;
+    for (auto& inst : instances) {
+        if (inst.interior != 0)
+            continue;
+        // Skip LOD models (name starts with "lod")
+        if (inst.modelName.size() >= 3 &&
+            inst.modelName[0] == 'l' && inst.modelName[1] == 'o' && inst.modelName[2] == 'd')
+            continue;
+        float dx = inst.x - cx, dy = inst.y - cy;
+        if (fabsf(dx) < halfSize && fabsf(dy) < halfSize)
+            filtered.push_back(inst);
+    }
+    Log("Filtered to %u instances near Grove Street", (unsigned)filtered.size());
+
+    // ---- Texture cache ----
+    std::unordered_map<std::string, TxdTexture> texMap;
+    std::unordered_map<std::string, bool> txdLoaded;
+    // D3D texture cache: txd texture name -> IDirect3DTexture9*
+    std::unordered_map<std::string, IDirect3DTexture9*> d3dTexCache;
+
+    auto ensureTxd = [&](const std::string& txdName) {
+        if (txdName.empty() || txdLoaded[txdName])
+            return;
+        txdLoaded[txdName] = true;
+        std::string fname = txdName + ".txd";
+        if (!img.HasFile(fname)) {
+            Log("TXD not in IMG: %s", fname.c_str());
+            return;
         }
-        D3DRenderMesh* rm = g_renderer.CreateMesh(
-            verts.data(), (uint32_t)verts.size(),
-            dm.indices.data(), (uint32_t)dm.indices.size());
-        if (!rm) {
-            Log("mesh %u: CreateMesh FAILED", (unsigned)mi);
+        std::vector<uint8_t> data = img.Extract(fname);
+        if (data.empty()) {
+            Log("TXD extract failed: %s", fname.c_str());
+            return;
+        }
+        std::vector<TxdTexture> texs = TxdLoader::LoadFromMemory(data.data(), data.size());
+        int added = 0;
+        for (auto& t : texs) {
+            std::string key = TxdLoader::KeyOf(t.name);
+            if (texMap.find(key) == texMap.end()) {
+                texMap.emplace(key, std::move(t));
+                added++;
+            }
+        }
+        Log("TXD %s: %u textures (%d new)", fname.c_str(), (unsigned)texs.size(), added);
+    };
+
+    auto getD3dTexture = [&](const std::string& texName) -> IDirect3DTexture9* {
+        std::string key = TxdLoader::KeyOf(texName);
+        auto it = d3dTexCache.find(key);
+        if (it != d3dTexCache.end())
+            return it->second;
+        auto texIt = texMap.find(key);
+        if (texIt == texMap.end())
+            return nullptr;
+        TxdTexture& txd = texIt->second;
+        IDirect3DTexture9* d3dTex = g_renderer.CreateTexture(
+            txd.width, txd.height, txd.d3dFormat,
+            txd.mip0.data(), (unsigned)txd.mip0.size());
+        d3dTexCache[key] = d3dTex;  // may be nullptr on failure; cached anyway
+        return d3dTex;
+    };
+
+    // ---- Load models and build map objects ----
+    std::unordered_map<std::string, CachedModel> modelCache;
+    std::vector<MapObject> mapObjects;
+    int loadedModels = 0, failedModels = 0, skippedNoIde = 0;
+
+    const size_t maxObjects = 300;  // cap for first test
+    size_t processed = 0;
+
+    for (auto& inst : filtered) {
+        if (processed >= maxObjects)
+            break;
+        processed++;
+
+        auto ideIt = ideByName.find(inst.modelName);
+        if (ideIt == ideByName.end()) {
+            skippedNoIde++;
             continue;
         }
-        if (!dm.textureName.empty()) {
-            std::string key = TxdLoader::KeyOf(dm.textureName);
-            auto it = txdMap.find(key);
-            if (it == txdMap.end()) {
-                texMissing++;
-                Log("mesh %u: texture '%s' NOT FOUND in TXDs",
-                    (unsigned)mi, dm.textureName.c_str());
-            } else {
-                const TxdTexture& t = it->second;
-                rm->texture = g_renderer.CreateTexture(
-                    t.width, t.height, t.d3dFormat,
-                    t.mip0.data(), (uint32_t)t.mip0.size());
-                if (rm->texture) {
-                    texBound++;
-                    Log("mesh %u: texture '%s' bound (%ux%u fmt %d)",
-                        (unsigned)mi, t.name.c_str(), t.width, t.height,
-                        (int)t.d3dFormat);
-                } else {
-                    texFailed++;
-                    Log("mesh %u: CreateTexture FAILED for '%s'",
-                        (unsigned)mi, t.name.c_str());
-                }
+        const IdeObject& ide = ideObjects[ideIt->second];
+
+        auto cacheIt = modelCache.find(inst.modelName);
+        if (cacheIt == modelCache.end()) {
+            CachedModel cm;
+            std::string dffName = inst.modelName + ".dff";
+            if (!img.HasFile(dffName)) {
+                failedModels++;
+                continue;
             }
-        } else {
-            Log("mesh %u: untextured (%u tris)", (unsigned)mi,
-                (unsigned)(dm.indices.size() / 3));
+            std::vector<uint8_t> dffData = img.Extract(dffName);
+            if (dffData.empty()) {
+                failedModels++;
+                continue;
+            }
+            cm.dff = DffLoader::LoadFromMemory(dffData.data(), dffData.size());
+            if (!cm.dff.valid) {
+                failedModels++;
+                Log("DFF parse failed: %s", dffName.c_str());
+                continue;
+            }
+            cm.txdName = ide.txdName;
+            cm.loaded = true;
+            modelCache[inst.modelName] = std::move(cm);
+            cacheIt = modelCache.find(inst.modelName);
+            loadedModels++;
+            ensureTxd(ide.txdName);
         }
-        meshes.push_back(rm);
+        const CachedModel& cm = cacheIt->second;
+
+        MapObject obj;
+        obj.worldMatrix = QuatToD3DMatrix(inst.qx, inst.qy, inst.qz, inst.qw,
+                                          inst.x, inst.y, inst.z);
+
+        for (auto& dffMesh : cm.dff.meshes) {
+            // DffVertex and MeshVertex have identical layout (x,y,z,nx,ny,nz,u,v)
+            const MeshVertex* verts = reinterpret_cast<const MeshVertex*>(dffMesh.vertices.data());
+            D3DRenderMesh* mesh = g_renderer.CreateMesh(
+                verts,
+                (uint32_t)dffMesh.vertices.size(),
+                dffMesh.indices.data(),
+                (uint32_t)dffMesh.indices.size());
+            if (!mesh)
+                continue;
+            if (!dffMesh.textureName.empty()) {
+                mesh->texture = getD3dTexture(dffMesh.textureName);
+            }
+            obj.meshes.push_back(mesh);
+        }
+
+        if (!obj.meshes.empty())
+            mapObjects.push_back(std::move(obj));
     }
-    Log("summary: meshes=%u textured=%d missing=%d createFailed=%d",
-        (unsigned)meshes.size(), texBound, texMissing, texFailed);
 
-    ShowWindow(hwnd, nShow);
-    UpdateWindow(hwnd);
+    Log("Models: %d loaded, %d failed, %d no IDE", loadedModels, failedModels, skippedNoIde);
+    Log("Map objects: %u", (unsigned)mapObjects.size());
 
-    MSG msg = {};
+    // ---- Camera ----
+    // Look at Grove Street from the south, elevated
+    D3DMATRIX view = MatrixLookAt(cx, cy - 150.0f, 80.0f,   // eye
+                                   cx, cy, 10.0f,             // target
+                                   0.0f, 0.0f, 1.0f);         // up (Z-up world)
+    D3DMATRIX proj = MatrixPerspectiveFov(60.0f * 3.14159f / 180.0f,
+                                           (float)WIDTH / (float)HEIGHT,
+                                           1.0f, 2000.0f);
+    g_renderer.SetViewMatrix(view);
+    g_renderer.SetProjMatrix(proj);
+
+    IDirect3DDevice9* dev = g_renderer.GetDevice();
+
+    Log("Entering render loop");
+
     int frame = 0;
+    MSG msg = {};
     while (g_running) {
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) {
@@ -251,32 +372,39 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (!g_running)
             break;
 
-        g_renderer.BeginFrame(0.1f, 0.1f, 0.35f);
-        if (!meshes.empty()) {
-            for (auto m : meshes)
-                g_renderer.DrawMesh(m);
-        } else {
-            g_renderer.DrawTestTriangle();  // fallback if DFF failed to load
-        }
-        g_renderer.EndFrame();
-        frame++;
+        g_renderer.BeginFrame(0.4f, 0.6f, 0.9f);  // sky blue clear
 
-        if (maxFrames > 0 && frame >= maxFrames) {
-            Log("rendered %d frames", frame);
-            if (!shotPath.empty()) {
-                bool ok = g_renderer.SaveScreenshot(shotPath.c_str());
-                Log("screenshot %s: %s", shotPath.c_str(), ok ? "OK" : "FAILED");
+        for (auto& obj : mapObjects) {
+            dev->SetTransform(D3DTS_WORLD, &obj.worldMatrix);
+            for (auto* mesh : obj.meshes) {
+                g_renderer.DrawMesh(mesh);
             }
-            break;
         }
+
+        g_renderer.EndFrame();
+
+        frame++;
+        if (maxFrames > 0 && frame >= maxFrames)
+            break;
     }
 
-    for (auto m : meshes)
-        g_renderer.DestroyMesh(m);
-    g_renderer.Shutdown();
-    if (g_log) {
-        Log("exit");
-        fclose(g_log);
+    if (!shotPath.empty()) {
+        g_renderer.SaveScreenshot(shotPath.c_str());
+        Log("Screenshot saved to %s", shotPath.c_str());
     }
+
+    Log("M4 done: %d frames, %u map objects", frame, (unsigned)mapObjects.size());
+    if (g_log)
+        fclose(g_log);
+
+    for (auto& obj : mapObjects) {
+        for (auto* mesh : obj.meshes)
+            g_renderer.DestroyMesh(mesh);
+    }
+    for (auto& kv : d3dTexCache) {
+        if (kv.second)
+            g_renderer.DestroyTexture(kv.second);
+    }
+
     return 0;
 }

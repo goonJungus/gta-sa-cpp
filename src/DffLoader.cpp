@@ -56,7 +56,12 @@ DffModel DffLoader::Load(const std::string& path) {
     if (!f.read((char*)buf.data(), fileSize))
         return model;
 
-    Reader r{ buf.data(), buf.size(), 0 };
+    return LoadFromMemory(buf.data(), buf.size());
+}
+
+DffModel DffLoader::LoadFromMemory(const uint8_t* data, size_t size) {
+    DffModel model;
+    Reader r{ data, size, 0 };
     SectionHeader h;
     if (!r.ReadHeader(h) || h.type != RW_CLUMP)
         return model;  // not a DFF clump

@@ -2694,3 +2694,46 @@ unions first (a previous worker hit the same C1202 class on CPed.cpp).
   only checked process survival, never pixels. Fixed to (target - eye);
   M3's screenshot is the first verified pixels this exe ever produced.
 
+
+## 2026-10-09 - gtasa_cpp.exe Milestone 4: IMG Archive + IDE/IPL Map Loading (CODE COMPLETE, UNTESTED)
+
+**Files added:**
+- `include/ImgLoader.h` / `src/ImgLoader.cpp` - IMG v2 archive parser:
+  - "VER2" magic, u32 entry count, per-entry: u32 offset (sectors), u32 size (sectors), char name[24]
+  - Case-insensitive lookup, Extract() returns raw bytes
+  - gta3.img: 16,316 entries verified
+- `include/IdeLoader.h` / `src/IdeLoader.cpp` - IDE parser (objs section):
+  - Parses: id, modelName, txdName, drawDistance, flags
+  - Skips other sections (tobj, hier, anim, etc.)
+- `include/IplLoader.h` / `src/IplLoader.cpp` - IPL parser (inst section):
+  - Parses: id, modelName, interior, posX/Y/Z, quaternion (qx,qy,qz,qw), lodIndex
+  - Skips other sections (cull, path, etc.)
+
+**Files modified:**
+- `include/DffLoader.h` / `src/DffLoader.cpp` - added `LoadFromMemory(const uint8_t*, size_t)`
+- `include/TxdLoader.h` / `src/TxdLoader.cpp` - added `LoadFromMemory(const uint8_t*, size_t)`
+- `src/main.cpp` - M4 map rendering:
+  - Opens models/gta3.img
+  - Loads LAe.ide + LAe2.ide (object definitions)
+  - Loads LAe.ipl + LAe2.ipl (placements)
+  - Filters to Grove Street area (2500, -1700, +/-200 box), skips interiors and LODs
+  - Extracts DFF/TXD from IMG on demand, caches by model name
+  - Converts IPL quaternion to D3DMATRIX, sets world transform per object
+  - Renders up to 300 objects with textures
+  - Camera: MatrixLookAt from (2500, -1850, 80) to (2500, -1700, 10)
+- `CMakeLists.txt` - added ImgLoader.cpp, IdeLoader.cpp, IplLoader.cpp to gtasa_cpp target
+- `CMakeLists.txt` - REMOVED the global `set(ENV{CL} "$ENV{CL} /Zm8000")` block.
+  It was breaking gtasa_cpp exe builds with D8000. The gta_sa lib build
+  needs CL=/Zm8000 set manually in the shell (for CPed.cpp C1202).
+
+**Build:** `cmake --build build --target gtasa_cpp --config Debug` is clean.
+
+**Status:** CODE COMPLETE, NOT YET TESTED.
+- D3D9 device creation fails in SSH session (no interactive desktop) - expected.
+- Scheduled task with /IT fails with Access Denied (-2147024891).
+- Needs Q to run manually, or a working interactive-session launch method.
+
+**Next:**
+- Test M4: run exe in interactive session, verify Grove Street renders
+- M5: WASD camera controls
+- M6: Game loop integration

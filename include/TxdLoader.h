@@ -27,6 +27,8 @@ public:
     // skipped; returns an empty vector on failure.
     static std::vector<TxdTexture> Load(const std::string& path);
 
+    static std::vector<TxdTexture> LoadFromMemory(const uint8_t* data, size_t size);
+
     // Lowercase lookup key (GTA texture names are case-insensitive).
     static std::string KeyOf(const std::string& name);
 };

@@ -103,7 +103,14 @@ std::vector<TxdTexture> TxdLoader::Load(const std::string& path) {
     if (!f.read((char*)buf.data(), fileSize))
         return out;
 
-    Reader r{ buf.data(), buf.size(), 0 };
+    return LoadFromMemory(buf.data(), buf.size());
+}
+
+std::vector<TxdTexture> TxdLoader::LoadFromMemory(const uint8_t* data, size_t size) {
+    std::vector<TxdTexture> out;
+    if (size < 12)
+        return out;
+    Reader r{ data, size, 0 };
     SectionHeader h;
     if (!r.ReadHeader(h) || h.type != TXD_RW_TEXDICTIONARY)
         return out;

@@ -34,6 +34,8 @@ public:
     // Load a DFF file from disk. Returns model with valid=false on failure.
     static DffModel Load(const std::string& path);
 
+    static DffModel LoadFromMemory(const uint8_t* data, size_t size);
+
 private:
     struct SectionHeader {
         uint32_t type;
