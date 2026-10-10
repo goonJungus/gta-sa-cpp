@@ -98,11 +98,6 @@ struct MapObject {
     float cMaxX = 0, cMaxY = 0, cMaxZ = 0;
     bool solid = true;   // false = walk-through visual (roads, grass, tags...)
     std::string name;
-    // LOD streaming (Rockstar-style): HD meshes + LOD meshes, switch by camera distance.
-    std::vector<D3DRenderMesh*> lodMeshes;
-    float lodDist = 60.0f;  // render HD when closer than this, LOD when farther
-    float objX = 0, objY = 0, objZ = 0;  // object origin for distance checks
-    bool hasLod = false;    // true when lodMeshes is populated
 };
 
 // ---- Simple 8x8 bitmap font for debug overlay ----
@@ -534,107 +529,198 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const float PLAYER_HEIGHT = 1.8f;
 
     if (playMode) {
-        Log("PLAY MODE: Grove Street cul-de-sac ONLY (4 houses, HD+LOD streaming)");
-        Log("PLAY: Rockstar LOD system: HD within lodDist, LOD beyond. No collision (Q request).");
-
-        // The 4 Grove Street cul-de-sac houses. Verified against LAe2.ide:
-        //   HD id, HD model, HD TXD, HD drawdist | LOD model, LOD TXD | IPL position + quaternion
-        // CJ's house:   17697 carlshou1_LAe2 / contachou1_lae2 / 60m
-        // Sweet's:      17698 sweetshou1_LAe2 / contachou1_lae2 / 70m
-        // Ryder's:      17573 rydhou01_LAe2   / contachou1_lae2 / 60m
-        // CJ's garage:  17950 cjsaveg         / contachou1_lae2 / 100m
-        struct CulHouse {
-            const char* name;      // display name
-            const char* hdDff;     // HD model (no extension)
-            const char* hdTxd;     // HD texture dictionary
-            float hdDist;          // HD draw distance from IDE = LOD switch threshold
-            const char* lodDff;    // LOD model (no extension)
-            const char* lodTxd;    // LOD texture dictionary
-            float x, y, z;         // IPL placement (real game coordinates)
-            float qx, qy, qz, qw;  // IPL quaternion (real game rotation)
+        Log("PLAY MODE: Grove Street from real game data (LAe2.ipl + LAe2.ide)");
+        // LOD instance name -> HD model name (verified against LAe2.ide).
+        auto lodToHd = [](const std::string& lod) -> std::string {
+            if (lod == "lod1carlshou1_lae") return "carlshou1_lae2"; // CJ's house
+            if (lod == "lod1swetho1_lae")   return "sweetshou1_lae2"; // Sweet's house
+            if (lod == "lodrydhou_lae2")    return "rydhou01_lae2";   // Ryder's house
+            if (lod == "lod1rydkyr1_lae")   return "rydhou01_lae2";   // Ryder's 2nd bldg
+            if (lod == "lodriverbridge3")   return "riverbridge3_lae2"; // verified in IMG
+            if (lod == "lodpmedhos3_lae")   return "compmedhos3_lae";   // verified in IMG
+            if (lod == "lodpfukhouse3")     return "compfukhouse3";     // verified in IMG
+            if (lod == "lodlbd3")           return "billbd3";           // verified in IMG
+            if (lod.compare(0, 3, "lod") == 0) return lod.substr(3);  // generic strip
+            return lod;
         };
-        CulHouse houses[] = {
-            // CJ's (Johnson) house - north end of cul-de-sac, faces south
-            {"CJ_HOUSE", "carlshou1_LAe2", "contachou1_lae2", 60.0f,
-             "LOD1carlshou1_LAe", "laeast2_lod",
-             2494.265625f, -1696.210938f, 17.0546875f,
-             0.0f, 0.0f, -1.0f, -4.371138829e-008f},
-            // Sweet's house - east side
-            {"SWEET_HOUSE", "sweetshou1_LAe2", "contachou1_lae2", 70.0f,
-             "LOD1swetho1_LAe", "laeast2_lod",
-             2529.890625f, -1677.664063f, 16.7265625f,
-             0.0f, 0.0f, 0.0f, 1.0f},
-            // Ryder's house - west side
-            {"RYDER_HOUSE", "rydhou01_LAe2", "contachou1_lae2", 60.0f,
-             "LODrydhou_LAe2", "laeast2_lod",
-             2457.835938f, -1695.9375f, 14.2890625f,
-             0.0f, 0.0f, 0.7071068287f, 0.7071067095f},
-            // CJ's garage - next to CJ's house
-            {"CJ_GARAGE", "cjsaveg", "contachou1_lae2", 100.0f,
-             "LODcjsaveg", "laeast2_lod",
-             2505.476563f, -1695.289063f, 14.6953125f,
-             0.0f, 0.0f, 0.0f, 1.0f},
+        // Roads / grass / bridges / drains / tags are visual, not solid.
+        auto isSolid = [](const std::string& hd) -> bool {
+            if (hd.find("road") != std::string::npos)     return false;
+            if (hd.find("lnd") != std::string::npos)      return false;
+            if (hd.find("hubgrass") != std::string::npos) return false;
+            if (hd.find("bridge") != std::string::npos)   return false;
+            if (hd.find("drai") != std::string::npos)     return false;
+            if (hd.find("tag_") != std::string::npos)     return false;
+            if (hd.find("lbd") != std::string::npos)      return false;
+            return true;
         };
-
-        // Helper: load a DFF+TXD into render meshes, with texture dimension logging.
-        // Returns meshes via out param. Logs DFF stats and texture sizes.
-        auto loadMeshes = [&](const std::string& dffBase, const std::string& txdName,
-                              const char* tag,
-                              std::vector<D3DRenderMesh*>& outMeshes) -> bool {
-            std::string df = dffBase + ".dff";
-            if (!img.HasFile(df)) { Log("  %s SKIP: DFF not in IMG: %s", tag, df.c_str()); return false; }
-            std::vector<uint8_t> dffData = img.Extract(df);
-            if (dffData.empty()) { Log("  %s FAIL: extract %s", tag, df.c_str()); return false; }
-            DffModel dff = DffLoader::LoadFromMemory(dffData.data(), dffData.size());
-            if (!dff.valid) { Log("  %s FAIL: parse %s", tag, df.c_str()); return false; }
-            size_t totalVerts = 0, totalTris = 0;
-            for (auto& dm : dff.meshes) { totalVerts += dm.vertices.size(); totalTris += dm.indices.size() / 3; }
-            ensureTxd(txdName);
-            // Log texture dimensions for this TXD (detect low-res).
-            Log("  %s: dff=%s verts=%u tris=%u txd=%s", tag, df.c_str(),
-                (unsigned)totalVerts, (unsigned)totalTris, txdName.c_str());
-            for (auto& dm : dff.meshes) {
-                const MeshVertex* verts = reinterpret_cast<const MeshVertex*>(dm.vertices.data());
-                D3DRenderMesh* rm = g_renderer.CreateMesh(
-                    verts, (unsigned)dm.vertices.size(),
-                    dm.indices.data(), (unsigned)dm.indices.size());
-                if (rm && !dm.textureName.empty()) rm->texture = getD3dTexture(dm.textureName);
-                if (rm) outMeshes.push_back(rm);
-                else Log("  %s WARN: mesh create failed (tex=%s)", tag, dm.textureName.c_str());
-            }
-            return !outMeshes.empty();
-        };
-
-        int loaded = 0;
-        for (auto& h : houses) {
-            MapObject obj;
-            obj.name = h.name;
-            obj.solid = false;  // Q: no collision for now - walk through walls beats invisible walls
-            obj.worldMatrix = QuatToD3DMatrix(h.qx, h.qy, h.qz, h.qw, h.x, h.y, h.z);
-            obj.objX = h.x; obj.objY = h.y; obj.objZ = h.z;
-            obj.lodDist = h.hdDist;
-            // Load HD meshes.
-            bool hdOk = loadMeshes(h.hdDff, h.hdTxd, h.name, obj.meshes);
-            // Load LOD meshes.
-            bool lodOk = loadMeshes(h.lodDff, h.lodTxd, h.name, obj.lodMeshes);
-            obj.hasLod = lodOk;
-            if (hdOk) {
-                mapObjects.push_back(std::move(obj));
-                loaded++;
-                Log("  HOUSE OK: %s HD=%s LOD=%s %s at (%.2f, %.2f, %.2f) lodDist=%.0f",
-                    h.name, h.hdDff, h.lodDff, lodOk ? "(LOD loaded)" : "(NO LOD)",
-                    h.x, h.y, h.z, h.hdDist);
-            } else {
-                Log("  HOUSE FAIL: %s (HD missing)", h.name);
+        // IDE model -> TXD map (definitive texture source).
+        std::unordered_map<std::string, std::string> ideTxd;
+        {
+            std::vector<IdeObject> objs; std::unordered_map<int,size_t> byId;
+            const char* ideFiles[] = { "data/maps/LA/LAe2.ide", "data/maps/LA/LAe.ide", "data/maps/LA/LAxref.ide" };
+            for (const char* ide : ideFiles) {
+                objs.clear(); byId.clear();
+                if (IdeLoader::Load(FindGameFile(ide), objs, byId)) {
+                    for (auto& o : objs) ideTxd[o.modelName] = o.txdName;
+                    Log("PLAY: IDE %s: %u entries", ide, (unsigned)objs.size());
+                } else Log("PLAY: IDE load FAILED: %s", ide);
             }
         }
-        Log("PLAY: %d/4 cul-de-sac houses loaded (collision OFF, LOD streaming ON)", loaded);
+        // IPL instances in the Grove Street box (real game placements).
+        std::vector<IplInstance> insts;
+        if (!IplLoader::Load(FindGameFile("data/maps/LA/LAe2.ipl"), insts))
+            Log("PLAY: IPL load FAILED");
+        Log("PLAY: %u IPL instances total", (unsigned)insts.size());
+        auto inGroveBox = [](const IplInstance& in) {
+            return in.interior == 0 &&
+                   in.x >= 2400 && in.x <= 2600 &&
+                   in.y >= -1800 && in.y <= -1550;
+        };
+        // Pass 1: collect road points (street-level reference).
+        for (auto& in : insts) {
+            if (!inGroveBox(in)) continue;
+            std::string hd = lodToHd(in.modelName);
+            if (hd.find("road") != std::string::npos && in.z < 16.5f)
+                roadPts.push_back(std::make_tuple(in.x, in.y, in.z)); // surface streets only
+        }
+        Log("PLAY: %u road reference points", (unsigned)roadPts.size());
+        // Pass 2: load everything at its real position/rotation.
+        int loaded = 0, skipped = 0;
+        for (auto& in : insts) {
+            if (!inGroveBox(in)) continue;
+            std::string hd = lodToHd(in.modelName);
+            std::string dffBase = hd;
+            bool usedLod = false;
+            if (!img.HasFile(hd + ".dff")) {
+                if (img.HasFile(in.modelName + ".dff")) { dffBase = in.modelName; usedLod = true; } // LOD fallback
+                else { Log("  SKIP: no DFF for %s", in.modelName.c_str()); skipped++; continue; }
+            }
+            std::string txd;
+            auto ti = ideTxd.find(dffBase);
+            if (ti != ideTxd.end()) txd = ti->second;
+            else {
+                auto tl = ideTxd.find(in.modelName);
+                txd = (tl != ideTxd.end()) ? tl->second : "laeast2_lod";
+            }
+            bool solid = isSolid(dffBase);
+            // Local street level = nearest road z (real terrain undulates).
+            float groundZ = 12.0f, best = 1e30f;
+            for (auto& rp : roadPts) {
+                float dx = in.x - std::get<0>(rp), dy = in.y - std::get<1>(rp);
+                float d2 = dx*dx + dy*dy;
+                if (d2 < best) { best = d2; groundZ = std::get<2>(rp); }
+            }
+            if (loadModelEx(dffBase, txd, in.x, in.y, in.z,
+                            in.qx, in.qy, in.qz, in.qw,
+                            solid, groundZ, mapObjects)) {
+                Log("  INST: lod=%s dff=%s%s txd=%s solid=%d", in.modelName.c_str(),
+                    dffBase.c_str(), usedLod ? " [LOD-FALLBACK]" : "", txd.c_str(), solid ? 1 : 0);
+                loaded++;
+                if (solid) solidCount++;
+                // Doors share their house's transform (modeled at house origin).
+                if (in.modelName == "lod1swetho1_lae")
+                    loadModelEx("sweetsdoor_lae2", "contachou1_lae2",
+                                in.x, in.y, groundZ,
+                                in.qx, in.qy, in.qz, in.qw, false, 0.0f, mapObjects);
+                if (in.modelName == "lodcjsaveg")
+                    loadModelEx("cjgaragedoor", "contachou1_lae2",
+                                in.x, in.y, groundZ,
+                                in.qx, in.qy, in.qz, in.qw, false, 0.0f, mapObjects);
+            } else skipped++;
+        }
+        Log("PLAY: %d loaded (%d solid), %d skipped", loaded, solidCount, skipped);
 
-        // Player starts on the cul-de-sac, looking north toward CJ's house.
-        // Cul-de-sac center ~ (2490, -1685). Start south of houses, clear of everything.
-        playerX = 2490.0f; playerY = -1660.0f; playerZ = 14.0f + EYE_HEIGHT;
-        yaw = 3.14159f; pitch = 0.0f;  // face north (toward CJ's at y=-1696)
-        Log("SPAWN: (%.1f, %.1f, %.1f) facing north to CJ's house", playerX, playerY, playerZ);
+        // ---- Grove Street decoration: lampposts, trees, trash cans ----
+        // Q: "you can use every model not just those" - make it feel like a real street.
+        // All from Q's own game files (IDE-verified). Non-IPL, hand-placed.
+        {
+            struct Deco { const char* dff; const char* txd; float x, y, z; bool solid; };
+            Deco decos[] = {
+                // Lampposts along both sidewalks (TXD: dynsigns)
+                {"lamppost1", "dynsigns", 2492.0f, -1760.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1760.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2492.0f, -1720.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1720.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2492.0f, -1680.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1680.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2492.0f, -1640.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1640.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2492.0f, -1600.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1600.0f, 13.0f, true},
+                // Trees in front yards (TXD: tree2/tree1)
+                {"Cedar1_hi", "tree2", 2475.0f, -1740.0f, 13.0f, true},
+                {"Cedar1_hi", "tree2", 2525.0f, -1740.0f, 13.0f, true},
+                {"Elmtreegrn_hi", "tree1", 2475.0f, -1700.0f, 13.0f, true},
+                {"Elmtreegrn_hi", "tree1", 2525.0f, -1700.0f, 13.0f, true},
+                {"Cedar1_hi", "tree2", 2475.0f, -1660.0f, 13.0f, true},
+                {"Cedar1_hi", "tree2", 2525.0f, -1660.0f, 13.0f, true},
+                {"Elmtreegrn_hi", "tree1", 2475.0f, -1620.0f, 13.0f, true},
+                {"Elmtreegrn_hi", "tree1", 2525.0f, -1620.0f, 13.0f, true},
+                // Trash cans near houses (TXD: dyn_trash)
+                {"trashcan", "dyn_trash", 2488.0f, -1690.0f, 13.0f, true},
+                {"trashcan", "dyn_trash", 2512.0f, -1690.0f, 13.0f, true},
+                {"trashcan", "dyn_trash", 2488.0f, -1650.0f, 13.0f, true},
+                {"trashcan", "dyn_trash", 2512.0f, -1650.0f, 13.0f, true},
+            };
+            int decoLoaded = 0, decoSkipped = 0;
+            for (auto& d : decos) {
+                // Identity quaternion (no rotation)
+                if (loadModelEx(d.dff, d.txd, d.x, d.y, d.z,
+                                0.0f, 0.0f, 0.0f, 1.0f,
+                                d.solid, 0.0f, mapObjects)) {
+                    Log("  DECO: dff=%s txd=%s at (%.1f, %.1f)", d.dff, d.txd, d.x, d.y);
+                    decoLoaded++;
+                    if (d.solid) solidCount++;
+                } else {
+                    Log("  DECO SKIP: no DFF for %s", d.dff);
+                    decoSkipped++;
+                }
+            }
+            Log("PLAY: decoration: %d loaded, %d skipped", decoLoaded, decoSkipped);
+        }
+        // Player starts on Grove Street, looking north toward CJ's house.
+        playerX = 2505.0f; playerY = -1710.0f; playerZ = GROUND_Z + EYE_HEIGHT;
+        yaw = 1.5708f; pitch = 0.0f;
+        // ---- Spawn safety: never start inside a solid AABB ----
+        {
+            auto spawnBlocked = [&](float px, float py) -> const char* {
+                float fz = playerZ - EYE_HEIGHT;
+                for (auto& o : mapObjects) {
+                    if (!o.solid) continue;
+                    if (px + PLAYER_RADIUS < o.cMinX || px - PLAYER_RADIUS > o.cMaxX) continue;
+                    if (py + PLAYER_RADIUS < o.cMinY || py - PLAYER_RADIUS > o.cMaxY) continue;
+                    if (fz + PLAYER_HEIGHT < o.cMinZ || fz > o.cMaxZ) continue;
+                    return o.name.c_str();
+                }
+                return nullptr;
+            };
+            const char* insideName = spawnBlocked(playerX, playerY);
+            if (insideName) {
+                Log("SPAWN BLOCKED: (%.1f, %.1f) inside solid '%s' - searching clear spot",
+                    playerX, playerY, insideName);
+                bool found = false;
+                for (float r = 2.0f; r <= 60.0f && !found; r += 2.0f)
+                    for (int a = 0; a < 16 && !found; a++) {
+                        float ang = a * 6.2831853f / 16.0f;
+                        float cx = 2505.0f + cosf(ang) * r, cy = -1710.0f + sinf(ang) * r;
+                        if (!spawnBlocked(cx, cy)) { playerX = cx; playerY = cy; found = true; }
+                    }
+                // Recompute ground height at the new spot.
+                {
+                    float bd = 1e30f;
+                    for (auto& rp : roadPts) {
+                        float dx = playerX - std::get<0>(rp), dy = playerY - std::get<1>(rp);
+                        float d2 = dx * dx + dy * dy;
+                        if (d2 < bd) { bd = d2; playerZ = std::get<2>(rp) + EYE_HEIGHT; }
+                    }
+                }
+                Log("SPAWN: relocated to (%.1f, %.1f, %.1f)%s",
+                    playerX, playerY, playerZ, found ? "" : " [NO CLEAR SPOT]");
+            } else {
+                Log("SPAWN: (%.1f, %.1f, %.1f) clear of solid AABBs", playerX, playerY, playerZ);
+            }
+        }
         // Hide cursor for mouse look
         ShowCursor(FALSE);
         // Center mouse
@@ -881,17 +967,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_renderer.DrawMesh(groundMesh);
         }
 
-for (auto& obj : mapObjects) {
+        for (auto& obj : mapObjects) {
             dev->SetTransform(D3DTS_WORLD, &obj.worldMatrix);
-            // Rockstar-style LOD streaming: HD when close, LOD when far.
-            // Switch threshold = HD draw distance from the IDE.
-            float dx = playerX - obj.objX;
-            float dy = playerY - obj.objY;
-            float dz = (playerZ - EYE_HEIGHT) - obj.objZ;
-            float dist = sqrtf(dx*dx + dy*dy + dz*dz);
-            bool useLod = obj.hasLod && dist >= obj.lodDist;
-            const auto& drawMeshes = useLod ? obj.lodMeshes : obj.meshes;
-            for (auto* mesh : drawMeshes)
+            for (auto* mesh : obj.meshes)
                 g_renderer.DrawMesh(mesh);
         }
 

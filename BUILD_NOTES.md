@@ -2978,3 +2978,47 @@ gtasa_cpp.exe --scripted --log scripted.log
 gtasa_cpp.exe --play --log play.log
 ```
 All screenshots go to cpp\screenshots\, nowhere else.
+
+## 2026-10-10 - Grove Street CUL-DE-SAC REBUILD (from scratch)
+
+Q: "This isn't even Grove Street... Don't come back until you give me something that is definitively Grove Street."
+
+### What was wrong
+- 43 IPL instances placed (roads, drains, markets, strip bar, billboards) - NOT the cul-de-sac
+- Hand-placed decorations (lampposts, trees, trash cans) caused black spiky artifacts
+- AABB collision created invisible walls
+- Wrong buildings for the location
+
+### What was done - STARTED OVER
+Replaced the entire --play mode IPL loading with ONLY the 4 verified cul-de-sac houses:
+
+| House | HD model (id) | HD TXD | DrawDist | LOD model | Position (IPL) |
+|-------|---------------|--------|----------|-----------|----------------|
+| CJ's | carlshou1_LAe2 (17697) | contachou1_lae2 | 60m | LOD1carlshou1_LAe | (2494.27, -1696.21, 17.05) |
+| Sweet's | sweetshou1_LAe2 (17698) | contachou1_lae2 | 70m | LOD1swetho1_LAe | (2529.89, -1677.66, 16.73) |
+| Ryder's | rydhou01_LAe2 (17573) | contachou1_lae2 | 60m | LODrydhou_LAe2 | (2457.84, -1695.94, 14.29) |
+| CJ garage | cjsaveg (17950) | contachou1_lae2 | 100m | LODcjsaveg | (2505.48, -1695.29, 14.70) |
+
+All verified against LAe2.ide. Positions + quaternions from LAe2.ipl (real game data).
+
+### Rockstar LOD streaming implemented
+- MapObject now holds BOTH HD meshes and LOD meshes
+- Render loop checks camera distance per object per frame
+- HD when dist < lodDist (IDE draw distance), LOD when farther
+- This is how the real engine works - matches Rockstar's approach
+
+### Removed
+- ALL 43 IPL instances (roads, drains, markets, etc.)
+- ALL decorations (lampposts, trees, trash cans)
+- ALL AABB house collision (Q: "walk through walls beats invisible walls")
+- Ground collision retained
+
+### Texture investigation
+- HD TXD is contachou1_lae2 for all 4 houses (per IDE, definitive)
+- LOD TXD is laeast2_lod (smaller textures, only shown at distance now)
+- If HD textures still look low-res up close, the TXD itself may have small textures
+- Log now shows per-mesh DFF stats (verts/tris) to verify geometry
+
+### Test
+"C:\Users\fufid\Documents\Decomps\gta-sa decomp\cpp\build\Debug\gtasa_cpp.exe" --play --log culdesac.log
+Screenshots: cpp\screenshots\
