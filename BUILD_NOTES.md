@@ -2874,3 +2874,60 @@ Rebuilt --play mode around the REAL game data instead of hand-placed houses:
 - --housetest / --grove untouched (legacy yaw-only loadHouse wrapper).
 - Backups: src/main.cpp.pre_grove_geometry. Build clean.
 - NOT visually verified (D3D9 needs Q's interactive session).
+
+## 2026-10-10 - Movement fix, LOD texture fix, scripted mode (--play)
+
+### Issue 1: Player couldn't move (stuck at spawn)
+Root cause: spawn point (2505, -1710) was likely inside a solid house AABB.
+The old collision blocked EVERY axis move when inside a box (jump/Z still worked).
+Fixes in src/main.cpp:
+- Startup spawn check: tests spawn against all 21 solid AABBs; if inside one,
+  searches outward in a spiral (r=2..60m, 16 angles) for the nearest clear spot,
+  relocates the player there, recomputes ground height, and logs it.
+  Logs "SPAWN BLOCKED ... searching clear spot" or "SPAWN: (x,y,z) clear".
+- Collision now only blocks OUTSIDE->INSIDE transitions. If the player is already
+  inside a box, movement is allowed so they can walk out (boxHit old/new test).
+
+### Issue 2: LOD textures on some models
+Investigated all 43 Grove Street IPL instances against gta3.img (16,316 entries):
+- 4 hardcoded lodToHd mappings were already correct (CJ/Sweet/Ryder/garage).
+- Generic "lod" strip worked for roads/lae2_roads*/mcstraps/hubgrass/ganghous.
+- 4 NEW mappings verified in IMG and added:
+  lodriverbridge3 -> riverbridge3_lae2
+  lodpmedhos3_lae  -> compmedhos3_lae
+  lodpfukhouse3    -> compfukhouse3
+  lodlbd3          -> billbd3
+- 18 instances are TRULY LOD-only (no HD DFF exists in gta3.img or gta_int.img):
+  pwnshp, srthood, srthoodb, lndprt1, mrkt1, markt2, strpbar, lndhub04/05/06,
+  lndhb05b, gnghos05, cochieghos, stormdrai5, rdrai2a, roads07/32/31_lae01.
+  These render LOD DFF + laeast2_lod TXD (low-res) - that's all the game has.
+New diagnostics:
+- Per-instance log: "INST: lod=<name> dff=<name>[LOD-FALLBACK] txd=<name> solid=N"
+- TXD log now includes min texture dims, flags "[LOD-TXD?]" if any dim < 64.
+
+### New: --scripted mode
+`gtasa_cpp.exe --scripted` (implies --play): automatic 20s camera path, no input.
+- 5 legs x 4s: north, east, south, west, north at walk speed.
+- Saves scripted_0.bmp .. scripted_4.bmp (one per leg, after EndFrame).
+- Logs position/yaw per shot. Mouse look disabled. Auto-exits at 20s.
+
+### Test commands for Q
+1. Movement/texture check:
+   "C:\Users\fufid\Documents\Decomps\gta-sa decomp\cpp\build\Debug\gtasa_cpp.exe" --play --log grove2.log
+   Check grove2.log for SPAWN / INST / TXD lines.
+2. Scripted run (5 screenshots, no input needed):
+   "C:\Users\fufid\Documents\Decomps\gta-sa decomp\cpp\build\Debug\gtasa_cpp.exe" --scripted --log scripted.log
+   Produces scripted_0.bmp .. scripted_4.bmp in the cmd working directory.
+
+### Notes
+- No placement coordinates changed (per Q's request).
+- --housetest / --grove modes untouched.
+- Killed stale gtasa_cpp.exe (PID 3708) that was locking the exe during link.
+
+
+## 2026-10-10 - Grove Street decoration (Q: use every model)
+- Added 22 decorative props to --play mode (non-IPL, hand-placed):
+  - 10x lamppost1 (dynsigns) along both sidewalks
+  - 8x trees (Cedar1_hi/tree2, Elmtreegrn_hi/tree1) in front yards
+  - 4x trashcan (dyn_trash) near houses
+- All from Q-owned game files (IDE-verified). Build clean.

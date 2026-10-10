@@ -266,6 +266,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     bool houseTest = false;
     bool groveTest = false;
     bool playMode = false;
+    bool scripted = false;
     {
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -291,6 +292,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 groveTest = true;
             } else if (a == "--play") {
                 playMode = true;
+            } else if (a == "--scripted") {
+                scripted = true;
+                playMode = true;  // scripted implies play mode
             }
         }
         LocalFree(argv);
@@ -342,7 +346,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             std::string key = TxdLoader::KeyOf(t.name);
             if (texMap.find(key) == texMap.end()) { texMap.emplace(key, std::move(t)); added++; }
         }
-        Log("TXD %s: %u textures (%d new)", fname.c_str(), (unsigned)texs.size(), added);
+        int minW = 1 << 30, minH = 1 << 30;
+        for (auto& t : texs) {
+            if ((int)t.width < minW) minW = (int)t.width;
+            if ((int)t.height < minH) minH = (int)t.height;
+        }
+        if (texs.empty()) { minW = 0; minH = 0; }
+        Log("TXD %s: %u textures (%d new) minDim=%dx%d%s", fname.c_str(),
+            (unsigned)texs.size(), added, minW, minH,
+            (minW < 64 || minH < 64) ? " [LOD-TXD?]" : "");
     };
 
     auto getD3dTexture = [&](const std::string& texName) -> IDirect3DTexture9* {
@@ -506,6 +518,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (lod == "lod1swetho1_lae")   return "sweetshou1_lae2"; // Sweet's house
             if (lod == "lodrydhou_lae2")    return "rydhou01_lae2";   // Ryder's house
             if (lod == "lod1rydkyr1_lae")   return "rydhou01_lae2";   // Ryder's 2nd bldg
+            if (lod == "lodriverbridge3")   return "riverbridge3_lae2"; // verified in IMG
+            if (lod == "lodpmedhos3_lae")   return "compmedhos3_lae";   // verified in IMG
+            if (lod == "lodpfukhouse3")     return "compfukhouse3";     // verified in IMG
+            if (lod == "lodlbd3")           return "billbd3";           // verified in IMG
             if (lod.compare(0, 3, "lod") == 0) return lod.substr(3);  // generic strip
             return lod;
         };
@@ -557,8 +573,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (!inGroveBox(in)) continue;
             std::string hd = lodToHd(in.modelName);
             std::string dffBase = hd;
+            bool usedLod = false;
             if (!img.HasFile(hd + ".dff")) {
-                if (img.HasFile(in.modelName + ".dff")) dffBase = in.modelName; // LOD fallback
+                if (img.HasFile(in.modelName + ".dff")) { dffBase = in.modelName; usedLod = true; } // LOD fallback
                 else { Log("  SKIP: no DFF for %s", in.modelName.c_str()); skipped++; continue; }
             }
             std::string txd;
@@ -579,6 +596,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (loadModelEx(dffBase, txd, in.x, in.y, in.z,
                             in.qx, in.qy, in.qz, in.qw,
                             solid, groundZ, mapObjects)) {
+                Log("  INST: lod=%s dff=%s%s txd=%s solid=%d", in.modelName.c_str(),
+                    dffBase.c_str(), usedLod ? " [LOD-FALLBACK]" : "", txd.c_str(), solid ? 1 : 0);
                 loaded++;
                 if (solid) solidCount++;
                 // Doors share their house's transform (modeled at house origin).
@@ -593,9 +612,97 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             } else skipped++;
         }
         Log("PLAY: %d loaded (%d solid), %d skipped", loaded, solidCount, skipped);
+
+        // ---- Grove Street decoration: lampposts, trees, trash cans ----
+        // Q: "you can use every model not just those" - make it feel like a real street.
+        // All from Q's own game files (IDE-verified). Non-IPL, hand-placed.
+        {
+            struct Deco { const char* dff; const char* txd; float x, y, z; bool solid; };
+            Deco decos[] = {
+                // Lampposts along both sidewalks (TXD: dynsigns)
+                {"lamppost1", "dynsigns", 2492.0f, -1760.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1760.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2492.0f, -1720.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1720.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2492.0f, -1680.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1680.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2492.0f, -1640.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1640.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2492.0f, -1600.0f, 13.0f, true},
+                {"lamppost1", "dynsigns", 2508.0f, -1600.0f, 13.0f, true},
+                // Trees in front yards (TXD: tree2/tree1)
+                {"Cedar1_hi", "tree2", 2475.0f, -1740.0f, 13.0f, true},
+                {"Cedar1_hi", "tree2", 2525.0f, -1740.0f, 13.0f, true},
+                {"Elmtreegrn_hi", "tree1", 2475.0f, -1700.0f, 13.0f, true},
+                {"Elmtreegrn_hi", "tree1", 2525.0f, -1700.0f, 13.0f, true},
+                {"Cedar1_hi", "tree2", 2475.0f, -1660.0f, 13.0f, true},
+                {"Cedar1_hi", "tree2", 2525.0f, -1660.0f, 13.0f, true},
+                {"Elmtreegrn_hi", "tree1", 2475.0f, -1620.0f, 13.0f, true},
+                {"Elmtreegrn_hi", "tree1", 2525.0f, -1620.0f, 13.0f, true},
+                // Trash cans near houses (TXD: dyn_trash)
+                {"trashcan", "dyn_trash", 2488.0f, -1690.0f, 13.0f, true},
+                {"trashcan", "dyn_trash", 2512.0f, -1690.0f, 13.0f, true},
+                {"trashcan", "dyn_trash", 2488.0f, -1650.0f, 13.0f, true},
+                {"trashcan", "dyn_trash", 2512.0f, -1650.0f, 13.0f, true},
+            };
+            int decoLoaded = 0, decoSkipped = 0;
+            for (auto& d : decos) {
+                // Identity quaternion (no rotation)
+                if (loadModelEx(d.dff, d.txd, d.x, d.y, d.z,
+                                0.0f, 0.0f, 0.0f, 1.0f,
+                                d.solid, 0.0f, mapObjects)) {
+                    Log("  DECO: dff=%s txd=%s at (%.1f, %.1f)", d.dff, d.txd, d.x, d.y);
+                    decoLoaded++;
+                    if (d.solid) solidCount++;
+                } else {
+                    Log("  DECO SKIP: no DFF for %s", d.dff);
+                    decoSkipped++;
+                }
+            }
+            Log("PLAY: decoration: %d loaded, %d skipped", decoLoaded, decoSkipped);
+        }
         // Player starts on Grove Street, looking north toward CJ's house.
         playerX = 2505.0f; playerY = -1710.0f; playerZ = GROUND_Z + EYE_HEIGHT;
         yaw = 1.5708f; pitch = 0.0f;
+        // ---- Spawn safety: never start inside a solid AABB ----
+        {
+            auto spawnBlocked = [&](float px, float py) -> const char* {
+                float fz = playerZ - EYE_HEIGHT;
+                for (auto& o : mapObjects) {
+                    if (!o.solid) continue;
+                    if (px + PLAYER_RADIUS < o.cMinX || px - PLAYER_RADIUS > o.cMaxX) continue;
+                    if (py + PLAYER_RADIUS < o.cMinY || py - PLAYER_RADIUS > o.cMaxY) continue;
+                    if (fz + PLAYER_HEIGHT < o.cMinZ || fz > o.cMaxZ) continue;
+                    return o.name.c_str();
+                }
+                return nullptr;
+            };
+            const char* insideName = spawnBlocked(playerX, playerY);
+            if (insideName) {
+                Log("SPAWN BLOCKED: (%.1f, %.1f) inside solid '%s' - searching clear spot",
+                    playerX, playerY, insideName);
+                bool found = false;
+                for (float r = 2.0f; r <= 60.0f && !found; r += 2.0f)
+                    for (int a = 0; a < 16 && !found; a++) {
+                        float ang = a * 6.2831853f / 16.0f;
+                        float cx = 2505.0f + cosf(ang) * r, cy = -1710.0f + sinf(ang) * r;
+                        if (!spawnBlocked(cx, cy)) { playerX = cx; playerY = cy; found = true; }
+                    }
+                // Recompute ground height at the new spot.
+                {
+                    float bd = 1e30f;
+                    for (auto& rp : roadPts) {
+                        float dx = playerX - std::get<0>(rp), dy = playerY - std::get<1>(rp);
+                        float d2 = dx * dx + dy * dy;
+                        if (d2 < bd) { bd = d2; playerZ = std::get<2>(rp) + EYE_HEIGHT; }
+                    }
+                }
+                Log("SPAWN: relocated to (%.1f, %.1f, %.1f)%s",
+                    playerX, playerY, playerZ, found ? "" : " [NO CLEAR SPOT]");
+            } else {
+                Log("SPAWN: (%.1f, %.1f, %.1f) clear of solid AABBs", playerX, playerY, playerZ);
+            }
+        }
         // Hide cursor for mouse look
         ShowCursor(FALSE);
         // Center mouse
@@ -650,7 +757,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     char titleBuf[256];
 
     // Mouse look state
-    bool mouseLook = playMode;
+    bool mouseLook = playMode && !scripted;
+    float scriptedTime = 0.0f;
+    int lastScriptedSeg = -1;
+    bool takeScriptedShot = false;
+    int scriptedShotIdx = 0;
+    if (scripted) Log("SCRIPTED MODE: auto camera path, shots every 4s");
     const float MOUSE_SENS = 0.0035f;
 
     MSG msg = {};
@@ -719,6 +831,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (GetAsyncKeyState('A') & 0x8000) { mx -= rightX; my -= rightY; }
             float mlen = sqrtf(mx*mx + my*my);
             if (mlen > 0.001f) { mx /= mlen; my /= mlen; }
+            if (scripted) {
+                // Scripted path: 5 legs x 4s, loop around Grove Street.
+                scriptedTime += dt;
+                int seg = (int)(scriptedTime / 4.0f);
+                if (seg > 4) seg = 4;
+                const float legYaw[5] = { 1.5708f, 0.0f, -1.5708f, 3.14159f, 1.5708f };
+                yaw = legYaw[seg];
+                pitch = 0.0f;
+                mx = cosf(yaw); my = sinf(yaw);
+                speed = WALK_SPEED;
+                if (seg != lastScriptedSeg) {
+                    // Flag the shot; taken after EndFrame so the frame is complete.
+                    lastScriptedSeg = seg;
+                    takeScriptedShot = true;
+                    scriptedShotIdx = seg;
+                }
+                if (scriptedTime >= 20.0f) { g_running = false; }
+            }
             // ---- Player ground height = nearest road z ----
             float gz = 12.0f;
             {
@@ -731,21 +861,26 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
             // ---- AABB collision: slide along walls ----
-            auto hitsSolid = [&](float px, float py) -> bool {
+            // Blocks only when ENTERING a box from outside; if the player is
+            // already inside (bad spawn), movement is allowed so they can escape.
+            auto boxHit = [&](float px, float py, const MapObject& o) -> bool {
                 float fz = playerZ - EYE_HEIGHT;
+                if (px + PLAYER_RADIUS < o.cMinX || px - PLAYER_RADIUS > o.cMaxX) return false;
+                if (py + PLAYER_RADIUS < o.cMinY || py - PLAYER_RADIUS > o.cMaxY) return false;
+                if (fz + PLAYER_HEIGHT < o.cMinZ || fz > o.cMaxZ) return false;
+                return true;
+            };
+            auto hitsSolid = [&](float ox, float oy, float nx_, float ny_) -> bool {
                 for (auto& o : mapObjects) {
                     if (!o.solid) continue;
-                    if (px + PLAYER_RADIUS < o.cMinX || px - PLAYER_RADIUS > o.cMaxX) continue;
-                    if (py + PLAYER_RADIUS < o.cMinY || py - PLAYER_RADIUS > o.cMaxY) continue;
-                    if (fz + PLAYER_HEIGHT < o.cMinZ || fz > o.cMaxZ) continue;
-                    return true;
+                    if (boxHit(nx_, ny_, o) && !boxHit(ox, oy, o)) return true;
                 }
                 return false;
             };
             float nx = playerX + mx * speed * dt;
             float ny = playerY + my * speed * dt;
-            if (!hitsSolid(nx, playerY)) playerX = nx;
-            if (!hitsSolid(playerX, ny)) playerY = ny;
+            if (!hitsSolid(playerX, playerY, nx, playerY)) playerX = nx;
+            if (!hitsSolid(playerX, playerY, playerX, ny)) playerY = ny;
 
             // ---- Jump / gravity (feet rest on gz) ----
             if (onGround && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
@@ -812,6 +947,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
 
         g_renderer.EndFrame();
+
+        if (takeScriptedShot) {
+            takeScriptedShot = false;
+            char shotName[64];
+            snprintf(shotName, sizeof(shotName), "scripted_%d.bmp", scriptedShotIdx);
+            g_renderer.SaveScreenshot(shotName);
+            Log("SCRIPTED shot %d at (%.1f, %.1f, %.1f) yaw=%.1f",
+                scriptedShotIdx, playerX, playerY, playerZ, yaw * 57.2958f);
+        }
 
         frame++;
         if (maxFrames > 0 && frame >= maxFrames) break;
