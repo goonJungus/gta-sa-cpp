@@ -1169,7 +1169,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (veg) vegCount++; else if (lamp) lampCount++; else if (prop) propCount++; else groundCount++;
                         Log("  %s OK: %s at (%.2f, %.2f, %.2f) interior=%d txd=%s",
                             tag, mname.c_str(), in.x, in.y, in.z,
-                            in.interior, txd.c_str());
+                            in.AreaCode(), txd.c_str());
                     } else {
                         Log("  %s FAIL: %s (DFF load failed)", tag, mname.c_str());
                         skipCount++;
