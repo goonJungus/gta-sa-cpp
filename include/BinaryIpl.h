@@ -5,7 +5,7 @@
 // Format (cross-checked against gtamaptk's MIT-licensed iplcomp +
 // gta-reversed's CFileObjectInstance, and empirical hexdump):
 //   magic "bnry" @ 0 (0x79726E62)
-//   int32 instanceCount @ 4
+//   uint16 instanceCount @ 4  (retail reads a short; see decompile re-pass)
 //   int32 carGenCount @ 0x14
 //   int32 instanceArrayFileOffset @ 0x1c
 //   int32 carGenArrayFileOffset @ 0x3c (48-byte car-generator records; skipped)

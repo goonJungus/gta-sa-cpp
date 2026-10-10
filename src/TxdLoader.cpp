@@ -157,12 +157,13 @@ std::vector<TxdTexture> TxdLoader::LoadFromMemory(const uint8_t* data, size_t si
                     //   "DXT3"=0x33545844.
                     // - rasterFormat: 0x200/0x8200=DXT1, 0x300=DXT3,
                     //   0x500=A8R8G8B8, 0x600=X8R8G8B8 (32-bit).
-                    // - The old (nh.compression==1/3) checks never match real
-                    //   data (retail uses 8/9); the old (rf&0x200) DXT1 check
-                    //   misfires on 0x300 (DXT3) since 0x300&0x200!=0.
-                    //   DXT3 MUST be checked before DXT1.
+                    // - DXT tests use EXACT matches: the old (rf&0x200) bit
+                    //   test misfires on 0x600 (X8R8G8B8) since 0x600&0x200
+                    //   != 0, decoding 32-bit tree textures as DXT1 and
+                    //   producing rainbow garbage (gta_tree_boak/palm trunks).
                     bool isDXT3 = (nh.d3dFormat == 0x33545844) || (nh.rasterFormat == 0x300);
-                    bool isDXT1 = !isDXT3 && ((nh.d3dFormat == 0x31545844) || (nh.rasterFormat & 0x200));
+                    bool isDXT1 = !isDXT3 && ((nh.d3dFormat == 0x31545844) ||
+                                              nh.rasterFormat == 0x200 || nh.rasterFormat == 0x8200);
                     bool is8888 = (nh.rasterFormat & RWF_8888) != 0
                                || nh.rasterFormat == 0x500 || nh.rasterFormat == 0x600
                                || nh.d3dFormat == 0x15 || nh.d3dFormat == 0x16;  // D3DFMT_A8R8G8B8/X8R8G8B8
@@ -209,14 +210,13 @@ std::vector<TxdTexture> TxdLoader::LoadFromMemory(const uint8_t* data, size_t si
                                 tex.mip0.resize(expect);
                                 std::vector<uint8_t> raw(ds);
                                 if (r.Read(raw.data(), ds)) {
-                                    // RW stores RGBA byte order; D3D A8R8G8B8
-                                    // wants B,G,R,A. Swizzle in place.
-                                    for (uint32_t p = 0; p < expect; p += 4) {
-                                        tex.mip0[p + 0] = raw[p + 2];
-                                        tex.mip0[p + 1] = raw[p + 1];
-                                        tex.mip0[p + 2] = raw[p + 0];
-                                        tex.mip0[p + 3] = raw[p + 3];
-                                    }
+                                    // D3D9 native 32-bit textures are stored in
+                                    // native D3D byte order (B,G,R,A bytes for
+                                    // A8R8G8B8) - direct copy, NO swizzle.
+                                    // (The old RGBA->BGRA swizzle turned green
+                                    // tree foliage teal; verified by decoding
+                                    // newtreeleaves128 both ways.)
+                                    memcpy(tex.mip0.data(), raw.data(), expect);
                                     ok = true;
                                 } else {
                                     tex.mip0.clear();

@@ -35,6 +35,9 @@ public:
     void DrawTestTriangle();
     void EndFrame();
 
+    // Sky (M4): gradient dome + sun billboard. Call after BeginFrame.
+    void RenderSky(float camX, float camY, float camZ);
+
     // Mesh rendering
     D3DRenderMesh* CreateMesh(const MeshVertex* verts, uint32_t numVerts,
                               const uint16_t* indices, uint32_t numIndices);
@@ -65,6 +68,14 @@ private:
     int               m_width;
     int               m_height;
     char              m_adapterDesc[128];
+
+    // Sky resources (M4), built lazily on first RenderSky.
+    D3DMATRIX m_view;  // cached view matrix (billboard orientation)
+    IDirect3DVertexBuffer9* m_skyVB = nullptr;
+    IDirect3DIndexBuffer9*  m_skyIB = nullptr;
+    uint32_t m_skyIndexCount = 0;
+    IDirect3DTexture9* m_sunTex = nullptr;
+    void BuildSkyResources();
 };
 
 // Math helpers (no D3DX)

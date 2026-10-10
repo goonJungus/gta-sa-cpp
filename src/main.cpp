@@ -488,13 +488,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
     // ---- Ground plane (grass-colored safety net under the real geometry) ----
     auto buildGround = [&]() -> D3DRenderMesh* {
-        // 8000x8000 quad centered on Grove Street (2500,-1680) at z=11.31 (GROUND_Z).
-        // Meets the lowest measured house base (11.360). Real roads/houses sit on top.
+        // 8000x8000 quad centered on Grove Street (2500,-1680) at z=9.0.
+        // Below the lowest retail ground surface in the box (~9.13, lae2_landhub06
+        // embankment), so retail ground DFFs render on top wherever they exist
+        // and this quad only shows through in gaps with no retail ground.
         MeshVertex verts[4] = {
-            {-1500, -5680, 11.31f,  0,0,1,  0,0},
-            { 6500, -5680, 11.31f,  0,0,1,  1,0},
-            { 6500,  2320, 11.31f,  0,0,1,  1,1},
-            {-1500,  2320, 11.31f,  0,0,1,  0,1},
+            {-1500, -5680, 9.0f,  0,0,1,  0,0},
+            { 6500, -5680, 9.0f,  0,0,1,  1,0},
+            { 6500,  2320, 9.0f,  0,0,1,  1,1},
+            {-1500,  2320, 9.0f,  0,0,1,  0,1},
         };
         uint16_t idx[6] = {0,1,2, 0,2,3};
         // Tint via vertex color? Our FVF has no color. Use untextured (white) for now.
@@ -565,6 +567,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
     // ---- Player state (first-person, real human scale) ----
     float playerX = 2505.0f, playerY = -1710.0f, playerZ = 13.7f; // eye
+    float camPosX = 2505.0f, camPosY = -1710.0f, camPosZ = 13.7f; // camera world pos (sky dome follows)
     float yaw = 1.5708f;  // radians, facing north (+Y) toward CJ's house
     float pitch = 0.0f;   // radians, positive = look up
     float velZ = 0.0f;    // vertical velocity for jumping
@@ -572,7 +575,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     bool thirdPerson = false; // V toggles 1st/3rd person camera
     bool prevV = false;       // edge-detect for V key
     const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters
-    const float GROUND_Z = 11.31f;   // measured: min house base 11.360 - 0.05 (grove_heights.txt)
+    const float GROUND_Z = 9.0f;     // safety-net grass plane; below lowest retail ground (~9.13)
     const float WALK_SPEED = 5.0f;
     const float RUN_SPEED = 10.0f;
     const float JUMP_VEL = 8.5f;     // ~1.6 m jump apex
@@ -584,13 +587,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     // ---- Ground height query (Agent 17): feet placement on roads vs grass ----
     // Agent 15's collision-based GetGroundHeight was never implemented; this is
     // the measured-AABB version. Roads sit above the grass plane (cul-de-sac
-    // road top ~12.6 vs grass 11.31); without this the player spawns buried in
+    // road top ~12.6 vs grass 9.0); without this the player spawns buried in
     // the road. A road surface only counts if within STEP_UP of the current
     // feet height, so walking UNDER the elevated highway never teleports up.
     auto IsRoadObject = [](const MapObject& o) -> bool {
         std::string n = o.name;
         for (auto& c : n) c = (char)tolower((unsigned char)c);
-        return n.find("roads") != std::string::npos;
+        return n.find("road") != std::string::npos;
+    };
+    auto IsGroundObject = [](const MapObject& o) -> bool {
+        // Retail ground pieces (yard/terrain quads from binary stream IPLs).
+        return o.name.rfind("lae2_landhub", 0) == 0 || o.name == "rydbkyar1_lae2";
     };
     auto GetGroundHeight = [&](float x, float y, float feetZ) -> float {
         // COL3 triangles first: accurate Rockstar road surface (grades/curbs).
@@ -756,7 +763,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // Returns meshes via out param. Logs DFF stats and texture sizes.
         auto loadMeshes = [&](const std::string& dffBase, const std::string& txdName,
                               const char* tag,
-                              std::vector<D3DRenderMesh*>& outMeshes) -> bool {
+                              std::vector<D3DRenderMesh*>& outMeshes,
+                              float* outBounds = nullptr) -> bool {
             std::string df = dffBase + ".dff";
             if (!img.HasFile(df)) { Log("  %s SKIP: DFF not in IMG: %s", tag, df.c_str()); return false; }
             std::vector<uint8_t> dffData = img.Extract(df);
@@ -765,6 +773,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (!dff.valid) { Log("  %s FAIL: parse %s", tag, df.c_str()); return false; }
             size_t totalVerts = 0, totalTris = 0;
             for (auto& dm : dff.meshes) { totalVerts += dm.vertices.size(); totalTris += dm.indices.size() / 3; }
+            if (outBounds) {
+                // Model-space bounds (min xyz, max xyz) for world AABB computation.
+                outBounds[0]=outBounds[1]=outBounds[2]=1e30f;
+                outBounds[3]=outBounds[4]=outBounds[5]=-1e30f;
+                for (auto& dm : dff.meshes)
+                    for (auto& v : dm.vertices) {
+                        if (v.x<outBounds[0]) outBounds[0]=v.x;
+                        if (v.y<outBounds[1]) outBounds[1]=v.y;
+                        if (v.z<outBounds[2]) outBounds[2]=v.z;
+                        if (v.x>outBounds[3]) outBounds[3]=v.x;
+                        if (v.y>outBounds[4]) outBounds[4]=v.y;
+                        if (v.z>outBounds[5]) outBounds[5]=v.z;
+                    }
+            }
             ensureTxd(txdName);
             // Log texture dimensions for this TXD (detect low-res).
             Log("  %s: dff=%s verts=%u tris=%u txd=%s", tag, df.c_str(),
@@ -806,46 +828,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
         }
         Log("PLAY: %d/4 cul-de-sac houses loaded (collision ON, LOD streaming ON)", loaded);
-
-        // CJ's garage - east of CJ's house. The garage building is model
-        // 17950 cjsaveg (despite the name, it uses building textures: brick,
-        // ws_peeling2, ws_rottenwall - NOT vegetation). The door is 17951
-        // cjgaragedoor on the garage's north face. Both from binary stream
-        // lae2_stream0.ipl (retail HD placements). LOD: 17952 LODcjsaveg.
-        CulHouse garageParts[] = {
-            // Garage building - HD: 17950 cjsaveg / contachou1_lae2 / 100m
-            {"CJ_GARAGE", "cjsaveg", "contachou1_lae2", 100.0f,
-             "LODcjsaveg", "laeast2_lod",
-             2505.4765625f, -1695.2890625f, 14.6953125f,
-             0.0f, 0.0f, 0.0f, 1.0f, 12.445f},
-            // Garage door - HD: 17951 cjgaragedoor / contachou1_lae2 / 100m, no LOD
-            {"CJ_GARAGE_DOOR", "cjgaragedoor", "contachou1_lae2", 100.0f,
-             "NOLOD_GARAGEDOOR", "NOLOD",
-             2505.5234375f, -1690.9921875f, 14.328125f,
-             0.0f, 0.0f, 0.7071068f, 0.7071068f, 12.548f},
-        };
-        int garageLoaded = 0;
-        for (auto& h : garageParts) {
-            MapObject obj;
-            obj.name = h.name;
-            obj.solid = false;  // attachColBoxes() below enables real COL collision when boxes exist
-            float placeZ = h.z;      // raw IPL Z (Rockstar authored)
-            obj.worldMatrix = QuatToD3DMatrix(h.qx, h.qy, h.qz, h.qw, h.x, h.y, placeZ);
-            obj.objX = h.x; obj.objY = h.y; obj.objZ = placeZ;
-            obj.lodDist = h.hdDist;
-            bool hdOk = loadMeshes(h.hdDff, h.hdTxd, h.name, obj.meshes);
-            bool lodOk = loadMeshes(h.lodDff, h.lodTxd, h.name, obj.lodMeshes);
-            obj.hasLod = lodOk;
-            if (hdOk) {
-                attachColBoxes(obj, h.hdDff, h.name);
-                mapObjects.push_back(std::move(obj));
-                garageLoaded++;
-                Log("  GARAGE OK: %s base=%.2f HD=%s", h.name, h.baseZ, h.hdDff);
-            } else {
-                Log("  GARAGE FAIL: %s (HD missing)", h.name);
-            }
-        }
-        Log("PLAY: %d/2 CJ garage parts loaded (building solid via COL boxes)", garageLoaded);
 
         // Ring houses + strip mall + pawn shop - HD instances from binary stream IPLs
         // (lae2_stream0/2.ipl in gta3.img). The full cul-de-sac circle per Q's
@@ -943,6 +925,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             {"HIGHWAY_WEST", "Lae2_roads50", "lae2roads",
              "LODLae2_roads50", "laeast2_lod", 150.0f,
              2431.054688f, -1677.429688f, 20.3125f},
+            // East street connection (2 eastern lamppost2s plant on this road)
+            // HD: 17654 Lae2_roads44 / lae2roads / 150m / flags=1 (IsRoad)
+            // Binary stream lae2_stream0.ipl: (2556.35, -1612.91, 15.91)
+            // No LOD DFF in retail IMG -> HD only (hasLod=false).
+            {"ROAD_EAST", "Lae2_roads44", "lae2roads",
+             "LODLae2_roads44", "laeast2_lod", 150.0f,
+             2556.351563f, -1612.914063f, 15.90625f},
         };
         int roadsLoaded = 0;
         for (auto& r : roads) {
@@ -964,7 +953,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Log("  ROAD FAIL: %s HD missing", r.hdDff);
             }
         }
-        Log("PLAY: %d/3 Grove Street roads loaded (collision ON)", roadsLoaded);
+        Log("PLAY: %d/4 Grove Street roads loaded (collision ON)", roadsLoaded);
 
         // ---- COL3 ground triangles (Agent 15): Rockstar road collision ----
         // Accurate surface (grades/curbs) from lae2_4.col, transformed by the
@@ -976,6 +965,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 {"Lae2_roads89", 2489.296875f, -1668.5f, 12.296875f},
                 {"Lae2_roads46", 2433.070313f, -1611.554688f, 12.03125f},
                 {"Lae2_roads50", 2431.054688f, -1677.429688f, 20.3125f},
+                {"Lae2_roads44", 2556.351563f, -1612.914063f, 15.90625f},
             };
             int colRoads = 0;
             for (auto& rc : rcs) {
@@ -1028,6 +1018,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             Log("STREAM: IDE table: %u model IDs", (unsigned)ideById.size());
 
             // Category matchers (IDE model names are lowercase).
+            // Retail ground: yard/terrain quads for the cul-de-sac hub
+            // (hunt 2026-10-10: lae2_stream0/2 in-box scan; COL in lae2_4.col).
+            auto isGround = [](const std::string& n) -> bool {
+                return n.rfind("lae2_landhub", 0) == 0 || n == "rydbkyar1_lae2";
+            };
             auto isVegetation = [](const std::string& n) -> bool {
                 return n.rfind("veg_", 0) == 0 || n.rfind("sm_veg", 0) == 0 ||
                        n.rfind("sm_bush", 0) == 0 || n == "new_bushtest" ||
@@ -1045,7 +1040,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                        n.find("cardboardbox") != std::string::npos ||
                        n.find("dyn_f_") != std::string::npos ||
                        n.find("dyn_mesh") != std::string::npos ||
-                       n.find("bskball") != std::string::npos;
+                       n.find("bskball") != std::string::npos ||
+                       // House/garage doors (retail static placements, closed)
+                       n.find("door") != std::string::npos ||
+                       // Entry facades (3D surrounds, not decals)
+                       n.find("faux") != std::string::npos ||
+                       // Decals: graffiti, bullet holes, alpha ground blends
+                       n.find("graff") != std::string::npos ||
+                       n.find("ryder_holes") != std::string::npos ||
+                       n.find("hubst4alpha") != std::string::npos ||
+                       n.find("hub_grnd_alpha") != std::string::npos ||
+                       // Misc retail in-box props
+                       n.find("hubridge_smash") != std::string::npos ||
+                       n.find("starthootra1_lae") != std::string::npos ||
+                       // CJ's garage building (despite the name: brick/wall
+                       // textures, not vegetation; binary stream placement)
+                       n == "cjsaveg";
             };
             auto isAlreadyPlaced = [](const std::string& n) -> bool {
                 // Houses, ring buildings, and roads are placed by the
@@ -1055,21 +1065,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     "ganghous01_lax", "compfukhouse3", "ganghous02_lax",
                     "ganghous05_lax", "mcstraps_lae2", "pawnshp_lae2",
                     "lae2_roads89", "lae2_roads46", "lae2_roads50",
+                    "lae2_roads44",
                 };
                 for (auto p : placed) if (n == p) return true;
                 return false;
             };
             auto skipReasonFor = [](const std::string& n, std::string& reason) -> bool {
-                if (n.find("door") != std::string::npos) { reason = "needs door anim"; return true; }
+                // Doors/faux/decals are placed statically (closed/as-authored).
                 if (n.find("fuckcar") != std::string::npos) { reason = "needs vehicle code"; return true; }
-                if (n.find("graffiti") != std::string::npos ||
-                    n.find("ryder_holes") != std::string::npos ||
-                    n.find("faux") != std::string::npos) { reason = "needs decal system"; return true; }
                 return false;
             };
 
             const char* streamFiles[] = { "lae2_stream0.ipl", "lae2_stream2.ipl" };
-            int vegCount = 0, lampCount = 0, propCount = 0, skipCount = 0;
+            int vegCount = 0, lampCount = 0, propCount = 0, groundCount = 0, skipCount = 0;
             for (auto sf : streamFiles) {
                 if (!img.HasFile(sf)) { Log("STREAM: not in IMG: %s", sf); continue; }
                 std::vector<uint8_t> iplData = img.Extract(sf);
@@ -1103,10 +1111,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         skipCount++;
                         continue;
                     }
-                    bool veg = isVegetation(mname);
-                    bool lamp = !veg && isLamp(mname);
-                    bool prop = !veg && !lamp && isProp(mname);
-                    if (!veg && !lamp && !prop) {
+                    bool ground = isGround(mname);
+                    bool veg = !ground && isVegetation(mname);
+                    bool lamp = !ground && !veg && isLamp(mname);
+                    bool prop = !ground && !veg && !lamp && isProp(mname);
+                    if (!veg && !lamp && !prop && !ground) {
                         Log("  STREAM SKIP: %s at (%.1f, %.1f, %.1f) (out of scope)",
                             mname.c_str(), in.x, in.y, in.z);
                         skipCount++;
@@ -1123,23 +1132,53 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     obj.objX = in.x; obj.objY = in.y; obj.objZ = in.z;
                     obj.lodDist = it->second.drawDistance;
                     obj.hasLod = false;  // props: HD only, always drawn
-                    const char* tag = veg ? "VEG" : (lamp ? "LAMP" : "PROP");
+                    const char* tag = ground ? "GROUND" : (veg ? "VEG" : (lamp ? "LAMP" : "PROP"));
                     std::vector<D3DRenderMesh*> meshes;
-                    if (loadMeshes(mname, txd, tag, meshes)) {
+                    float gb[6];  // model-space bounds for the ground world AABB
+                    if (loadMeshes(mname, txd, tag, meshes, ground ? gb : nullptr)) {
+                        if (ground) {
+                            // World-space AABB from the 8 model-space corners.
+                            float wmnx=1e30f, wmny=1e30f, wmnz=1e30f;
+                            float wmxx=-1e30f, wmxy=-1e30f, wmxz=-1e30f;
+                            for (int cxi=0;cxi<2;cxi++) for (int cyi=0;cyi<2;cyi++) for (int czi=0;czi<2;czi++) {
+                                float px=cxi?gb[3]:gb[0], py=cyi?gb[4]:gb[1], pz=czi?gb[5]:gb[2], ox, oy, oz;
+                                xformPt(obj.worldMatrix, px, py, pz, ox, oy, oz);
+                                if (ox<wmnx) wmnx=ox; if (ox>wmxx) wmxx=ox;
+                                if (oy<wmny) wmny=oy; if (oy>wmxy) wmxy=oy;
+                                if (oz<wmnz) wmnz=oz; if (oz>wmxz) wmxz=oz;
+                            }
+                            obj.cMinX=wmnx; obj.cMinY=wmny; obj.cMinZ=wmnz;
+                            obj.cMaxX=wmxx; obj.cMaxY=wmxy; obj.cMaxZ=wmxz;
+                            // Walkable COL triangles from lae2_4.col with the same
+                            // placement matrix as the visual mesh. GetGroundHeight
+                            // queries colTris first, so feet follow the real surface.
+                            if (!colArcA.empty()) {
+                                std::vector<ColTriangle> gtris;
+                                if (ColLoader::LoadModelTriangles(colArcA.data(), colArcA.size(),
+                                        mname.c_str(), in.qx, in.qy, in.qz, in.qw,
+                                        in.x, in.y, in.z, gtris)) {
+                                    Log("  GROUND COL: %s tris=%u", mname.c_str(), (unsigned)gtris.size());
+                                    colTris.insert(colTris.end(), gtris.begin(), gtris.end());
+                                } else {
+                                    Log("  GROUND COL FAIL: %s (no COL entry)", mname.c_str());
+                                }
+                            }
+                        }
                         obj.meshes = std::move(meshes);
                         mapObjects.push_back(std::move(obj));
-                        if (veg) vegCount++; else if (lamp) lampCount++; else propCount++;
+                        if (veg) vegCount++; else if (lamp) lampCount++; else if (prop) propCount++; else groundCount++;
                         Log("  %s OK: %s at (%.2f, %.2f, %.2f) interior=%d txd=%s",
                             tag, mname.c_str(), in.x, in.y, in.z,
-                            in.areaAndFlags, txd.c_str());
+                            in.interior, txd.c_str());
                     } else {
                         Log("  %s FAIL: %s (DFF load failed)", tag, mname.c_str());
                         skipCount++;
                     }
                 }
             }
-            Log("STREAM: placed VEG=%d LAMP=%d PROP=%d SKIP=%d",
-                vegCount, lampCount, propCount, skipCount);
+            Log("STREAM: placed VEG=%d LAMP=%d PROP=%d GROUND=%d SKIP=%d",
+                vegCount, lampCount, propCount, groundCount, skipCount);
+            Log("COL: %u total ground triangles (roads + retail ground)", (unsigned)colTris.size());
         }
         // Honest "(N solid)" overlay: count collision-enabled objects.
         solidCount = 0;
@@ -1155,7 +1194,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // to the elevated highway if spawning underneath it).
         float spawnGround = GROUND_Z;
         for (auto& o : mapObjects) {
-            if (!IsRoadObject(o)) continue;
+            if (!IsRoadObject(o) && !IsGroundObject(o)) continue;
             if (playerX < o.cMinX || playerX > o.cMaxX ||
                 playerY < o.cMinY || playerY > o.cMaxY) continue;
             if (o.cMaxZ > spawnGround && o.cMaxZ < spawnGround + 3.0f)
@@ -1416,6 +1455,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 float tz = playerZ + dirZ;
                 D3DMATRIX view = MatrixLookAt(playerX, playerY, playerZ, tx, ty, tz, 0, 0, 1);
                 g_renderer.SetViewMatrix(view);
+                camPosX = playerX; camPosY = playerY; camPosZ = playerZ;
             } else {
                 // Over-shoulder: camera pulled back along view dir, lifted a touch.
                 const float CAM_DIST = 4.5f;
@@ -1427,17 +1467,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 float tz = playerZ + dirZ * 8.0f;
                 D3DMATRIX view = MatrixLookAt(cx, cy, cz, tx, ty, tz, 0, 0, 1);
                 g_renderer.SetViewMatrix(view);
+                camPosX = cx; camPosY = cy; camPosZ = cz;
             }
         }
 
         g_renderer.BeginFrame(0.4f, 0.6f, 0.9f);
+
+        // Sky gradient dome + sun (M4). Drawn first, no depth.
+        if (playMode) g_renderer.RenderSky(camPosX, camPosY, camPosZ);
 
         // Distance fog in play mode (hides the ground-plane edge).
         if (playMode) {
             float fogStart = 400.0f, fogEnd = 2500.0f;
             dev->SetRenderState(D3DRS_FOGENABLE, TRUE);
             dev->SetRenderState(D3DRS_FOGVERTEXMODE, D3DFOG_LINEAR);
-            dev->SetRenderState(D3DRS_FOGCOLOR, 0xFF6699E6);
+            dev->SetRenderState(D3DRS_FOGCOLOR, 0xFF35A2E3);  // match sky horizon (53,162,227)
             dev->SetRenderState(D3DRS_FOGSTART, *(DWORD*)&fogStart);
             dev->SetRenderState(D3DRS_FOGEND, *(DWORD*)&fogEnd);
         }

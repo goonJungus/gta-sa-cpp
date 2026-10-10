@@ -10,9 +10,11 @@ bool BinaryIplLoader::LoadFromMemory(const uint8_t* data, size_t size,
     if (std::memcmp(data, "bnry", 4) != 0)
         return false;
 
-    int32_t count = 0;
+    // Retail (CIplStore::LoadIpl @00406080) reads the instance count as a
+    // SHORT @0x04 (verified in decompile re-pass, 2026-10-10).
+    uint16_t count = 0;
     std::memcpy(&count, data + 4, sizeof(count));
-    if (count < 0 || count > 100000)
+    if (count > 100000)
         return false;
 
     int32_t arrOff = 0;
