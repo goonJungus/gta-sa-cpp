@@ -480,13 +480,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
     // ---- Ground plane (grass-colored safety net under the real geometry) ----
     auto buildGround = [&]() -> D3DRenderMesh* {
-        // 8000x8000 quad centered on Grove Street (2500,-1680) at z=10,
-        // below the lowest road (~11.1). Real roads/land/houses sit on top.
+        // 8000x8000 quad centered on Grove Street (2500,-1680) at z=11.31 (GROUND_Z).
+        // Meets the lowest measured house base (11.360). Real roads/houses sit on top.
         MeshVertex verts[4] = {
-            {-1500, -5680, 12,  0,0,1,  0,0},
-            { 6500, -5680, 12,  0,0,1,  1,0},
-            { 6500,  2320, 12,  0,0,1,  1,1},
-            {-1500,  2320, 12,  0,0,1,  0,1},
+            {-1500, -5680, 11.31f,  0,0,1,  0,0},
+            { 6500, -5680, 11.31f,  0,0,1,  1,0},
+            { 6500,  2320, 11.31f,  0,0,1,  1,1},
+            {-1500,  2320, 11.31f,  0,0,1,  0,1},
         };
         uint16_t idx[6] = {0,1,2, 0,2,3};
         // Tint via vertex color? Our FVF has no color. Use untextured (white) for now.
@@ -518,23 +518,62 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     D3DRenderMesh* groundMesh = buildGround();
     if (groundMesh) groundMesh->texture = groundTex;
 
+    const float CJ_HEIGHT = 1.8132f; // measured from player.img part DFFs (feet/legs/torso/head/hands) bind-pose vertices
+    // ---- CJ-scale player reference: box of exactly CJ_HEIGHT ----
+    // Feet at z=0 in local space; world matrix puts base at player feet.
+    // Plain safety-orange material (scale reference, not final CJ model).
+    D3DRenderMesh* playerMesh = nullptr;
+    IDirect3DTexture9* playerTex = nullptr;
+    {
+        const float hw = 0.25f;     // half-width  (0.5m wide)
+        const float hd = 0.25f;     // half-depth
+        const float ht = CJ_HEIGHT; // 1.8132m tall
+        MeshVertex pv[8] = {
+            {-hw,-hd,0,  0,0,1,  0,0}, {hw,-hd,0,  0,0,1,  1,0},
+            {hw, hd,0,  0,0,1,  1,1},  {-hw,hd,0,  0,0,1,  0,1},
+            {-hw,-hd,ht, 0,0,1,  0,0}, {hw,-hd,ht, 0,0,1,  1,0},
+            {hw, hd,ht, 0,0,1,  1,1},  {-hw,hd,ht, 0,0,1,  0,1},
+        };
+        uint16_t pidx[36] = {
+            0,1,2, 0,2,3,   // bottom (mirrors ground winding)
+            4,5,6, 4,6,7,   // top (same pattern as ground)
+            0,5,1, 0,4,5,   // front (-Y)
+            3,2,6, 3,6,7,   // back (+Y)
+            0,3,7, 0,7,4,   // left (-X)
+            1,5,6, 1,6,2,   // right (+X)
+        };
+        playerMesh = g_renderer.CreateMesh(pv, 8, pidx, 36);
+        IDirect3DDevice9* pdev = g_renderer.GetDevice();
+        if (pdev && SUCCEEDED(pdev->CreateTexture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &playerTex, nullptr))) {
+            D3DLOCKED_RECT lr = {};
+            if (SUCCEEDED(playerTex->LockRect(0, &lr, nullptr, 0))) {
+                *(uint32_t*)lr.pBits = 0xFFFF6600; // safety orange
+                playerTex->UnlockRect(0);
+            }
+        }
+        if (playerMesh) playerMesh->texture = playerTex;
+        Log("PLAYER MESH: CJ_HEIGHT=%.4fm orange box (%s)", CJ_HEIGHT, playerMesh ? "OK" : "FAIL");
+    }
+
     // ---- Player state (first-person, real human scale) ----
     float playerX = 2505.0f, playerY = -1710.0f, playerZ = 13.7f; // eye
     float yaw = 1.5708f;  // radians, facing north (+Y) toward CJ's house
     float pitch = 0.0f;   // radians, positive = look up
     float velZ = 0.0f;    // vertical velocity for jumping
     bool onGround = true;
+    bool thirdPerson = false; // V toggles 1st/3rd person camera
+    bool prevV = false;       // edge-detect for V key
     const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters
-    const float GROUND_Z = 12.0f;    // nominal Ganton street level (feet)
+    const float GROUND_Z = 11.31f;   // measured: min house base 11.360 - 0.05 (grove_heights.txt)
     const float WALK_SPEED = 5.0f;
     const float RUN_SPEED = 10.0f;
     const float JUMP_VEL = 8.5f;     // ~1.6 m jump apex
     const float GRAVITY = 22.0f;
     const float PLAYER_RADIUS = 0.5f;
-    const float PLAYER_HEIGHT = 1.8f;
+    const float PLAYER_HEIGHT = CJ_HEIGHT; // 1.8132m measured, not assumed
 
     if (playMode) {
-        Log("PLAY MODE: Grove Street cul-de-sac ONLY (4 houses, HD+LOD streaming)");
+        Log("PLAY MODE: Grove Street cul-de-sac ONLY (4 houses + 3 roads, HD+LOD streaming)");
         Log("PLAY: Rockstar LOD system: HD within lodDist, LOD beyond. No collision (Q request).");
 
         // The 4 Grove Street cul-de-sac houses. Verified against LAe2.ide:
@@ -552,29 +591,30 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             const char* lodTxd;    // LOD texture dictionary
             float x, y, z;         // IPL placement (real game coordinates)
             float qx, qy, qz, qw;  // IPL quaternion (real game rotation)
+            float baseZ;           // world base Z = IPL z + DFF bbox minZ (measured, grove_heights.txt)
         };
         CulHouse houses[] = {
             // CJ's (Johnson) house - north end of cul-de-sac, faces south
             {"CJ_HOUSE", "carlshou1_LAe2", "contachou1_lae2", 60.0f,
              "LOD1carlshou1_LAe", "laeast2_lod",
              2494.265625f, -1696.210938f, 17.0546875f,
-             0.0f, 0.0f, -1.0f, -4.371138829e-008f},
+             0.0f, 0.0f, -1.0f, -4.371138829e-008f, 12.416f},
             // Sweet's house - east side
             {"SWEET_HOUSE", "sweetshou1_LAe2", "contachou1_lae2", 70.0f,
              "LOD1swetho1_LAe", "laeast2_lod",
              2529.890625f, -1677.664063f, 16.7265625f,
-             0.0f, 0.0f, 0.0f, 1.0f},
+             0.0f, 0.0f, 0.0f, 1.0f, 13.829f},
             // Ryder's house - west side
             {"RYDER_HOUSE", "rydhou01_LAe2", "contachou1_lae2", 60.0f,
              "LODrydhou_LAe2", "laeast2_lod",
              2457.835938f, -1695.9375f, 14.2890625f,
-             0.0f, 0.0f, 0.7071068287f, 0.7071067095f},
+             0.0f, 0.0f, 0.7071068287f, 0.7071067095f, 12.501f},
             // Neighbor house (ganghous01_LAx) - north side, real IPL placement
             // HD: 3649 ganghous01_LAx / ganghouse1_lax / 80m (LAxref.ide)
             {"NEIGHBOR_HOUSE", "ganghous01_LAx", "ganghouse1_lax", 80.0f,
              "LODganghous01_LAx", "gangholod1_lax",
              2517.476563f, -1644.695313f, 15.1953125f,
-             0.0f, 0.0f, -0.3826832771f, 0.9238796234f},
+             0.0f, 0.0f, -0.3826832771f, 0.9238796234f, 11.360f},
         };
 
         // Helper: load a DFF+TXD into render meshes, with texture dimension logging.
@@ -611,7 +651,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             MapObject obj;
             obj.name = h.name;
             obj.solid = false;  // Q: no collision for now - walk through walls beats invisible walls
-            float placeZ = GROUND_Z; // sink base to common cul-de-sac ground level
+            float placeZ = h.z;      // RESTORED: raw IPL Z (Rockstar authored, grove_heights.txt)
             obj.worldMatrix = QuatToD3DMatrix(h.qx, h.qy, h.qz, h.qw, h.x, h.y, placeZ);
             obj.objX = h.x; obj.objY = h.y; obj.objZ = placeZ;
             obj.lodDist = h.hdDist;
@@ -623,9 +663,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (hdOk) {
                 mapObjects.push_back(std::move(obj));
                 loaded++;
-                Log("  HOUSE OK: %s HD=%s LOD=%s %s at (%.2f, %.2f, %.2f->%.2f) lodDist=%.0f",
-                    h.name, h.hdDff, h.lodDff, lodOk ? "(LOD loaded)" : "(NO LOD)",
-                    h.x, h.y, h.z, placeZ, h.hdDist);
+                Log("  HOUSE OK: %s base=%.2f ground=%.2f HD=%s",
+                    h.name, h.baseZ, GROUND_Z, h.hdDff);
             } else {
                 Log("  HOUSE FAIL: %s (HD missing)", h.name);
             }
@@ -683,8 +722,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // Player starts on the cul-de-sac, looking north toward CJ's house.
         // Cul-de-sac center ~ (2490, -1685). Start south of houses, clear of everything.
         playerX = 2490.0f; playerY = -1660.0f; playerZ = GROUND_Z + EYE_HEIGHT;
-        yaw = 3.14159f; pitch = 0.0f;  // face north (toward CJ's at y=-1696)
+        yaw = -1.4535f; pitch = 0.0f;  // face CJ's house (dir ~ -Y from spawn)
         Log("SPAWN: (%.1f, %.1f, %.1f) facing north to CJ's house", playerX, playerY, playerZ);
+        Log("CJ_HEIGHT: %.4f m (measured from player.img part DFF bind-pose verts)", CJ_HEIGHT);
         // Hide cursor for mouse look
         ShowCursor(FALSE);
         // Center mouse
@@ -858,7 +898,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (flyoverTime >= 60.0f) { g_running = false; }
             }
             // ---- Player ground height = nearest road z ----
-            float gz = 12.0f;
+            float gz = GROUND_Z; // grass plane; roadPts snap unused (no road footprint data yet)
             {
                 float bd = 1e30f;
                 for (auto& rp : roadPts) {
@@ -903,13 +943,35 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
 
+            // ---- V toggles 1st/3rd person camera ----
+            bool vDown = (GetAsyncKeyState('V') & 0x8000) != 0;
+            if (vDown && !prevV) {
+                thirdPerson = !thirdPerson;
+                Log("CAMERA: %s", thirdPerson ? "THIRD-PERSON" : "FIRST-PERSON");
+            }
+            prevV = vDown;
+
             // ---- Build view matrix from yaw/pitch ----
             float cp = cosf(pitch), sp = sinf(pitch);
-            float tx = playerX + cosf(yaw) * cp;
-            float ty = playerY + sinf(yaw) * cp;
-            float tz = playerZ + sp;
-            D3DMATRIX view = MatrixLookAt(playerX, playerY, playerZ, tx, ty, tz, 0, 0, 1);
-            g_renderer.SetViewMatrix(view);
+            float dirX = cosf(yaw) * cp, dirY = sinf(yaw) * cp, dirZ = sp;
+            if (!thirdPerson) {
+                float tx = playerX + dirX;
+                float ty = playerY + dirY;
+                float tz = playerZ + dirZ;
+                D3DMATRIX view = MatrixLookAt(playerX, playerY, playerZ, tx, ty, tz, 0, 0, 1);
+                g_renderer.SetViewMatrix(view);
+            } else {
+                // Over-shoulder: camera pulled back along view dir, lifted a touch.
+                const float CAM_DIST = 4.5f;
+                float cx = playerX - dirX * CAM_DIST;
+                float cy = playerY - dirY * CAM_DIST;
+                float cz = playerZ - dirZ * CAM_DIST + 1.0f;
+                float tx = playerX + dirX * 8.0f;
+                float ty = playerY + dirY * 8.0f;
+                float tz = playerZ + dirZ * 8.0f;
+                D3DMATRIX view = MatrixLookAt(cx, cy, cz, tx, ty, tz, 0, 0, 1);
+                g_renderer.SetViewMatrix(view);
+            }
         }
 
         g_renderer.BeginFrame(0.4f, 0.6f, 0.9f);
@@ -945,6 +1007,18 @@ for (auto& obj : mapObjects) {
                 g_renderer.DrawMesh(mesh);
         }
 
+        // ---- CJ scale-reference mesh (third-person only) ----
+        if (playMode && thirdPerson && playerMesh) {
+            float feetZ = playerZ - EYE_HEIGHT;
+            // Yaw rotation about Z so the box faces the view direction.
+            float hy = yaw * 0.5f;
+            D3DMATRIX pm = QuatToD3DMatrix(0, 0, sinf(hy), cosf(hy), playerX, playerY, feetZ);
+            dev->SetTransform(D3DTS_WORLD, &pm);
+            dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE); // double-sided box
+            g_renderer.DrawMesh(playerMesh);
+            dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_CCW);
+        }
+
         // ---- Debug overlay (play mode) ----
         if (playMode) {
             dev->SetRenderState(D3DRS_FOGENABLE, FALSE); // keep text unfogged
@@ -954,11 +1028,13 @@ for (auto& obj : mapObjects) {
                 "Pos: %.1f, %.1f, %.1f\n"
                 "Yaw: %.1f deg\n"
                 "Objects: %u (%d solid)\n"
+                "CAM: %s (V toggle)\n"
                 "WASD move  Mouse look\n"
                 "Shift run  Space jump\n"
                 "Arrows look  ESC quit",
                 fps, playerX, playerY, playerZ,
-                yaw * 57.2958f, (unsigned)mapObjects.size(), solidCount);
+                yaw * 57.2958f, (unsigned)mapObjects.size(), solidCount,
+                thirdPerson ? "3RD" : "1ST");
             DrawDebugText(dev, dbg, 12.0f, 12.0f, 2.0f, 0xFFFFFF00); // yellow
         }
 
@@ -1004,6 +1080,8 @@ for (auto& obj : mapObjects) {
         for (auto* mesh : obj.meshes) g_renderer.DestroyMesh(mesh);
     if (groundMesh) g_renderer.DestroyMesh(groundMesh);
     if (groundTex) groundTex->Release();
+    if (playerMesh) g_renderer.DestroyMesh(playerMesh);
+    if (playerTex) playerTex->Release();
     for (auto& kv : d3dTexCache)
         if (kv.second) g_renderer.DestroyTexture(kv.second);
     return 0;

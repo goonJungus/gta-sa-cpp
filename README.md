@@ -19,16 +19,17 @@ through it. Every class landed is progress. Come help.
 
 ## Progress
 
-**~20%** — 199 of 996 classes have headers ported, and the full `gta_sa`
-static library builds with **zero errors** (13.3 MB lib).
+<!-- PROGRESS-START -->
+**~20%** — 202 of 996 classes have headers ported, and the full `gta_sa` static library builds with **zero errors** (13.3 MB lib).
 
 ```
 ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 20%
 ```
 
-Counted 2026-10-09: ported headers in `include/` vs. classes in `port_plan/`.
+Counted 2026-10-10: ported headers in `include/` vs. classes in `port_plan/classes.txt`.
 Headers mean the class exists; `BUILD_NOTES.md` tracks which method bodies are
 verified vs. still TODO stubs.
+<!-- PROGRESS-END -->
 
 ## Code only — bring your own copy
 

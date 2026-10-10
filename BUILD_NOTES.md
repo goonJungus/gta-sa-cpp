@@ -1,4 +1,4 @@
-﻿# C++ Conversion Build Notes
+# C++ Conversion Build Notes
 
 ## 2026-10-08 â€�? Initial scaffold (core_math_containers)
 
@@ -3033,3 +3033,14 @@ Screenshots: cpp\screenshots\
 - Added cul-de-sac road: Lae2_roads89 / lae2roadshub / 150m at IPL
   (2489.30, -1668.50, 12.30), walk-through, HD+LOD streaming.
 - Build clean. Exe string-verified: ganghous01_LAx, Lae2_roads89 present.
+
+## 2026-10-10 - Grove Street: roads restored, measured Z, third-person, props audit
+
+- Roads restored (were deleted by scope-cut): 3 road models in playMode, all verified HD+LOD in gta3.img, real IPL positions/rotations, TXDs loaded: Lae2_roads89 (cul-de-sac, 2489.30,-1668.50,12.30, lae2roadshub), Lae2_roads46 (north connection, lae2roads), Lae2_roads50 (elevated highway west at z~20.3, lae2roads). solid=false, log lines ROAD OK.
+- Research: roads ARE IPL inst models; IDE flag bit0 = bIsRoad (gta-reversed BaseModelInfo.h, decompile CRenderer/RenderRoads). Real engine renders roads in separate ambient-only pass (flagged for future lighting). No path.ipl exists; data/Paths NODES*.DAT is AI-only. Sidewalks/curbs baked into road DFFs. Details: cpp/grove_roads_deepdive.txt.
+- Z-height fix REDONE with measurements (previous forced GROUND_Z=12.0 sunk houses): extracted each house DFF bbox, worldBaseZ = IPL_Z + bboxMinZ: CJ 12.416, Sweet 13.829, Ryder 12.501, Neighbor 11.360. Houses restored to raw IPL Z; grass plane at GROUND_Z=11.31 (min base 11.360 - 0.05). Spawn feet at GROUND_Z. Details: cpp/grove_heights.txt.
+- Props audit: Rockstar placed ZERO props in the cul-de-sac box (all 53 IPLs scanned, 2dfx checked, gta3.img contains no .ipl files). No props added - adding any would be fabrication. Details: cpp/grove_props_inventory.txt.
+- Third-person mode: V key toggles 1ST/3RD person. CJ_HEIGHT=1.8132m measured from player.img part DFFs (head/torso/legs/feet/hands bind-pose verts). Orange 0.5x0.5x1.8132m scale-reference box drawn in third-person only. PLAYER_HEIGHT now = CJ_HEIGHT (was hardcoded 1.8).
+- 1:1 measurement sheet: cpp/grove_measurements.txt (model bboxes, IDE/TXD per model).
+- Build: clean, zero errors (fixed CJ_HEIGHT declaration-order conflict from parallel edits). Exe 1,181,184 bytes, built 2026-10-10 02:37:50. Binary-verified strings: ganghous01_LAx, Lae2_roads89, Lae2_roads46, Lae2_roads50, lae2roadshub, CJ_HEIGHT, THIRD-PERSON, carlshou1_LAe2, ROAD OK, HOUSE OK.
+- Expected overlay: Objects: 7 (4 houses + 3 roads), 0 solid. V toggles camera.
