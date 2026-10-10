@@ -133,10 +133,10 @@ Games assets are included.
 
 This project is built with AI help:
 
-- **Pi** — runs the decomp-to-rewrite pipeline (decompilation through C++
-  porting).
+- **Pi + Opus 5.5** — Pi is the harness, Opus 5.5 does the decomp-to-rewrite
+  pipeline (decompilation through C++ porting).
 - **Claude Code** — complex coding tasks on the build machine.
-- **mogus (Muse)** — project infrastructure, repo automation, and scaffolding.
+- **Muse Spark** — project infrastructure, repo automation, and scaffolding.
 
 ## Legal
 

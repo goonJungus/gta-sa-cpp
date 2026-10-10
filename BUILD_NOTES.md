@@ -2639,3 +2639,58 @@ unions first (a previous worker hit the same C1202 class on CPed.cpp).
 - M4: IMG v2 archive extractor + IDE/IPL parsing for map placement
 - M5: WASD camera/player movement
 
+
+## 2026-10-09 - gtasa_cpp.exe Milestone 3: TXD Texture Loader
+
+- `include/TxdLoader.h` / `src/TxdLoader.cpp` (new): parses RW_TEXDICTIONARY (0x16)
+  -> RW_TEXTURENATIVE (0x15) entries. Supported: DXT1 (compression=1 or
+  rasterFormat 0x200), DXT3 (compression=3 or 0x400), 8888 (rasterFormat 0x4000,
+  RGBA bytes swizzled to A8R8G8B8 at load). Format quirk found while reading
+  misc.txd: mipmaps live INSIDE the native RW_STRUCT (88-byte header, then per
+  mip u32 dataSize + data) -- not after it; d3dFormat is 0 in SA TXDs so the
+  compression byte / rasterFormat flags are authoritative. Only level 0 is
+  uploaded. Palettized/1555/4444 entries are skipped. Name lookup is
+  case-insensitive (KeyOf lowercases).
+- `DffLoader`: parses RW_MATERIALLIST at the end of each RW_GEOMETRY section;
+  textureName from the first RW_STRING of each RW_TEXTURE, materialName from a
+  bare RW_STRING directly under the material (normally absent -> empty).
+  Geometries with N materials now split into N DffMesh, triangles grouped by
+  matId, so every mesh carries exactly one textureName.
+- `D3DRenderer`: `IDirect3DTexture9* texture` on D3DRenderMesh (released in
+  DestroyMesh); `CreateTexture(w,h,fmt,data,size)` -- raw D3D9, no D3DX
+  (CreateTexture + LockRect + memcpy; DXT copied per block-row so driver pitch
+  is respected); `DestroyTexture`; DrawMesh binds SetTexture(0) then unbinds;
+  sampler states in Init (linear min/mag, mipfilter none, wrap UV).
+  `SaveScreenshot(path)` writes a 32-bit BMP via GetRenderTargetData; swap
+  effect changed DISCARD -> COPY so the backbuffer survives Present.
+- `main.cpp`: loads every models/*.txd (skips macOS `._` AppleDouble files)
+  into a name->texture map; test model switched to models/generic/wheels.DFF
+  because arrow.DFF's single material has NO texture (verified by hexdump of
+  its material list -- struct + extension only, no RW_TEXTURE). 20 geometries
+  -> 50 meshes laid out in a 7-column grid. New test args: `--frames N`
+  (quit after N frames), `--screenshot <bmp>`, `--log <path>`.
+- Build: `CMakeLists.txt` (the real build file; exe_target.cmake is NOT
+  included by it -- updated both anyway) gains src/TxdLoader.cpp and shell32
+  (CommandLineToArgvW). Build the exe target with `$env:CL=''` prefixed:
+  the repo-wide CL=/Zm8000 (works around CPed.cpp C1202) makes MSBuild fail
+  gtasa_cpp with D8000. `cmake --build build --target gtasa_cpp --config Debug`
+  is clean.
+- Test 2026-10-09 ~20:50: 10 TXDs -> 123 textures (121 unique); wheels.DFF ->
+  50 meshes, 40 textured / 0 missing / 0 CreateTexture failures (all DXT1
+  64x64, fmt 0x31545844). Rendered 120 frames + BMP screenshot. D3D9 device
+  creation FAILS in the SSH session (no interactive desktop), so the test ran
+  in fufid's active console session via a one-off scheduled task (/IT),
+  deleted afterwards. Init now enumerates adapters and picks the first HAL
+  that works (NVIDIA GeForce RTX 2060 SUPER; D3DADAPTER_DEFAULT hit the
+  Meta/StarDesk virtual display adapters and failed).
+- Screenshot VERIFIES textured rendering: wheel rims/tyres show their DXT1
+  textures with correct UVs; multi-material split correct (tyre vs rim on the
+  same wheel); the 10 untextured hub meshes render white (lighting off) as
+  expected. m3_shot.bmp / m3_test.log in build/Debug.
+- **M1/M2-era bug fixed**: MatrixLookAt used zaxis = normalize(eye - target),
+  which is the RIGHT-handed formula (XMMatrixLookAtRH); paired with the LH
+  perspective matrix the camera looked backwards and every triangle was
+  clipped. M1/M2 "rendering" was a blank clear-color screen -- both milestones
+  only checked process survival, never pixels. Fixed to (target - eye);
+  M3's screenshot is the first verified pixels this exe ever produced.
+

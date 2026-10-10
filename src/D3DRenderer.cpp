@@ -324,8 +324,11 @@ D3DMATRIX MatrixPerspectiveFov(float fovY, float aspect, float zn, float zf) {
 D3DMATRIX MatrixLookAt(float ex, float ey, float ez,
                        float tx, float ty, float tz,
                        float ux, float uy, float uz) {
-    // zaxis = normalize(eye - target)
-    float zx = ex - tx, zy = ey - ty, zz = ez - tz;
+    // M3 fix: zaxis must be normalize(target - eye) for a LEFT-handed view
+    // (D3D camera looks down +Z; XMMatrixLookAtLH uses Focus-Eye). The old
+    // (eye-target) form is the RH variant and put everything behind the
+    // camera -> blank screen in M1/M2 (never visually verified until M3).
+    float zx = tx - ex, zy = ty - ey, zz = tz - ez;
     float zl = sqrtf(zx*zx + zy*zy + zz*zz);
     zx /= zl; zy /= zl; zz /= zl;
     // xaxis = normalize(cross(up, zaxis))
