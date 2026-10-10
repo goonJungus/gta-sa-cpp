@@ -35,6 +35,7 @@
 #include "IdeLoader.h"
 #include "IplLoader.h"
 #include "BinaryIpl.h"
+#include "ColLoader.h"
 
 static D3DRenderer g_renderer;
 static bool g_running = true;
@@ -482,6 +483,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
     std::vector<MapObject> mapObjects;
     std::vector<std::tuple<float,float,float>> roadPts; // x,y,z of road instances (play mode)
+    std::vector<ColTriangle> colTris; // COL3 ground triangles (roads), world space (Agent 15)
     int solidCount = 0;
 
     // ---- Ground plane (grass-colored safety net under the real geometry) ----
@@ -591,6 +593,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         return n.find("roads") != std::string::npos;
     };
     auto GetGroundHeight = [&](float x, float y, float feetZ) -> float {
+        // COL3 triangles first: accurate Rockstar road surface (grades/curbs).
+        // The step-up cap inside keeps the elevated highway from grabbing the
+        // player when walking underneath it.
+        float colH = ColLoader::GetGroundHeight(colTris, x, y, feetZ, 1.5f);
+        if (colH > ColLoader::kNoGround * 0.5f) return colH;
+        // AABB fallback for roads whose COL failed to load; grass plane last.
         float best = GROUND_Z;  // grass plane fallback - never the void
         const float STEP_UP = 1.5f;  // max curb the player can step onto
         for (auto& o : mapObjects) {
@@ -917,6 +925,33 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
         }
         Log("PLAY: %d/3 Grove Street roads loaded (collision ON)", roadsLoaded);
+
+        // ---- COL3 ground triangles (Agent 15): Rockstar road collision ----
+        // Accurate surface (grades/curbs) from lae2_4.col, transformed by the
+        // same IPL placement matrix as the visual meshes (identity rotation +
+        // translation for these roads). Reuses colArcA extracted above.
+        {
+            struct RoadCol { const char* model; float x, y, z; };
+            RoadCol rcs[] = {
+                {"Lae2_roads89", 2489.296875f, -1668.5f, 12.296875f},
+                {"Lae2_roads46", 2433.070313f, -1611.554688f, 12.03125f},
+                {"Lae2_roads50", 2431.054688f, -1677.429688f, 20.3125f},
+            };
+            int colRoads = 0;
+            for (auto& rc : rcs) {
+                std::vector<ColTriangle> tris;
+                if (!colArcA.empty() && ColLoader::LoadModelTriangles(
+                        colArcA.data(), colArcA.size(), rc.model,
+                        0.0f, 0.0f, 0.0f, 1.0f, rc.x, rc.y, rc.z, tris)) {
+                    colTris.insert(colTris.end(), tris.begin(), tris.end());
+                    colRoads++;
+                    Log("  COL OK: %s tris=%u", rc.model, (unsigned)tris.size());
+                } else {
+                    Log("  COL FAIL: %s (no COL entry)", rc.model);
+                }
+            }
+            Log("COL: %d/3 road models, %u ground triangles", colRoads, (unsigned)colTris.size());
+        }
 
         // ---- Binary stream IPL: Grove Street props & vegetation ----
         // Rockstar streams HD instances + props via binary IPLs in gta3.img

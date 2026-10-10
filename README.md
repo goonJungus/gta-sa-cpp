@@ -20,7 +20,7 @@ through it. Every class landed is progress. Come help.
 ## Progress
 
 <!-- PROGRESS-START -->
-**~20%** — 203 of 996 classes have headers ported, and the full `gta_sa` static library builds with **zero errors** (13.3 MB lib).
+**~20%** — 204 of 996 classes have headers ported, and the full `gta_sa` static library builds with **zero errors** (13.3 MB lib).
 
 ```
 ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 20%

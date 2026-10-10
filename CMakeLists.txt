@@ -168,6 +168,7 @@ add_executable(gtasa_cpp
     src/IdeLoader.cpp
     src/IplLoader.cpp
     src/BinaryIpl.cpp
+    src/ColLoader.cpp
 )
 target_include_directories(gtasa_cpp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
