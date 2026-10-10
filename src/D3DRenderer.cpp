@@ -75,11 +75,16 @@ bool D3DRenderer::Init(HWND hwnd, int width, int height) {
     m_device->SetRenderState(D3DRS_LIGHTING, FALSE);
     m_device->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
     // M3: texture sampling for stage 0
-    m_device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-    m_device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-    m_device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    m_device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_ANISOTROPIC);
+    m_device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_ANISOTROPIC);
+    m_device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+    m_device->SetSamplerState(0, D3DSAMP_MAXANISOTROPY, 4);
     m_device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
     m_device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+    // Alpha test for foliage (trees use 1-bit alpha in DXT1)
+    m_device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
+    m_device->SetRenderState(D3DRS_ALPHAREF, 0x40);
     return true;
 }
 

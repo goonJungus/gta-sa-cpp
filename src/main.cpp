@@ -267,6 +267,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     bool groveTest = false;
     bool playMode = false;
     bool scripted = false;
+    bool flyover = false;
     {
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -295,15 +296,30 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             } else if (a == "--scripted") {
                 scripted = true;
                 playMode = true;  // scripted implies play mode
+            } else if (a == "--flyover") {
+                flyover = true;
+                playMode = true;  // flyover implies play mode
             }
         }
         LocalFree(argv);
     }
 
     g_log = fopen(logPath.c_str(), "w");
+
+    // Screenshot directory: <exe_dir>\screenshots (created if missing)
+    char shotDir[MAX_PATH] = {};
+    {
+        char exePath[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, exePath, sizeof(exePath));
+        char* slash = strrchr(exePath, '\\');
+        if (slash) *slash = '\0';
+        snprintf(shotDir, sizeof(shotDir), "%s\\screenshots", exePath);
+        CreateDirectoryA(shotDir, nullptr);
+    }
+
     { char cwd[MAX_PATH] = {}; GetCurrentDirectoryA(sizeof(cwd), cwd);
-      Log("gtasa_cpp starting (cwd=%s) play=%d grove=%d housetest=%d",
-          cwd, playMode, groveTest, houseTest); }
+      Log("gtasa_cpp starting (cwd=%s) play=%d grove=%d housetest=%d shotDir=%s",
+          cwd, playMode, groveTest, houseTest, shotDir); }
 
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
@@ -367,6 +383,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         IDirect3DTexture9* d3dTex = g_renderer.CreateTexture(
             txd.width, txd.height, txd.d3dFormat, txd.mip0.data(), (unsigned)txd.mip0.size());
         d3dTexCache[key] = d3dTex;
+        if (txd.width < 64 || txd.height < 64)
+            Log("TEX-LOD? %s: %dx%d (small)", key.c_str(), txd.width, txd.height);
         return d3dTex;
     };
 
@@ -757,12 +775,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     char titleBuf[256];
 
     // Mouse look state
-    bool mouseLook = playMode && !scripted;
+    bool mouseLook = playMode && !scripted && !flyover;
     float scriptedTime = 0.0f;
     int lastScriptedSeg = -1;
     bool takeScriptedShot = false;
     int scriptedShotIdx = 0;
     if (scripted) Log("SCRIPTED MODE: auto camera path, shots every 4s");
+    // Flyover: circular path around Grove St center
+    float flyoverTime = 0.0f;
+    int lastFlyoverShot = -1;
+    bool takeFlyoverShot = false;
+    int flyoverShotIdx = 0;
+    const float FLY_CX = 2500.0f, FLY_CY = -1680.0f, FLY_R = 100.0f, FLY_H = 30.0f;
+    if (flyover) Log("FLYOVER MODE: circular path r=100 h=30, 12 shots/loop, 2 loops");
     const float MOUSE_SENS = 0.0035f;
 
     MSG msg = {};
@@ -848,6 +873,25 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     scriptedShotIdx = seg;
                 }
                 if (scriptedTime >= 20.0f) { g_running = false; }
+            }
+            if (flyover) {
+                // Circular flyover: 30s per loop, shot every 30deg (12/loop), 2 loops
+                flyoverTime += dt;
+                float angle = flyoverTime * (2.0f * 3.14159f / 30.0f);
+                playerX = FLY_CX + FLY_R * cosf(angle);
+                playerY = FLY_CY + FLY_R * sinf(angle);
+                playerZ = FLY_H;
+                // Look at center
+                float dx = FLY_CX - playerX, dy = FLY_CY - playerY, dz = 14.0f - FLY_H;
+                yaw = atan2f(dy, dx);
+                pitch = atan2f(dz, sqrtf(dx*dx + dy*dy));
+                int shotSeg = (int)(flyoverTime / 2.5f);  // 12 shots per 30s loop
+                if (shotSeg != lastFlyoverShot) {
+                    lastFlyoverShot = shotSeg;
+                    takeFlyoverShot = true;
+                    flyoverShotIdx = shotSeg;
+                }
+                if (flyoverTime >= 60.0f) { g_running = false; }
             }
             // ---- Player ground height = nearest road z ----
             float gz = 12.0f;
@@ -950,11 +994,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
         if (takeScriptedShot) {
             takeScriptedShot = false;
-            char shotName[64];
-            snprintf(shotName, sizeof(shotName), "scripted_%d.bmp", scriptedShotIdx);
+            char shotName[MAX_PATH];
+            snprintf(shotName, sizeof(shotName), "%s\\scripted_%d.bmp", shotDir, scriptedShotIdx);
             g_renderer.SaveScreenshot(shotName);
-            Log("SCRIPTED shot %d at (%.1f, %.1f, %.1f) yaw=%.1f",
-                scriptedShotIdx, playerX, playerY, playerZ, yaw * 57.2958f);
+            Log("SCRIPTED shot %d saved to %s at (%.1f, %.1f, %.1f) yaw=%.1f",
+                scriptedShotIdx, shotName, playerX, playerY, playerZ, yaw * 57.2958f);
+        }
+
+        if (takeFlyoverShot) {
+            takeFlyoverShot = false;
+            char shotName[MAX_PATH];
+            snprintf(shotName, sizeof(shotName), "%s\\flyover_%d.bmp", shotDir, flyoverShotIdx);
+            g_renderer.SaveScreenshot(shotName);
+            Log("FLYOVER shot %d saved to %s at (%.1f, %.1f, %.1f)",
+                flyoverShotIdx, shotName, playerX, playerY, playerZ);
         }
 
         frame++;
@@ -964,8 +1017,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     if (playMode) ShowCursor(TRUE);
 
     if (!shotPath.empty()) {
-        g_renderer.SaveScreenshot(shotPath.c_str());
-        Log("Screenshot saved to %s", shotPath.c_str());
+        // Relative screenshot paths go to shotDir
+        std::string finalShot = shotPath;
+        if (shotPath.find(':') == std::string::npos && shotPath[0] != '\\') {
+            finalShot = std::string(shotDir) + "\\" + shotPath;
+        }
+        g_renderer.SaveScreenshot(finalShot.c_str());
+        Log("Screenshot saved to %s", finalShot.c_str());
     }
     Log("Done: %d frames, %u map objects", frame, (unsigned)mapObjects.size());
     if (g_log) fclose(g_log);

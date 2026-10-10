@@ -2931,3 +2931,50 @@ New diagnostics:
   - 8x trees (Cedar1_hi/tree2, Elmtreegrn_hi/tree1) in front yards
   - 4x trashcan (dyn_trash) near houses
 - All from Q-owned game files (IDE-verified). Build clean.
+
+## 2026-10-10 - Texture quality + screenshot organization + streaming deep dive
+
+### Screenshot organization
+- Q's 5 scripted_*.bmp found in C:\Users\fufid\ (cmd working dir), moved to cpp\screenshots\
+- All screenshot modes (--screenshot, --scripted, --flyover) now save to <exe_dir>\screenshots\
+  by default (auto-created). Relative --screenshot paths also route there. Full path logged.
+- Inspected Q's 5 scripted screenshots:
+  - scripted_0: camera spawned inside/behind geometry (blurry close-up)
+  - scripted_1..4: street views show trees rendering as BLACK SPIKY geometry (no alpha test!)
+  - scripted_4: yellow market storefront has very low-res textures (LOD TXD)
+
+### Rendering fixes (D3DRenderer.cpp)
+- ENABLED alpha test (D3DRS_ALPHATESTENABLE, GREATER_EQUAL, ref 0x40) - fixes black trees.
+  GTA SA foliage uses 1-bit alpha in DXT1; without alpha test the transparent texels
+  render as solid black.
+- Texture filtering: LINEAR -> ANISOTROPIC (4x) for min/mag, LINEAR for mip. Sharper
+  textures at grazing angles (roads, walls).
+
+### Texture diagnostics (main.cpp)
+- Log "TEX-LOD? <name>: WxH" for any texture smaller than 64x64 to identify LOD textures.
+
+### New --flyover mode
+- Circular camera path around Grove St center (2500,-1680), radius 100m, height 30m.
+- 12 screenshots per 30s loop (every 30 deg), 2 loops then exit.
+- Saves to screenshots\flyover_0.bmp ... flyover_23.bmp
+
+### Streaming deep dive (Q asked about OpenIV/modding tools)
+- IMG access is NOT a problem: ImgLoader reads gta3.img fine (16,316 entries verified).
+- Searched gta3.img for stream IPLs: found 159 *_stream*.ipl files (lae2_stream0..6, etc.)
+- BUT they are all 4-8 bytes, just "bnry" magic headers with NO placement data.
+  These are empty markers - the real streamed placements are NOT in the IMG as IPLs.
+- Conclusion: GTA SA streams HD models by mapping LOD->HD via IDE at runtime based on
+  player proximity. Our current approach (parse static IPL, LOD->HD via IDE) is correct.
+- The 18 LOD-only models genuinely have no HD versions (checked gta3.img, gta_int.img,
+  player.img, cutscene.img, and gtastuff.com API). Rockstar never made HD versions.
+  Their blurry appearance is authentic to the retail game.
+- Pawn shop (lodpwnshp_lae2) uses TXD laeast2_lod which contains small textures.
+  This is the "low quality textures on storefronts" Q reported - it's the actual game data.
+
+### Test commands
+```
+gtasa_cpp.exe --flyover --log flyover.log
+gtasa_cpp.exe --scripted --log scripted.log
+gtasa_cpp.exe --play --log play.log
+```
+All screenshots go to cpp\screenshots\, nowhere else.
