@@ -3022,3 +3022,14 @@ All verified against LAe2.ide. Positions + quaternions from LAe2.ipl (real game 
 ### Test
 "C:\Users\fufid\Documents\Decomps\gta-sa decomp\cpp\build\Debug\gtasa_cpp.exe" --play --log culdesac.log
 Screenshots: cpp\screenshots\
+
+## 2026-10-10 - Grove Street fix: 4th house, Z-heights, cul-de-sac road
+- Replaced CJ_GARAGE (cjsaveg, tiny 380-vert garage) with NEIGHBOR_HOUSE
+  (ganghous01_LAx / ganghouse1_lax / 80m, HD id 3649 LAxref.ide).
+  Real IPL placement: (2517.48, -1644.70, 15.20).
+- Z-height fix: all houses sunk to common GROUND_Z=12.0 (was raw IPL Z 14-17,
+  floating ~5m above player). Grass quad raised 10 -> 12. Player spawn feet
+  at 12.0 (eye 13.7). Per-house Z adjustment logged as old->new.
+- Added cul-de-sac road: Lae2_roads89 / lae2roadshub / 150m at IPL
+  (2489.30, -1668.50, 12.30), walk-through, HD+LOD streaming.
+- Build clean. Exe string-verified: ganghous01_LAx, Lae2_roads89 present.
