@@ -632,22 +632,53 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
         Log("PLAY: %d/4 cul-de-sac houses loaded (collision OFF, LOD streaming ON)", loaded);
 
-        // Cul-de-sac road surface (Lae2_roads89) - real IPL placement.
-        // HD: 17613 Lae2_roads89 / lae2roadshub / 150m (LAe2.ide)
-        {
+        // Grove Street roads - real IPL placements, scoped to cul-de-sac box.
+        // Roads are IPL inst models with bIsRoad flag (IDE objs field 5 = 1).
+        // Real engine renders them via CRenderer::RenderRoads (ambient-only lighting).
+        // HD models resolve via IDE (IPL only places LOD versions).
+        struct GroveRoad {
+            const char* tag; const char* hdDff; const char* hdTxd;
+            const char* lodDff; const char* lodTxd; float lodDist;
+            float x, y, z;
+        };
+        GroveRoad roads[] = {
+            // THE cul-de-sac road - runs north-south through the houses
+            // HD: 17613 Lae2_roads89 / lae2roadshub / 150m / flags=1 (IsRoad)
+            {"CULDESAC_ROAD", "Lae2_roads89", "lae2roadshub",
+             "LODLae2_roads89", "laeast2_lod", 150.0f,
+             2489.296875f, -1668.5f, 12.296875f},
+            // North street connection
+            // HD: 17655 Lae2_roads46 / lae2roads / 150m / flags=1 (IsRoad)
+            {"ROAD_NORTH", "Lae2_roads46", "lae2roads",
+             "LODLae2_roads46", "laeast2_lod", 150.0f,
+             2433.070313f, -1611.554688f, 12.03125f},
+            // Elevated highway west of cul-de-sac (the highway Q mentioned)
+            // HD: 17656 Lae2_roads50 / lae2roads / 150m / flags=1 (IsRoad)
+            {"HIGHWAY_WEST", "Lae2_roads50", "lae2roads",
+             "LODLae2_roads50", "laeast2_lod", 150.0f,
+             2431.054688f, -1677.429688f, 20.3125f},
+        };
+        int roadsLoaded = 0;
+        for (auto& r : roads) {
             MapObject road;
-            road.name = "CULDESAC_ROAD";
-            road.solid = false;  // walk-through
-            float rx = 2489.296875f, ry = -1668.5f, rz = 12.296875f;
-            road.worldMatrix = QuatToD3DMatrix(0.0f, 0.0f, 0.0f, 1.0f, rx, ry, rz);
-            road.objX = rx; road.objY = ry; road.objZ = rz;
-            road.lodDist = 150.0f;
-            bool rhd = loadMeshes("Lae2_roads89", "lae2roadshub", "CULDESAC_ROAD", road.meshes);
-            bool rlod = loadMeshes("LODLae2_roads89", "laeast2_lod", "CULDESAC_ROAD", road.lodMeshes);
+            road.name = r.tag;
+            road.solid = false;  // walk-through, no collision
+            // Roads keep their real IPL Z (highway is elevated at z~20).
+            road.worldMatrix = QuatToD3DMatrix(0.0f, 0.0f, 0.0f, 1.0f, r.x, r.y, r.z);
+            road.objX = r.x; road.objY = r.y; road.objZ = r.z;
+            road.lodDist = r.lodDist;
+            bool rhd = loadMeshes(r.hdDff, r.hdTxd, r.tag, road.meshes);
+            bool rlod = loadMeshes(r.lodDff, r.lodTxd, r.tag, road.lodMeshes);
             road.hasLod = rlod;
-            if (rhd) { mapObjects.push_back(std::move(road)); Log("  ROAD OK: Lae2_roads89 at (%.2f, %.2f, %.2f)", rx, ry, rz); }
-            else Log("  ROAD FAIL: Lae2_roads89 HD missing");
+            if (rhd) {
+                mapObjects.push_back(std::move(road));
+                roadsLoaded++;
+                Log("  ROAD OK: %s at (%.2f, %.2f, %.2f)", r.hdDff, r.x, r.y, r.z);
+            } else {
+                Log("  ROAD FAIL: %s HD missing", r.hdDff);
+            }
         }
+        Log("PLAY: %d/3 Grove Street roads loaded (collision OFF)", roadsLoaded);
 
         // Player starts on the cul-de-sac, looking north toward CJ's house.
         // Cul-de-sac center ~ (2490, -1685). Start south of houses, clear of everything.
