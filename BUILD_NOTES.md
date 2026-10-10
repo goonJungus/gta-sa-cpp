@@ -2593,3 +2593,49 @@ unions first (a previous worker hit the same C1202 class on CPed.cpp).
 - Final fix: CCollisionData.h GetSpheres() - replaced class CColSphere fwd-decl with include CColSphere.h (std::span needs complete type)
 - Error trajectory: 507 -> 259 -> 4 -> 1 -> 0
 
+
+## 2026-10-09 - gtasa_cpp.exe Milestone 1: Window + D3D9 + Triangle ✅
+
+**Goal:** Standalone playable executable, built from game files, replacing original gta_sa.exe.
+
+**Milestone 1 complete:**
+- `src/main.cpp` — wWinMain entry point, Win32 window (1280x720, "GTA SA C++"), PeekMessage loop, ESC/close to quit
+- `include/D3DRenderer.h` / `src/D3DRenderer.cpp` — minimal D3D9 wrapper (no D3DX dependency):
+  - Direct3DCreate9, HAL device with HW→SW vertex processing fallback
+  - BeginFrame (clear), DrawTestTriangle (RGB triangle via DrawPrimitiveUP), EndFrame (present)
+- `CMakeLists.txt` — new `gtasa_cpp` executable target (WIN32_EXECUTABLE, links d3d9)
+- Build: `cmake --build build --target gtasa_cpp --config Debug` → clean, gtasa_cpp.exe produced
+- Test: process stays alive 5+ seconds (window created, D3D9 initialized, render loop running).
+  Screenshot not possible (no interactive desktop in SSH session), but survival proves init path.
+
+**Next milestones:**
+- M2: DFF model loader (RenderWare Clump/Geometry parser) + render a single model
+- M3: TXD texture loader
+- M4: IDE/IPL parsing (reuse CFileLoader) + map rendering
+- M5: WASD camera/player movement
+- M6: Full game loop integration
+
+
+## 2026-10-09 - gtasa_cpp.exe Milestone 2: DFF Loader + Model Rendering ✅
+
+**Files added:**
+- `include/DffLoader.h` / `src/DffLoader.cpp` — RenderWare 3.x binary DFF parser:
+  - Section walker (Clump → GeometryList → Geometry)
+  - Extracts vertices, triangles, normals, UVs from morph targets
+  - Handles prelit/textured flags, RW version check for legacy color fields
+  - Triangle winding converted RW (v2,v1,v3) → D3D CCW (v1,v2,v3)
+- `include/D3DRenderer.h` / `src/D3DRenderer.cpp` — extended:
+  - D3DRenderMesh (VB/IB), CreateMesh/DrawMesh/DestroyMesh
+  - MeshVertex (pos+normal+uv), MESH_FVF
+  - SetViewMatrix/SetProjMatrix, MatrixIdentity/PerspectiveFov/LookAt helpers (no D3DX)
+- `src/main.cpp` — loads models\generic\arrow.DFF, renders all meshes; falls back to test triangle
+
+**Verification:**
+- `dfftest.exe` console tool: arrow.DFF (138v/52t), air_vlo.DFF (145v/91t), wheels.DFF (20 meshes), zonecylb.DFF (40v/20t) — all parse
+- `gtasa_cpp.exe` runs 5+ seconds with DFF rendering path active (no crash, D3D9 device healthy)
+
+**Next:**
+- M3: TXD texture loader (RW raster formats, DXT)
+- M4: IMG v2 archive extractor + IDE/IPL parsing for map placement
+- M5: WASD camera/player movement
+

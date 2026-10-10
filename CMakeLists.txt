@@ -1,4 +1,4 @@
-﻿# GTA SA 1.0 clean-room C++ conversion
+# GTA SA 1.0 clean-room C++ conversion
 # Static library target - reference for engine rewrite, NOT a runnable game.
 # Game assets load from the user's own install at runtime and are never shipped.
 
@@ -157,4 +157,34 @@ target_sources(gta_sa PRIVATE
 target_sources(gta_sa PRIVATE
     src/CRunningScript.cpp
     src/CTheScripts.cpp
+)
+
+# gtasa_cpp.exe - standalone playable executable (added 2026-10-09)
+# Links D3D9 directly. Does NOT link gta_sa lib yet (milestone 1: standalone).
+add_executable(gtasa_cpp
+    src/main.cpp
+    src/D3DRenderer.cpp
+    src/DffLoader.cpp
+)
+target_include_directories(gtasa_cpp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(gtasa_cpp PRIVATE d3d9)
+if(MSVC)
+    target_compile_options(gtasa_cpp PRIVATE
+        /W3
+        /permissive-
+        /Zc:__cplusplus
+    )
+    target_compile_definitions(gtasa_cpp PRIVATE
+        _CRT_SECURE_NO_WARNINGS
+        UNICODE
+        _UNICODE
+    )
+else()
+    target_compile_options(gtasa_cpp PRIVATE -Wall -Wextra)
+endif()
+set_target_properties(gtasa_cpp PROPERTIES
+    WIN32_EXECUTABLE TRUE
+    CXX_STANDARD 20
 )
