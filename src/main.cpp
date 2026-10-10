@@ -26,6 +26,8 @@
 #include <cstdarg>
 #include <cmath>
 #include <cstdint>
+#include <cctype>
+#include <cstring>
 #include "D3DRenderer.h"
 #include "DffLoader.h"
 #include "TxdLoader.h"
@@ -91,12 +93,15 @@ static D3DMATRIX QuatToD3DMatrix(float qx, float qy, float qz, float qw,
     return m;
 }
 
+// World-space collision box from Rockstar COL data (placement-transformed).
+struct ColBox { float minX, minY, minZ, maxX, maxY, maxZ; };
 struct MapObject {
     std::vector<D3DRenderMesh*> meshes;
     D3DMATRIX worldMatrix;
     // World-space collision AABB (from DFF vertex bounds).
     float cMinX = 0, cMinY = 0, cMinZ = 0;
     float cMaxX = 0, cMaxY = 0, cMaxZ = 0;
+    std::vector<ColBox> colBoxes; // world-space COL boxes; empty = fall back to cMin/cMax AABB
     bool solid = true;   // false = walk-through visual (roads, grass, tags...)
     std::string name;
     // LOD streaming (Rockstar-style): HD meshes + LOD meshes, switch by camera distance.
@@ -571,11 +576,35 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const float JUMP_VEL = 8.5f;     // ~1.6 m jump apex
     const float GRAVITY = 22.0f;
     const float PLAYER_RADIUS = 0.5f;
+    const float STEP_OVER = 0.55f;   // COL boxes at/below feet+this are stepped over, not hit
     const float PLAYER_HEIGHT = CJ_HEIGHT; // 1.8132m measured, not assumed
+
+    // ---- Ground height query (Agent 17): feet placement on roads vs grass ----
+    // Agent 15's collision-based GetGroundHeight was never implemented; this is
+    // the measured-AABB version. Roads sit above the grass plane (cul-de-sac
+    // road top ~12.6 vs grass 11.31); without this the player spawns buried in
+    // the road. A road surface only counts if within STEP_UP of the current
+    // feet height, so walking UNDER the elevated highway never teleports up.
+    auto IsRoadObject = [](const MapObject& o) -> bool {
+        std::string n = o.name;
+        for (auto& c : n) c = (char)tolower((unsigned char)c);
+        return n.find("roads") != std::string::npos;
+    };
+    auto GetGroundHeight = [&](float x, float y, float feetZ) -> float {
+        float best = GROUND_Z;  // grass plane fallback - never the void
+        const float STEP_UP = 1.5f;  // max curb the player can step onto
+        for (auto& o : mapObjects) {
+            if (!IsRoadObject(o)) continue;
+            if (x < o.cMinX || x > o.cMaxX || y < o.cMinY || y > o.cMaxY) continue;
+            float top = o.cMaxZ;  // top of the road's collision AABB
+            if (top <= feetZ + STEP_UP && top > best) best = top;
+        }
+        return best;
+    };
 
     if (playMode) {
         Log("PLAY MODE: Grove Street cul-de-sac ONLY (4 houses + 3 roads, HD+LOD streaming)");
-        Log("PLAY: Rockstar LOD system: HD within lodDist, LOD beyond. No collision (Q request).");
+        Log("PLAY: Rockstar LOD system: HD within lodDist, LOD beyond. COL box collision ON (houses).");
 
         // The 4 Grove Street cul-de-sac houses. Verified against LAe2.ide:
         //   HD id, HD model, HD TXD, HD drawdist | LOD model, LOD TXD | IPL position + quaternion
@@ -583,6 +612,103 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // Sweet's:      17698 sweetshou1_LAe2 / contachou1_lae2 / 70m
         // Ryder's:      17573 rydhou01_LAe2   / contachou1_lae2 / 60m
         // Neighbor:     3649 ganghous01_LAx   / ganghouse1_lax  / 80m (north side)
+        // ---- Rockstar COL collision boxes (Stage A: houses) ----
+        // Minimal COL3 box reader, validated against retail gta3.img:
+        // entry = "COL3" + u32 size + char[22] name; 88-byte header at
+        // entry+0x20; payload at entry+0x78, sequential: spheres (20B each),
+        // boxes (28B each: float min[3], float max[3], 4B material).
+        // Only lae2_4.col + laxref.col cover the cul-de-sac scene.
+        std::vector<uint8_t> colArcA, colArcB;
+        if (img.HasFile("lae2_4.col")) colArcA = img.Extract("lae2_4.col");
+        if (img.HasFile("laxref.col")) colArcB = img.Extract("laxref.col");
+        Log("COL: lae2_4.col=%u bytes laxref.col=%u bytes",
+            (unsigned)colArcA.size(), (unsigned)colArcB.size());
+        auto colU16 = [](const std::vector<uint8_t>& d, size_t o) -> uint16_t {
+            return (uint16_t)(d[o] | ((uint16_t)d[o+1] << 8));
+        };
+        auto colF32 = [](const std::vector<uint8_t>& d, size_t o) -> float {
+            uint32_t u = (uint32_t)d[o] | ((uint32_t)d[o+1] << 8) |
+                         ((uint32_t)d[o+2] << 16) | ((uint32_t)d[o+3] << 24);
+            float f; memcpy(&f, &u, 4); return f;
+        };
+        auto colNameEq = [](const char* a, const std::string& b) -> bool {
+            for (int i = 0; i < 22; i++) {
+                char ca = a[i], cb = i < (int)b.size() ? b[i] : 0;
+                if (ca == 0 && cb == 0) return true;
+                if (tolower((unsigned char)ca) != tolower((unsigned char)cb)) return false;
+                if (ca == 0 || cb == 0) return false;
+            }
+            return true;
+        };
+        // Find a COL3 entry offset by model name (case-insensitive). -1 if absent.
+        auto findColEntry = [&](const std::vector<uint8_t>& col, const std::string& model) -> int {
+            size_t pos = 0;
+            while (pos + 8 < col.size()) {
+                size_t m = pos;
+                while (m + 4 < col.size() &&
+                       !(col[m]=='C' && col[m+1]=='O' && col[m+2]=='L' && col[m+3]=='3')) m++;
+                if (m + 30 > col.size()) break;
+                pos = m;
+                uint32_t sz = (uint32_t)col[pos+4] | ((uint32_t)col[pos+5] << 8) |
+                              ((uint32_t)col[pos+6] << 16) | ((uint32_t)col[pos+7] << 24);
+                if (colNameEq((const char*)col.data() + pos + 8, model)) return (int)pos;
+                if (sz > 1000000 || sz < 88) break; // corrupt, bail
+                pos = pos + 8 + sz;
+            }
+            return -1;
+        };
+        // Read model-space COL boxes for a model. Returns count (0 = none found).
+        auto readColBoxes = [&](const std::string& model, std::vector<ColBox>& out) -> int {
+            const std::vector<uint8_t>* arcs[2] = { &colArcA, &colArcB };
+            for (int ai = 0; ai < 2; ai++) {
+                const std::vector<uint8_t>& col = *arcs[ai];
+                if (col.empty()) continue;
+                int e = findColEntry(col, model);
+                if (e < 0) continue;
+                if ((size_t)e + 0x78 > col.size()) continue;
+                uint16_t ns = colU16(col, e + 0x48), nb = colU16(col, e + 0x4A);
+                if (nb == 0 || nb > 256) return 0;
+                size_t base = (size_t)e + 0x78 + (size_t)ns * 20;
+                for (int i = 0; i < nb; i++) {
+                    size_t p = base + (size_t)i * 28;
+                    if (p + 24 > col.size()) break;
+                    float mnx = colF32(col, p),    mny = colF32(col, p+4),  mnz = colF32(col, p+8);
+                    float mxx = colF32(col, p+12), mxy = colF32(col, p+16), mxz = colF32(col, p+20);
+                    if (!(mnx <= mxx && mny <= mxy && mnz <= mxz)) continue;
+                    if (!(mnx > -500 && mxx < 500 && mny > -500 && mxy < 500 &&
+                          mnz > -500 && mxz < 500)) continue;
+                    out.push_back({mnx, mny, mnz, mxx, mxy, mxz});
+                }
+                return (int)out.size();
+            }
+            return 0;
+        };
+        // Transform model-space COL boxes by the object's placement matrix and
+        // attach as world-space collision volumes. Marks the object solid.
+        auto attachColBoxes = [&](MapObject& obj, const char* modelName, const char* tag) -> int {
+            std::vector<ColBox> cboxes;
+            int ncb = readColBoxes(modelName, cboxes);
+            if (ncb > 0) {
+                for (auto& b : cboxes) {
+                    float wmnx=1e30f, wmny=1e30f, wmnz=1e30f, wmxx=-1e30f, wmxy=-1e30f, wmxz=-1e30f;
+                    for (int cxi=0;cxi<2;cxi++) for (int cyi=0;cyi<2;cyi++) for (int czi=0;czi<2;czi++) {
+                        float px=cxi?b.maxX:b.minX, py=cyi?b.maxY:b.minY,
+                              pz=czi?b.maxZ:b.minZ, ox, oy, oz;
+                        xformPt(obj.worldMatrix, px, py, pz, ox, oy, oz);
+                        if (ox<wmnx) wmnx=ox; if (ox>wmxx) wmxx=ox;
+                        if (oy<wmny) wmny=oy; if (oy>wmxy) wmxy=oy;
+                        if (oz<wmnz) wmnz=oz; if (oz>wmxz) wmxz=oz;
+                    }
+                    obj.colBoxes.push_back({wmnx, wmny, wmnz, wmxx, wmxy, wmxz});
+                }
+                obj.solid = true;
+                Log("  HOUSECOL OK: %s %d boxes", tag, ncb);
+            } else {
+                Log("  HOUSECOL WARN: %s no COL boxes (walk-through)", tag);
+            }
+            return ncb;
+        };
+
         struct CulHouse {
             const char* name;      // display name
             const char* hdDff;     // HD model (no extension)
@@ -651,7 +777,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         for (auto& h : houses) {
             MapObject obj;
             obj.name = h.name;
-            obj.solid = false;  // Q: no collision for now - walk through walls beats invisible walls
+            obj.solid = false;  // attachColBoxes() below enables real COL collision when boxes exist
             float placeZ = h.z;      // RESTORED: raw IPL Z (Rockstar authored, grove_heights.txt)
             obj.worldMatrix = QuatToD3DMatrix(h.qx, h.qy, h.qz, h.qw, h.x, h.y, placeZ);
             obj.objX = h.x; obj.objY = h.y; obj.objZ = placeZ;
@@ -662,6 +788,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             bool lodOk = loadMeshes(h.lodDff, h.lodTxd, h.name, obj.lodMeshes);
             obj.hasLod = lodOk;
             if (hdOk) {
+                attachColBoxes(obj, h.hdDff, h.name);
                 mapObjects.push_back(std::move(obj));
                 loaded++;
                 Log("  HOUSE OK: %s base=%.2f ground=%.2f HD=%s",
@@ -670,7 +797,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Log("  HOUSE FAIL: %s (HD missing)", h.name);
             }
         }
-        Log("PLAY: %d/4 cul-de-sac houses loaded (collision OFF, LOD streaming ON)", loaded);
+        Log("PLAY: %d/4 cul-de-sac houses loaded (collision ON, LOD streaming ON)", loaded);
 
         // Ring houses + strip mall + pawn shop - HD instances from binary stream IPLs
         // (lae2_stream0/2.ipl in gta3.img). The full cul-de-sac circle per Q's
@@ -722,7 +849,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         for (auto& h : ringHouses) {
             MapObject obj;
             obj.name = h.name;
-            obj.solid = false;  // Q: no collision for now
+            obj.solid = false;  // attachColBoxes() below enables real COL collision when boxes exist
             float placeZ = h.z;      // raw stream-IPL Z (Rockstar authored)
             obj.worldMatrix = QuatToD3DMatrix(h.qx, h.qy, h.qz, h.qw, h.x, h.y, placeZ);
             obj.objX = h.x; obj.objY = h.y; obj.objZ = placeZ;
@@ -731,6 +858,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             bool lodOk = loadMeshes(h.lodDff, h.lodTxd, h.name, obj.lodMeshes);
             obj.hasLod = lodOk;
             if (hdOk) {
+                attachColBoxes(obj, h.hdDff, h.name);
                 mapObjects.push_back(std::move(obj));
                 ringLoaded++;
                 Log("  BLDG OK: %s base=%.2f ground=%.2f HD=%s",
@@ -739,7 +867,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Log("  BLDG FAIL: %s (HD missing)", h.name);
             }
         }
-        Log("PLAY: %d/7 ring buildings loaded (collision OFF, LOD streaming ON)", ringLoaded);
+        Log("PLAY: %d/7 ring buildings loaded (collision ON, LOD streaming ON)", ringLoaded);
 
 
         // Grove Street roads - real IPL placements, scoped to cul-de-sac box.
@@ -788,7 +916,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Log("  ROAD FAIL: %s HD missing", r.hdDff);
             }
         }
-        Log("PLAY: %d/3 Grove Street roads loaded (collision OFF)", roadsLoaded);
+        Log("PLAY: %d/3 Grove Street roads loaded (collision ON)", roadsLoaded);
 
         // ---- Binary stream IPL: Grove Street props & vegetation ----
         // Rockstar streams HD instances + props via binary IPLs in gta3.img
@@ -810,6 +938,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 "data\\maps\\LA\\LAe2.ide",
                 "data\\maps\\LA\\LAxref.ide",
                 "data\\maps\\interior\\int_LA.ide",
+                "data\\maps\\interior\\propext.ide",
             };
             std::unordered_map<int, IdeObject> ideById;
             for (auto ideRel : ideFiles) {
@@ -840,7 +969,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                        n.find("blackbag") != std::string::npos ||
                        n.find("cardboardbox") != std::string::npos ||
                        n.find("dyn_f_") != std::string::npos ||
-                       n.find("dyn_mesh") != std::string::npos;
+                       n.find("dyn_mesh") != std::string::npos ||
+                       n.find("bskball") != std::string::npos;
             };
             auto isAlreadyPlaced = [](const std::string& n) -> bool {
                 // Houses, ring buildings, and roads are placed by the
@@ -936,12 +1066,30 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             Log("STREAM: placed VEG=%d LAMP=%d PROP=%d SKIP=%d",
                 vegCount, lampCount, propCount, skipCount);
         }
+        // Honest "(N solid)" overlay: count collision-enabled objects.
+        solidCount = 0;
+        for (auto& o : mapObjects) if (o.solid) solidCount++;
+        Log("PLAY: %d/%u objects solid (collision ON)", solidCount, (unsigned)mapObjects.size());
 
         // Player starts on the cul-de-sac, looking north toward CJ's house.
         // Cul-de-sac center ~ (2490, -1685). Start south of houses, clear of everything.
-        playerX = 2490.0f; playerY = -1660.0f; playerZ = GROUND_Z + EYE_HEIGHT;
+        playerX = 2490.0f; playerY = -1660.0f;
+        // Snap spawn feet to the real surface: the cul-de-sac road sits ~1.3m
+        // above the grass plane, so spawning at GROUND_Z buries the player.
+        // Only snap UP to nearby surfaces (never down to the void, never up
+        // to the elevated highway if spawning underneath it).
+        float spawnGround = GROUND_Z;
+        for (auto& o : mapObjects) {
+            if (!IsRoadObject(o)) continue;
+            if (playerX < o.cMinX || playerX > o.cMaxX ||
+                playerY < o.cMinY || playerY > o.cMaxY) continue;
+            if (o.cMaxZ > spawnGround && o.cMaxZ < spawnGround + 3.0f)
+                spawnGround = o.cMaxZ;
+        }
+        playerZ = spawnGround + EYE_HEIGHT;
         yaw = -1.4535f; pitch = 0.0f;  // face CJ's house (dir ~ -Y from spawn)
-        Log("SPAWN: (%.1f, %.1f, %.1f) facing north to CJ's house", playerX, playerY, playerZ);
+        Log("SPAWN: (%.1f, %.1f, %.1f) ground=%.2f facing north to CJ's house",
+            playerX, playerY, playerZ, spawnGround);
         Log("CJ_HEIGHT: %.4f m (measured from player.img part DFF bind-pose verts)", CJ_HEIGHT);
         // Hide cursor for mouse look
         ShowCursor(FALSE);
@@ -1115,22 +1263,37 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 if (flyoverTime >= 60.0f) { g_running = false; }
             }
-            // ---- Player ground height = nearest road z ----
-            float gz = GROUND_Z; // grass plane; roadPts snap unused (no road footprint data yet)
-            {
-                float bd = 1e30f;
-                for (auto& rp : roadPts) {
-                    float dx = playerX - std::get<0>(rp);
-                    float dy = playerY - std::get<1>(rp);
-                    float d2 = dx*dx + dy*dy;
-                    if (d2 < bd) { bd = d2; gz = std::get<2>(rp); }
-                }
+            // ---- Player ground height: road tops via AABB, else grass ----
+            // Tracks the surface under the feet as the player walks, so road
+            // grades and curbs work. Replaces the fixed-gz + dead roadPts snap,
+            // which left the player buried in raised roads.
+            float curFeetZ = playerZ - EYE_HEIGHT;
+            float gz = GetGroundHeight(playerX, playerY, curFeetZ);
+            // Step up onto higher ground (curbs) / start falling off edges.
+            if (onGround && gz > curFeetZ + 0.001f) {
+                playerZ = gz + EYE_HEIGHT;  // GetGroundHeight capped the step
+                curFeetZ = gz;
+            } else if (onGround && gz < curFeetZ - 0.001f) {
+                onGround = false;  // walked off an edge - start falling
             }
             // ---- AABB collision: slide along walls ----
             // Blocks only when ENTERING a box from outside; if the player is
             // already inside (bad spawn), movement is allowed so they can escape.
             auto boxHit = [&](float px, float py, const MapObject& o) -> bool {
                 float fz = playerZ - EYE_HEIGHT;
+                if (!o.colBoxes.empty()) {
+                    // Rockstar COL boxes: horizontal circle-vs-AABB. Y is only
+                    // used for step-over (low boxes) and above-head checks.
+                    for (auto& b : o.colBoxes) {
+                        if (b.maxZ <= fz + STEP_OVER) continue;    // step over
+                        if (b.minZ >= fz + PLAYER_HEIGHT) continue; // above head
+                        float cx = px < b.minX ? b.minX : (px > b.maxX ? b.maxX : px);
+                        float cy = py < b.minY ? b.minY : (py > b.maxY ? b.maxY : py);
+                        float dx = px - cx, dy = py - cy;
+                        if (dx*dx + dy*dy < PLAYER_RADIUS*PLAYER_RADIUS) return true;
+                    }
+                    return false;
+                }
                 if (px + PLAYER_RADIUS < o.cMinX || px - PLAYER_RADIUS > o.cMaxX) return false;
                 if (py + PLAYER_RADIUS < o.cMinY || py - PLAYER_RADIUS > o.cMaxY) return false;
                 if (fz + PLAYER_HEIGHT < o.cMinZ || fz > o.cMaxZ) return false;

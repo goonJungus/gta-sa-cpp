@@ -1,7 +1,8 @@
 #pragma once
 // IDE (Item Definition) parser for gtasa_cpp.exe (Milestone 4).
-// Parses the "objs" section: id, modelName, txdName, drawDistance, flags.
-// Other sections (tobj, hier, anim, cars, peds, weap, 2dfx) are skipped.
+// Parses the "objs" and "tobj" sections: id, modelName, txdName,
+// drawDistance, flags (tobj timeOn/timeOff are ignored).
+// Other sections (hier, anim, cars, peds, weap, 2dfx) are skipped.
 
 #include <cstdint>
 #include <string>

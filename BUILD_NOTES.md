@@ -3044,3 +3044,13 @@ Screenshots: cpp\screenshots\
 - 1:1 measurement sheet: cpp/grove_measurements.txt (model bboxes, IDE/TXD per model).
 - Build: clean, zero errors (fixed CJ_HEIGHT declaration-order conflict from parallel edits). Exe 1,181,184 bytes, built 2026-10-10 02:37:50. Binary-verified strings: ganghous01_LAx, Lae2_roads89, Lae2_roads46, Lae2_roads50, lae2roadshub, CJ_HEIGHT, THIRD-PERSON, carlshou1_LAe2, ROAD OK, HOUSE OK.
 - Expected overlay: Objects: 7 (4 houses + 3 roads), 0 solid. V toggles camera.
+
+
+## 2026-10-10 - Binary IPL stream props + ring buildings (final build agent)
+
+- Binary IPL parser (src/BinaryIpl.cpp, include/BinaryIpl.h): reads lae2_stream0/2.ipl from gta3.img. Format: bnry magic, int32 count at 0x04 (fixed from int16 per gtatools), int32 array offset at 0x1c, 40-byte records (pos/quat/modelId/interior/lodIndex).
+- Stream block in playMode: loads vegepart/barriers/dynamic/dynamic2/multiobj/procobj/LAe2/LAxref/int_LA IDEs for model-ID lookup; places VEG (palms/trees/bushes/grass), LAMP (lamppost/streetlamp), PROP (hydrants/poles/fences/trash) in cul-de-sac box; skips doors/vehicles/decals with logged reasons.
+- Ring buildings: compfukhouse3 x3, ganghous02_LAx, ganghous05_LAx, mcstraps_LAe2 (strip mall), Pawnshp_lae2 (pawn shop) - full cul-de-sac circle per Q reference screenshots.
+- Expected overlay: 4 houses + 7 ring + 3 roads + ~90 stream props = ~100+ objects, 0 solid.
+- Build: clean, 0 errors. Exe 2026-10-10 03:00:31, 1,239,040 bytes. String verification: all present (stream files, matchers, ring models, log formats). Model names veg_palm04/lamppost1 resolve at runtime from IDE data files by design.
+

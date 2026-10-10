@@ -4,7 +4,7 @@
 // (e.g. lae2_stream0.ipl). The text IPLs only contain LOD placeholders.
 // Format (from decompile src/CIplStore/LoadIpl_00406080.c, verified by hexdump):
 //   magic "bnry" @ 0
-//   int16 instanceCount @ 4
+//   int32 instanceCount @ 4
 //   int32 instanceArrayFileOffset @ 0x1c
 //   Each instance record is 40 bytes:
 //     pos (3x f32) @ 0, quat (4x f32) @ 12,

@@ -10,7 +10,7 @@ bool BinaryIplLoader::LoadFromMemory(const uint8_t* data, size_t size,
     if (std::memcmp(data, "bnry", 4) != 0)
         return false;
 
-    int16_t count = 0;
+    int32_t count = 0;
     std::memcpy(&count, data + 4, sizeof(count));
     if (count < 0 || count > 100000)
         return false;

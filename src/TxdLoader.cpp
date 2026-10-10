@@ -152,9 +152,20 @@ std::vector<TxdTexture> TxdLoader::LoadFromMemory(const uint8_t* data, size_t si
                     tex.width = nh.width;
                     tex.height = nh.height;
 
-                    bool isDXT1 = (nh.compression == 1) || (nh.rasterFormat & RWF_DXT1);
-                    bool isDXT3 = (nh.compression == 3) || (nh.rasterFormat & RWF_DXT3);
-                    bool is8888 = (nh.rasterFormat & RWF_8888) != 0;
+                    // Format detection, verified against retail TXDs:
+                    // - d3dFormat FourCC is authoritative: "DXT1"=0x31545844,
+                    //   "DXT3"=0x33545844.
+                    // - rasterFormat: 0x200/0x8200=DXT1, 0x300=DXT3,
+                    //   0x500=A8R8G8B8, 0x600=X8R8G8B8 (32-bit).
+                    // - The old (nh.compression==1/3) checks never match real
+                    //   data (retail uses 8/9); the old (rf&0x200) DXT1 check
+                    //   misfires on 0x300 (DXT3) since 0x300&0x200!=0.
+                    //   DXT3 MUST be checked before DXT1.
+                    bool isDXT3 = (nh.d3dFormat == 0x33545844) || (nh.rasterFormat == 0x300);
+                    bool isDXT1 = !isDXT3 && ((nh.d3dFormat == 0x31545844) || (nh.rasterFormat & 0x200));
+                    bool is8888 = (nh.rasterFormat & RWF_8888) != 0
+                               || nh.rasterFormat == 0x500 || nh.rasterFormat == 0x600
+                               || nh.d3dFormat == 0x15 || nh.d3dFormat == 0x16;  // D3DFMT_A8R8G8B8/X8R8G8B8
 
                     uint32_t w = nh.width, hh = nh.height;
                     if (w == 0 || hh == 0 || w > kMaxDimension || hh > kMaxDimension) {
