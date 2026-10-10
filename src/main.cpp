@@ -431,30 +431,37 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const float RUN_SPEED = 50.0f;
 
     if (playMode) {
-        Log("PLAY MODE: building Grove Street scene");
-        // Fixed street layout: houses spaced 45 units apart, no overlaps.
-        // Street runs along X. North row y=-1630, south row y=-1670.
+        Log("PLAY MODE: building REAL Grove Street scene");
+        // Real Grove Street: north-south cul-de-sac in Ganton.
+        // Uses actual game models: Smoke's, Sweet's, Ryder's houses.
+        // CJ's (Johnson) house at north end. Street runs along Y.
         struct PH { const char* dff; const char* txd; float x, y, yaw; };
         PH houses[] = {
-            // North side (face south = yaw PI)
-            {"bdupshouse_lae.dff",    "bdupshouse_lae", 2470.0f, -1630.0f, 3.14159f},
-            {"compmedhos1_lae.dff",   "comedhos1_la",   2515.0f, -1630.0f, 3.14159f},
-            {"compmedhos2_lae.dff",   "comedhos1_la",   2560.0f, -1630.0f, 3.14159f},
-            {"ganghous01_lax.dff",    "ganghouse1_lax", 2605.0f, -1630.0f, 3.14159f},
-            // South side (face north = yaw 0)
-            {"santahouse02_law2.dff", "bev_law2",       2470.0f, -1670.0f, 0.0f},
-            {"compmedhos3_lae.dff",   "comedhos1_la",   2515.0f, -1670.0f, 0.0f},
-            {"cehillhouse04.dff",     "lahillshilhse",  2560.0f, -1670.0f, 0.0f},
-            {"ganghous02_lax.dff",    "ganghouse1_lax", 2605.0f, -1670.0f, 0.0f},
+            // CJ's house (Johnson House) at the north end, facing south
+            {"bdupshouse_lae.dff",    "bdupshouse_lae", 2510.0f, -1570.0f, 3.14159f},
+            // Big Smoke's house (west side, facing east)
+            {"laesmokeshse.dff",      "laesmokecnthus", 2480.0f, -1620.0f, -1.5708f},
+            // Sweet's house (east side, facing west) - main + door
+            {"sweetshou1_lae2.dff",   "contachou1_lae2", 2540.0f, -1640.0f, 1.5708f},
+            {"sweetsdoor_lae2.dff",   "contachou1_lae2", 2540.0f, -1640.0f, 1.5708f},
+            // Ryder's house (west side, facing east)
+            {"ryder2.dff",            "ryderholes",     2480.0f, -1670.0f, -1.5708f},
+            {"ryder3.dff",            "ryderholes",     2480.0f, -1670.0f, -1.5708f},
+            // Additional Ganton houses for street feel (east side)
+            {"compmedhos3_lae.dff",   "comedhos1_la",   2540.0f, -1690.0f, 1.5708f},
+            {"cehillhouse04.dff",     "lahillshilhse",  2540.0f, -1740.0f, 1.5708f},
+            // West side fill
+            {"compmedhos1_lae.dff",   "comedhos1_la",   2480.0f, -1720.0f, -1.5708f},
+            {"ganghous01_lax.dff",    "ganghouse1_lax", 2480.0f, -1770.0f, -1.5708f},
         };
         int loaded = 0;
         for (auto& h : houses) {
             if (loadHouse(h.dff, h.txd, h.x, h.y, 0.0f, h.yaw, mapObjects)) loaded++;
         }
-        Log("PLAY: %d/8 houses loaded", loaded);
-        // Player starts at west end of street, looking east
-        playerX = 2440.0f; playerY = -1650.0f; playerZ = EYE_HEIGHT;
-        yaw = 0.0f; pitch = 0.0f; // facing +X (east)
+        Log("PLAY: %d/10 houses loaded", loaded);
+        // Player starts mid-street, looking north toward CJ's house (closer for scale)
+        playerX = 2510.0f; playerY = -1680.0f; playerZ = EYE_HEIGHT;
+        yaw = 1.5708f; pitch = 0.0f; // facing north toward CJ's house
         // Hide cursor for mouse look
         ShowCursor(FALSE);
         // Center mouse
@@ -462,6 +469,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         POINT c = {(rc.right-rc.left)/2, (rc.bottom-rc.top)/2};
         ClientToScreen(g_hwnd, &c);
         SetCursorPos(c.x, c.y);
+
     } else if (houseTest) {
         Log("HOUSE TEST MODE");
         struct HD { const char* dff; const char* txd; float x, y, z; };

@@ -1,35 +1,35 @@
 ﻿# C++ Conversion Build Notes
 
-## 2026-10-08 â€” Initial scaffold (core_math_containers)
+## 2026-10-08 â€�? Initial scaffold (core_math_containers)
 
 ### What was done
 Created the initial C++ project structure under `cpp/`:
-- `include/CVector.h` â€” adapted from gta-reversed `Core/Vector.h`
-- `include/CMatrix.h` â€” adapted from gta-reversed `Core/Matrix.h`
-- `include/CPool.h` â€” simplified standalone version of gta-reversed `Core/Pool.h`
-- `src/CVector.cpp` â€” method implementations (some complete, some TODO)
-- `src/CMatrix.cpp` â€” stub implementations with TODO markers
-- `CMakeLists.txt` â€” static library target, C++17, MSVC
+- `include/CVector.h` â€�? adapted from gta-reversed `Core/Vector.h`
+- `include/CMatrix.h` â€�? adapted from gta-reversed `Core/Matrix.h`
+- `include/CPool.h` â€�? simplified standalone version of gta-reversed `Core/Pool.h`
+- `src/CVector.cpp` â€�? method implementations (some complete, some TODO)
+- `src/CMatrix.cpp` â€�? stub implementations with TODO markers
+- `CMakeLists.txt` â€�? static library target, C++17, MSVC
 
 ### Adaptations from gta-reversed
 Removed plugin-sdk-specific items:
-- `InjectHooks()` â€” plugin-sdk hooking mechanism, not needed for clean-room
-- `NLOHMANN_DEFINE_TYPE_INTRUSIVE` â€” JSON serialization, not needed
-- `VALIDATE_SIZE` â€” compile-time size check macro, replaced with static_assert where needed
-- `reversiblebugfixes/Bugs.hpp` â€” bug compatibility layer, not needed
-- `Base.h`, `rwplcore.h` â€” RenderWare SDK headers, replaced with minimal local structs
-- `rng::` range utilities â€” replaced with straightforward loops
+- `InjectHooks()` â€�? plugin-sdk hooking mechanism, not needed for clean-room
+- `NLOHMANN_DEFINE_TYPE_INTRUSIVE` â€�? JSON serialization, not needed
+- `VALIDATE_SIZE` â€�? compile-time size check macro, replaced with static_assert where needed
+- `reversiblebugfixes/Bugs.hpp` â€�? bug compatibility layer, not needed
+- `Base.h`, `rwplcore.h` â€�? RenderWare SDK headers, replaced with minimal local structs
+- `rng::` range utilities â€�? replaced with straightforward loops
 
 ### What's stubbed (needs decomp verification)
 **CVector.cpp:**
-- `Random()` â€” placeholder using rand(), verify distribution from decomp
-- `FromMultiply` / `FromMultiply3x3` â€” mapped to TransformPoint/TransformVector, verify
-- `Heading()` â€” placeholder atan2 logic, verify
+- `Random()` â€�? placeholder using rand(), verify distribution from decomp
+- `FromMultiply` / `FromMultiply3x3` â€�? mapped to TransformPoint/TransformVector, verify
+- `Heading()` â€�? placeholder atan2 logic, verify
 
 **CMatrix.cpp:**
-- Most rotation methods (`SetRotateX/Y/Z`, `RotateX/Y/Z`, `ConvertToEulerAngles`, etc.) â€” euler order and flags MUST be verified from decomp before use
-- `operator*` / `operator+` â€” matrix multiplication order unverified
-- `Attach`/`Detach` â€” ownership semantics unverified
+- Most rotation methods (`SetRotateX/Y/Z`, `RotateX/Y/Z`, `ConvertToEulerAngles`, etc.) â€�? euler order and flags MUST be verified from decomp before use
+- `operator*` / `operator+` â€�? matrix multiplication order unverified
+- `Attach`/`Detach` â€�? ownership semantics unverified
 
 ### Next steps
 1. Verify stub implementations against `src/CVector/*.c` and `src/CMatrix/*.c`
@@ -45,45 +45,45 @@ cmake --build build --config Debug
 ```
 Note: Win32 (x86) target to match original binary architecture.
 
-## 2026-10-08 â€” world_entities subsystem (CPlaceable/CEntity/CPhysical/CObject/CBuilding/CWorld)
+## 2026-10-08 â€�? world_entities subsystem (CPlaceable/CEntity/CPhysical/CObject/CBuilding/CWorld)
 
 ### What was done
 New headers in `include/` (all adapted from gta-reversed, full member layout + method declarations):
-- `include/CPlaceable.h` â€” from `Entity/Placeable.h`
-- `include/CEntity.h` â€” from `Entity/Entity.h`
-- `include/CPhysical.h` â€” from `Entity/Physical.h`
-- `include/CObject.h` â€” from `Entity/Object/Object.h`
-- `include/CBuilding.h` â€” from `Entity/Building.h`
-- `include/CWorld.h` â€” from `World.h`
+- `include/CPlaceable.h` â€�? from `Entity/Placeable.h`
+- `include/CEntity.h` â€�? from `Entity/Entity.h`
+- `include/CPhysical.h` â€�? from `Entity/Physical.h`
+- `include/CObject.h` â€�? from `Entity/Object/Object.h`
+- `include/CBuilding.h` â€�? from `Entity/Building.h`
+- `include/CWorld.h` â€�? from `World.h`
 - Dependency headers (new, minimal): `include/CSimpleTransform.h` (from `SimpleTransform.h`),
   `include/CMatrixLink.h` (from `Core/MatrixLink.h`), `include/CRect.h` (from `Core/Rect.h`)
 
 New stub sources in `src/` (TODO markers, verify against decomp before implementing):
 - `src/CPlaceable.cpp`, `src/CEntity.cpp`, `src/CPhysical.cpp`,
   `src/CObject.cpp`, `src/CBuilding.cpp`, `src/CWorld.cpp`
-- `CMakeLists.txt` â€” all six added to the static library target
+- `CMakeLists.txt` â€�? all six added to the static library target
 
-### Inheritance (verified with static_asserts â€” this is the critical part)
+### Inheritance (verified with static_asserts â€�? this is the critical part)
 ```
 CPlaceable -> CEntity -> CPhysical -> CObject
-                      -> CBuilding   (directly from CEntity, NOT CPhysical â€” matches gta-reversed)
+                      -> CBuilding   (directly from CEntity, NOT CPhysical â€�? matches gta-reversed)
 ```
 `CBuilding` derives from `CEntity` directly (buildings have no physics state).
 
 ### Adaptations from gta-reversed
 - Stripped: `InjectHooks()`, `friend InjectHooksMain`, `Constructor()`/`Destructor()` placement
   wrappers, `NOTSA_EXPORT_VTABLE`, `VALIDATE_SIZE` (kept as `static_assert` only where layout is
-  certain on the Win32 target: `CPlaceable` 0x18, `CSimpleTransform` 0x10, `CMatrixLink` 0x54 â€”
+  certain on the Win32 target: `CPlaceable` 0x18, `CSimpleTransform` 0x10, `CMatrixLink` 0x54 â€�?
   guarded by `#if INTPTR_MAX == INT32_MAX` so 64-bit dev builds still compile), `StaticRef`
   (no `NLOHMANN_DEFINE` was present in these headers)
 - `StaticRef` globals removed: CWorld's ~25 world-state refs (`ms_aSectors`, `Players`, ...),
-  CPhysical's damping tunables, CObject's `nNoTempObjects` etc., `GAME_GRAVITY` â€” world/physics
+  CPhysical's damping tunables, CObject's `nNoTempObjects` etc., `GAME_GRAVITY` â€�? world/physics
   state will live in the corresponding `.cpp` files when ported
 - C++23 `this auto&&` deducing-this accessors in CPhysical rewritten as const/non-const
   overload pairs (project is C++17); `std::predicate` (C++20) in `CWorld::IterateSectors*`
   rewritten as plain `typename Fn`; `std::span` helper demoted to declaration
 - `auto` return-type deduction replaced with explicit types where member-init order mattered
-  (`CEntity::GetType()`/`GetStatus()` â€” GCC rejects use-before-deduction, MSVC accepts)
+  (`CEntity::GetType()`/`GetStatus()` â€�? GCC rejects use-before-deduction, MSVC accepts)
 - `CBuilding::operator new(unsigned)` â†’ `size_t` (GCC hard-errors on `unsigned`; MSVC accepts)
 - RenderWare SDK types forward-declared (`RwObject`, `RpClump`, `RpAtomic`, `RpMaterial`,
   `RwTexture`); `RwMatrix`/`CVector`/`CQuaternion` come from the already-ported core math headers
@@ -99,13 +99,13 @@ CPlaceable -> CEntity -> CPhysical -> CObject
 
 ### Drive-by fix: `include/CVector.h` constexpr
 `RwV3d::{x,y,z}` and `CVector2D::{x,y}` were uninitialized, so the `constexpr`-defaulted
-constructors are ill-formed (GCC rejects; MSVC is lax). Changed to `{}` member initializers â€”
+constructors are ill-formed (GCC rejects; MSVC is lax). Changed to `{}` member initializers â€�?
 zero-init instead of indeterminate, strictly safer, no behavior change for MSVC builds.
 
 ### Compile check (2026-10-08, g++ C++17 -fsyntax-only)
 All six stub `.cpp` files compile. One pre-existing-style warning only: GCC `-Wtype-limits`
 on `CEntity::CanLodChildrenRender()` (`m_NumLodChildrenRendered != 128` with an `int8_t`
-member) â€” this is a faithful transcription of gta-reversed's "very hacky" 128 flag;
+member) â€�? this is a faithful transcription of gta-reversed's "very hacky" 128 flag;
 MSVC `/W3` does not warn on it. Left as-is deliberately.
 
 ### What's stubbed (needs decomp verification)
@@ -118,36 +118,36 @@ and CWorld's static state arrays.
 2. Port `CGame`, collision (`CColModel`/`CColPoint`), core containers (`CLink`, `CPtrList*`)
 3. Next subsystem per `port_plan/layering.json`
 
-## 2026-10-08 â€” collision subsystem (CColModel/CColSphere/CCollision/CColAccel/CCollisionData/CColTrianglePlane)
+## 2026-10-08 â€�? collision subsystem (CColModel/CColSphere/CCollision/CColAccel/CCollisionData/CColTrianglePlane)
 
 ### What was done
 All six collision classes had gta-reversed headers (`source/game_sa/Collision/`), so all
 six were adapted (no `_types.h` fallback needed):
 
 New headers in `include/` (member layout + method declarations, faithful to gta-reversed):
-- `include/CColModel.h` â€” from `Collision/ColModel.h`
-- `include/CColSphere.h` â€” from `Collision/ColSphere.h`
-- `include/CCollision.h` â€” from `Collision/Collision.h` (~60 static methods + 4 free functions)
-- `include/CColAccel.h` â€” from `Collision/ColAccel.h`
-- `include/CCollisionData.h` â€” from `Collision/CollisionData.h`
-- `include/CColTrianglePlane.h` â€” from `Collision/ColTrianglePlane.h`
-- `include/ColTypes.h` â€” NEW shared header: minimal faithful stand-ins for the small
+- `include/CColModel.h` â€�? from `Collision/ColModel.h`
+- `include/CColSphere.h` â€�? from `Collision/ColSphere.h`
+- `include/CCollision.h` â€�? from `Collision/Collision.h` (~60 static methods + 4 free functions)
+- `include/CColAccel.h` â€�? from `Collision/ColAccel.h`
+- `include/CCollisionData.h` â€�? from `Collision/CollisionData.h`
+- `include/CColTrianglePlane.h` â€�? from `Collision/ColTrianglePlane.h`
+- `include/ColTypes.h` â€�? NEW shared header: minimal faithful stand-ins for the small
   dependency types the collision headers need but which belong to other subsystems
   (not yet converted). See "ColTypes.h" section below.
 
 New stub sources in `src/` (TODO markers with exact decomp `.c` file + address refs):
 - `src/CColModel.cpp`, `src/CColSphere.cpp`, `src/CCollision.cpp`,
   `src/CColAccel.cpp`, `src/CCollisionData.cpp`, `src/CColTrianglePlane.cpp`
-- `CMakeLists.txt` â€” all six added to the static library target (the old
+- `CMakeLists.txt` â€�? all six added to the static library target (the old
   `#   collision (CColModel, CColStore)` TODO line removed)
 
-### ColTypes.h â€” shared minimal stand-ins
+### ColTypes.h â€�? shared minimal stand-ins
 The six headers need complete types for: `CSphere`, `CBox`, `CBoundingBox`, `CColBox`,
 `CColPoint`, `CStoredCollPoly`, `tColLighting`, `CColSurface`, `FixedFloat`/`FixedVector`
 (+ `CompressedVector`/`CompressedUnitVector` aliases), `CLink`/`CLinkList`, `IplDef`.
 Each is a faithful data layout verified against the gta-reversed `VALIDATE_SIZE`; methods
 are omitted until the owning subsystem is converted. Types that already have converted
-headers are NOT duplicated: `CRect` (`CRect.h`), `ColDef` (`CColStore.h` â€” `CColAccel.h`
+headers are NOT duplicated: `CRect` (`CRect.h`), `ColDef` (`CColStore.h` â€�? `CColAccel.h`
 forward-declares it, `CColAccel.cpp` includes the header), `CVector`/`CMatrix`.
 Other workers' forward declarations (`class CBox;` in `CEntity.h`/`CWorld.h`,
 `class CColPoint;` in `CPhysical.h`, `template<typename T> class CLink;` in `CEntity.h`)
@@ -165,11 +165,11 @@ coexist legally with these definitions.
   `std::span` is C++20). Documented in the header.
 - `FixedFloat`/`FixedVector` (gta-reversed `extensions/`, C++20 via `<concepts>` and float
   non-type template params) â†’ C++17 versions in `ColTypes.h`: concept constraint dropped,
-  `CompressValue` is `int` (all uses are whole numbers: 128/4096 â€” arithmetic identical).
+  `CompressValue` is `int` (all uses are whole numbers: 128/4096 â€�? arithmetic identical).
 - `CLinkList` game-memory `operator new/delete` (0x821195/0x8213AE) â†’ standard new/delete.
 - `IplDef`'s `strcpy_s` (MSVC-only) â†’ `strncpy`; `SHRT_MAX` â†’ `INT16_MAX`.
 - `CColModel::operator new(unsigned)` â†’ `(size_t)` (GCC hard-errors on `unsigned`; MSVC
-  accepts both â€” same fix as `CBuilding` in the world_entities notes).
+  accepts both â€�? same fix as `CBuilding` in the world_entities notes).
 - `CCollision::s_DebugSettings`: gta-reversed's `static inline struct â€¦ { â€¦ } s_DebugSettings{};`
   is rejected by GCC ("default member initializer â€¦ required before the end of its enclosing
   class"), so it is a plain static member defined in `CCollision.cpp`. Same semantics.
@@ -185,13 +185,13 @@ coexist legally with these definitions.
    so the change is compile-safe. This also shrinks `CObject` by 3 bytes toward the binary layout.
 2. **`eSurfaceType` (FLAGGED, not fixed):** `include/CPhysical.h` defines an unscoped
    `enum eSurfaceType : int32_t` (values verified against decomp `_types.h`). But the
-   collision structs store it as ONE byte â€” `VALIDATE_SIZE(CColSurface, 0x4)` /
+   collision structs store it as ONE byte â€�? `VALIDATE_SIZE(CColSurface, 0x4)` /
    `(CColSphere, 0x14)` / `(CColTriangle, 0x8)` all require it, and gta-reversed's canonical
    definition is `enum eSurfaceType : uint8`. Until the tree reconciles, collision headers
-   use the interim `enum class eColSurfaceType : uint8_t` (in `ColTypes.h`, empty â€” values
+   use the interim `enum class eColSurfaceType : uint8_t` (in `ColTypes.h`, empty â€�? values
    belong to the enums conversion). TODO: reconcile with `CPhysical.h`.
 3. `CColStore.h` still declares `operator new(unsigned)` (GCC hard-errors; MSVC accepts).
-   Not fixed â€” that header and its `.cpp` (whose `operator new` definition is also malformed)
+   Not fixed â€�? that header and its `.cpp` (whose `operator new` definition is also malformed)
    belong to the streaming/collision coworker.
 
 ### Compile check (2026-10-08, g++ 13 C++17 -fsyntax-only)
@@ -203,37 +203,37 @@ Known pre-existing issue (not mine): `CColStore.h:35` `operator new(unsigned)` f
 ### What's stubbed (needs decomp verification)
 All six `src/*.cpp` files are TODO with exact `.c` references. Notes:
 - `CColModel`: two `AllocateData` overloads vs two `AllocateData_*.c` candidates
-  (`01561730`/`0156deb0`) â€” verify which maps to which; same for `MakeMultipleAlloc`
+  (`01561730`/`0156deb0`) â€�? verify which maps to which; same for `MakeMultipleAlloc`
   (`01564a10`/`015697f0`). `operator new/delete`/`operator=` have no named `.c` files.
-- `CColSphere`: ctors map to `unk_0040fc8b`â€¦`unk_004100de.c` â€” identify from binary.
+- `CColSphere`: ctors map to `unk_0040fc8b`â€¦`unk_004100de.c` â€�? identify from binary.
 - `CCollision`: `Tests()`, `TestLineBox()` (non-DW), the 4 free functions, and the NOTSA
   helpers have no named `.c` files. Everything else maps 1:1 by name.
-- `CColTrianglePlane`: the 3 ctors map to 4 `unk_004115xx.c` files â€” identify from binary.
-- `CColModel::operator=` stub does a memberwise copy with a loud TODO â€” pointer
+- `CColTrianglePlane`: the 3 ctors map to 4 `unk_004115xx.c` files â€�? identify from binary.
+- `CColModel::operator=` stub does a memberwise copy with a loud TODO â€�? pointer
   semantics (shallow vs deep for `m_pColData`) are UNVERIFIED; do not use as-is.
 
 ### Next steps
-1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€” the
+1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€�? the
    `#if INTPTR_MAX == INT32_MAX` asserts will fire there if any layout is off.
 2. Reconcile `eSurfaceType` with `CPhysical.h` (see conflict #2 above).
 3. Fill in stub bodies from `src/CColModel/*.c`, `src/CColSphere/*.c`, etc. per the TODOs.
 4. Next subsystem per `port_plan/layering.json`.
 
-## 2026-10-08 â€” Camera subsystem (CCamera, CCam, CIdleCam)
+## 2026-10-08 â€�? Camera subsystem (CCamera, CCam, CIdleCam)
 
 ### What was done
 Ported the camera subsystem headers from gta-reversed (`source/game_sa/`):
-- `include/CCam.h` â€” from `Cam.h`: one camera slot (CCamera owns 3), all per-mode
+- `include/CCam.h` â€�? from `Cam.h`: one camera slot (CCamera owns 3), all per-mode
   `Process_*` handlers, full member layout. Guarded `static_assert(sizeof(CCam) == 0x238)`.
-- `include/CIdleCam.h` â€” from `IdleCam.h`: idle/auto camera (slerp + FOV zoom).
+- `include/CIdleCam.h` â€�? from `IdleCam.h`: idle/auto camera (slerp + FOV zoom).
   Guarded `static_assert(sizeof(CIdleCam) == 0x9C)`.
-- `include/CCamera.h` â€” from `Camera.h`: the camera manager (slots, RW camera,
+- `include/CCamera.h` â€�? from `Camera.h`: the camera manager (slots, RW camera,
   fades, shakes, splines, widescreen). Derives from `CPlaceable`.
 - `src/CCam.cpp` (49 stubs), `src/CIdleCam.cpp` (17 stubs),
-  `src/CCamera.cpp` (136 stubs) â€” every declared method stubbed with a TODO
+  `src/CCamera.cpp` (136 stubs) â€�? every declared method stubbed with a TODO
   referencing its decompiled `.c` file under `src/CCam/`, `src/CIdleCam/`,
   `src/CCamera/` (116 / 16 / 151 `.c` files respectively).
-- `CMakeLists.txt` â€” added the three `.cpp` files to the `gta_sa` static lib.
+- `CMakeLists.txt` â€�? added the three `.cpp` files to the `gta_sa` static lib.
 
 ### Adaptations from gta-reversed
 - `InjectHooks()` stripped (all three classes); the private `CCam::Constructor()`
@@ -241,11 +241,11 @@ Ported the camera subsystem headers from gta-reversed (`source/game_sa/`):
 - `VALIDATE_SIZE` â†’ guarded `static_assert` (`#if INTPTR_MAX == INT32_MAX`).
   `sizeof(CCam) == 0x238` and `sizeof(CIdleCam) == 0x9C` verified by hand
   layout computation (member-by-member offset walk). `sizeof(CCamera) == 0xD78`
-  stays a TODO â€” the CPlaceable/CEntity layout chain is still unverified.
+  stays a TODO â€�? the CPlaceable/CEntity layout chain is still unverified.
 - plugin-sdk typedefs (`uint32/int32/uint16/uint8`) â†’ `<cstdint>` types.
 - `StaticRef` â†’ file-static state in the `.cpp` files: the 6 in-class camera
   tunables (`m_f3rdPersonCHairMultY/X`, `m_fMouseAccelVertical/Horzntl`,
-  `m_bUseMouse3rdPerson`, `bDidWeProcessAnyCinemaCam` â€” binary addresses
+  `m_bUseMouse3rdPerson`, `bDidWeProcessAnyCinemaCam` â€�? binary addresses
   0xB6EC10â€“0xB6EC2E), `gpMadeInvisibleEntities` (0x9655A0),
   `gNumEntitiesSetInvisible` (0x9655DC), and CCam's `gbFirstPersonRunThisFrame`.
   The `extern` globals (`TheCamera`, `gCameraMode`, `gCamColVars`, `gIdleCam`,
@@ -263,7 +263,7 @@ Ported the camera subsystem headers from gta-reversed (`source/game_sa/`):
   forward-declared; `eModelID` is an opaque enum declaration (`: int32_t`,
   owned by the enums subsystem). `eVehicleType`/`ePedType`/`eNameState`
   defined minimally with values verified against gta-reversed `Enums/`
-  (plugin-sdk) â€” needed complete because stub `.cpp` definitions take them
+  (plugin-sdk) â€�? needed complete because stub `.cpp` definitions take them
   by value. `CQueuedMode` (0xC) and `CCamPathSplines` (0x4) are minimal
   stand-ins in CCamera.h with guarded asserts; TODO: split into own headers.
 - Full `eCamMode` value list (MODE_NONE=0 â€¦ MODE_AIMWEAPON_ATTACHED=65,
@@ -280,15 +280,15 @@ above instead. `__stdcall` was blanked for the GCC check only.
 All `src/*.cpp` methods are TODO with exact `.c` references. Notable gaps:
 - `CCam`: `ClipAlpha`, `GetCoreDataForDWCineyCamMode`,
   `ApplyUnderwaterMotionBlur`, `ConvertPedNode2BoneTag`, `IsLampPost` have no
-  named `.c` files â€” identify from `unk_*.c` / binary. `CCam()` notes
+  named `.c` files â€�? identify from `unk_*.c` / binary. `CCam()` notes
   `calls_SetDefaults_00517740_00517740.c` (verify ctor-vs-Init split).
 - `CCamera`: overload pairs vs two same-named `.c` files need mapping
-  verification â€” `IsSphereVisible` (00420c40/00420d40), `ProcessFOVLerp`
+  verification â€�? `IsSphereVisible` (00420c40/00420d40), `ProcessFOVLerp`
   (0050d510/00516500), `ProcessShake` (00516560/0051a6f0),
   `ProcessVectorMoveLinear` (0050d430/005164a0),
   `ProcessVectorTrackLinear` (0050d350/00516440). Two `_dtor_CCamera_*.c`
-  files (0050a870/00514010) â€” scalar vs vector-deleting dtor, verify.
-  `IsItTimeForNewCamera` â†” `IsItTimeForNewcam_0051d770.c` (name differs).
+  files (0050a870/00514010) â€�? scalar vs vector-deleting dtor, verify.
+  `IsItTimeForNewCamera` â†�? `IsItTimeForNewcam_0051d770.c` (name differs).
   No named `.c` for: `IsTargetingActive`, `ShouldPedControlsBeRelative`,
   `SetToSphereMap`, `GetCutsceneBarHeight`, `GetCamDirectlyBehind`,
   `GetActiveCamera`, `GetFrustumPoints`, `GetFrontNormal2D`, `GetRwMatrix`,
@@ -299,7 +299,7 @@ All `src/*.cpp` methods are TODO with exact `.c` references. Notable gaps:
   real binary values were never read (addresses recorded in comments).
 
 ### Next steps
-1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€”
+1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€�?
    the `#if INTPTR_MAX == INT32_MAX` asserts fire there if any layout is off.
 2. Fill in stub bodies from `src/CCam/*.c`, `src/CIdleCam/*.c`,
    `src/CCamera/*.c` per the TODOs (ctor/Init/Process first).
@@ -308,39 +308,39 @@ All `src/*.cpp` methods are TODO with exact `.c` references. Notable gaps:
    subsystem when it's converted.
 4. Next subsystem per `port_plan/layering.json`.
 
-## 2026-10-08 â€” render subsystem (CRenderer/CPostEffects/CShadows/CWeather/CFont/CSprite2d)
+## 2026-10-08 â€�? render subsystem (CRenderer/CPostEffects/CShadows/CWeather/CFont/CSprite2d)
 
 ### What was done
 All six render classes had gta-reversed headers (`source/game_sa/*.h`), so all
 six were adapted (57/56/55/29/44/38 functions per the task list):
 
 New headers in `include/` (member layout + method declarations, faithful to gta-reversed):
-- `include/CRenderer.h` â€” from `Renderer.h` (20 StaticRef statics: render lists,
+- `include/CRenderer.h` â€�? from `Renderer.h` (20 StaticRef statics: render lists,
   LOD lists, clip plane, camera pos/heading, LOD distance scales)
-- `include/CPostEffects.h` â€” from `PostEffects.h` (~90 StaticRef statics:
+- `include/CPostEffects.h` â€�? from `PostEffects.h` (~90 StaticRef statics:
   night vision, infrared, heat haze, radiosity, water FX, immediate-mode `imf`)
-- `include/CShadows.h` â€” from `Shadows.h` (shadow structs + 6 StaticRef statics +
+- `include/CShadows.h` â€�? from `Shadows.h` (shadow structs + 6 StaticRef statics +
   13 file-scope texture globals + `g_ShadowVertices`)
-- `include/CWeather.h` â€” from `Weather.h` (45 StaticRef statics + wind-offset arrays)
-- `include/CFont.h` â€” from `Font.h` (CFontChar/tFontData/enums + 28 statics)
-- `include/CSprite2d.h` â€” from `Sprite2d.h` (5 statics + 38 methods)
-- `include/RenderTypes.h` â€” NEW shared header: minimal faithful stand-ins for the
+- `include/CWeather.h` â€�? from `Weather.h` (45 StaticRef statics + wind-offset arrays)
+- `include/CFont.h` â€�? from `Font.h` (CFontChar/tFontData/enums + 28 statics)
+- `include/CSprite2d.h` â€�? from `Sprite2d.h` (5 statics + 38 methods)
+- `include/RenderTypes.h` â€�? NEW shared header: minimal faithful stand-ins for the
   RenderWare SDK types the render headers need but which belong to the not-yet-
   converted RenderWare layer (see "RenderTypes.h" section below)
 
 New stub sources in `src/` (TODO markers with exact decomp `.c` file + address refs):
 - `src/CRenderer.cpp`, `src/CPostEffects.cpp`, `src/CShadows.cpp`,
   `src/CWeather.cpp`, `src/CFont.cpp`, `src/CSprite2d.cpp`
-- `CMakeLists.txt` â€” all six added to the static library target (after the
+- `CMakeLists.txt` â€�? all six added to the static library target (after the
   camera subsystem's files); the stale `file_loading`/`streaming` TODO lines
   replaced with current next-steps
 
-### RenderTypes.h â€” shared minimal RenderWare stand-ins
+### RenderTypes.h â€�? shared minimal RenderWare stand-ins
 The six headers need: `RwTexture`, `RwRaster`, `RwRGBA`, `RwRGBAReal`, `RwRect`,
 `RwIm2DVertex`, `RwImVertexIndex`, `RwD3D9Vertex`, `RwBlendFunction`,
 `RwCullMode`, `RwShadeMode`, `RwTextureAddressMode`, `RwTextureFilterMode`,
 `RwBool`/`RwUInt8`/`RwUInt32`, plus `CRGBA` and `GxtChar` (both unconverted).
-`RwV3d`/`CVector2D` come from `CVector.h`, `RwMatrix` from `CMatrix.h` â€”
+`RwV3d`/`CVector2D` come from `CVector.h`, `RwMatrix` from `CMatrix.h` â€�?
 NOT duplicated here. Layouts per RW SDK 3.7 (`RwIm2DVertex` 0x1C, guarded
 assert); enum VALUES are SDK-standard but flagged verify-on-conversion.
 Delete this file when the real RenderWare layer is converted.
@@ -427,22 +427,22 @@ All six `src/*.cpp` files are TODO with exact `.c` references. Notes:
 4. Next subsystem per `port_plan/layering.json`.
 
 
-## 2026-10-08 â€” animation subsystem (CAnimManager/CAnimBlendAssociation/CAnimBlendAssocGroup/CAnimBlendHierarchy/CAnimBlendSequence/CAnimBlendNode/CAnimBlendStaticAssociation/CAnimBlendClumpData)
+## 2026-10-08 â€�? animation subsystem (CAnimManager/CAnimBlendAssociation/CAnimBlendAssocGroup/CAnimBlendHierarchy/CAnimBlendSequence/CAnimBlendNode/CAnimBlendStaticAssociation/CAnimBlendClumpData)
 
 ### What was done
 All eight animation classes had gta-reversed headers (`source/game_sa/Animation/`), so all
 eight were adapted (no `_types.h` fallback needed):
 
 New headers in `include/` (member layout + method declarations, faithful to gta-reversed):
-- `include/CAnimManager.h` â€” from `Animation/AnimManager.h` (static manager: blocks, assoc groups, LRU anim cache)
-- `include/CAnimBlendAssociation.h` â€” from `Animation/AnimBlendAssociation.h` (running anim instance; includes `CAnimBlendLink` intrusive list + `eAnimationFlags`)
-- `include/CAnimBlendAssocGroup.h` â€” from `Animation/AnimBlendAssocGroup.h` (anim group/block)
-- `include/CAnimBlendHierarchy.h` â€” from `Animation/AnimBlendHierarchy.h` (the animation object)
-- `include/CAnimBlendSequence.h` â€” from `Animation/AnimBlendSequence.h` (per-bone key-frames)
-- `include/CAnimBlendNode.h` â€” from `Animation/AnimBlendNode.h` (per-node player; interpolation templates kept)
-- `include/CAnimBlendStaticAssociation.h` â€” from `Animation/AnimBlendStaticAssociation.h` (static anim data)
-- `include/CAnimBlendClumpData.h` â€” from `Animation/AnimBlendClumpData.h` (per-clump anim list + frame data)
-- `include/AnimTypes.h` â€” NEW shared header: minimal faithful stand-ins for the small
+- `include/CAnimManager.h` â€�? from `Animation/AnimManager.h` (static manager: blocks, assoc groups, LRU anim cache)
+- `include/CAnimBlendAssociation.h` â€�? from `Animation/AnimBlendAssociation.h` (running anim instance; includes `CAnimBlendLink` intrusive list + `eAnimationFlags`)
+- `include/CAnimBlendAssocGroup.h` â€�? from `Animation/AnimBlendAssocGroup.h` (anim group/block)
+- `include/CAnimBlendHierarchy.h` â€�? from `Animation/AnimBlendHierarchy.h` (the animation object)
+- `include/CAnimBlendSequence.h` â€�? from `Animation/AnimBlendSequence.h` (per-bone key-frames)
+- `include/CAnimBlendNode.h` â€�? from `Animation/AnimBlendNode.h` (per-node player; interpolation templates kept)
+- `include/CAnimBlendStaticAssociation.h` â€�? from `Animation/AnimBlendStaticAssociation.h` (static anim data)
+- `include/CAnimBlendClumpData.h` â€�? from `Animation/AnimBlendClumpData.h` (per-clump anim list + frame data)
+- `include/AnimTypes.h` â€�? NEW shared header: minimal faithful stand-ins for the small
   dependency types the animation headers need but which belong to other subsystems
   (not yet converted). See "AnimTypes.h" section below.
 
@@ -452,32 +452,32 @@ New stub sources in `src/` (TODO markers with exact decomp dir refs):
   `src/CAnimBlendHierarchy.cpp`, `src/CAnimBlendSequence.cpp`,
   `src/CAnimBlendNode.cpp`, `src/CAnimBlendStaticAssociation.cpp`,
   `src/CAnimBlendClumpData.cpp`
-- `CMakeLists.txt` â€” all eight added to the static library target
+- `CMakeLists.txt` â€�? all eight added to the static library target
 
-### AnimTypes.h â€” shared minimal stand-ins
-- `notsa::WEnumS16/WEnumS32/WEnumU32` â€” C++17 shims for plugin-sdk `extensions/WEnum.hpp`
+### AnimTypes.h â€�? shared minimal stand-ins
+- `notsa::WEnumS16/WEnumS32/WEnumU32` â€�? C++17 shims for plugin-sdk `extensions/WEnum.hpp`
   (enum API over smaller storage; literal types with trivial default ctors so the
   `CAnimBlendSequence` union NSDMI stays legal).
-- `notsa::span<T>` â€” C++17 stand-in for `std::span` (C++20), pointer+size with
+- `notsa::span<T>` â€�? C++17 stand-in for `std::span` (C++20), pointer+size with
   begin/end/size/operator[]. Used everywhere gta-reversed used `std::span` in these
   headers (manager getters, `GetAssociations`, `GetSequences`, `ForAllFramesF`,
   `CAnimBlendAssociation::GetNodes`). Mechanical upgrade path: `s/notsa::span/std::span/`
   if the project ever moves past C++17. This follows the tree's no-std::span rule
   (see the CCollisionData/CPhysical.h notes) without demoting the range APIs.
-- `AssocGroupId` â€” copied in FULL from gta-reversed `Enums/AnimationEnums.h` (118 groups).
-- `AnimationId` â€” MINIMAL (`ANIM_ID_UNDEFINED = -1`, verified in gta-reversed); the full
+- `AssocGroupId` â€�? copied in FULL from gta-reversed `Enums/AnimationEnums.h` (118 groups).
+- `AnimationId` â€�? MINIMAL (`ANIM_ID_UNDEFINED = -1`, verified in gta-reversed); the full
   enum is ~100KB of per-animation IDs. Copy on demand from the decomp when the
   ped/task subsystems need it.
 - `eAnimBlendCallbackType` (3 entries), `eBoneTag` (full) + `eBoneTag16/32/U32` aliases.
 - `AnimDescriptor`/`AnimAssocDefinition` (0x30), `CAnimBlock` (0x20),
-  `AnimBlendFrameData` (0x18) â€” faithful layouts.
+  `AnimBlendFrameData` (0x18) â€�? faithful layouts.
 - `KeyFrame` (0x14)/`KeyFrameTrans` (0x20)/`KeyFrameCompressed` (0xA)/
-  `KeyFrameTransCompressed` (0x10) â€” compressed variants use the C++17
+  `KeyFrameTransCompressed` (0x10) â€�? compressed variants use the C++17
   `FixedFloat`/`FixedVector` from `ColTypes.h`; `FixedQuat<int16,4096>` has no
   ColTypes equivalent, so minimal `CompressedQuat` (int16 x4 + 1/4096 conversion).
-- `CQuaternion` â€” MINIMAL stand-in (0x10: x/y/z/w floats, `operator*=`); `Slerp`
+- `CQuaternion` â€�? MINIMAL stand-in (0x10: x/y/z/w floats, `operator*=`); `Slerp`
   declared, not defined. Full class belongs to the math subsystem.
-- `lerp<T>` â€” trivial template (gta-reversed extensions).
+- `lerp<T>` â€�? trivial template (gta-reversed extensions).
 - RenderWare forward declarations: `RpClump`, `RwStream`, `RwLLLink`, `RwFrame`,
   `RpHAnimBlendInterpFrame`, `IFPSectionHeader` (RW layer not yet converted).
 
@@ -519,7 +519,7 @@ New stub sources in `src/` (TODO markers with exact decomp dir refs):
 ### Kept verbatim (transcribed, not invented)
 - `CAnimBlendNode`'s `I_GetCurrentTranslation`/`I_GetEndTranslation`/
   `I_NextKeyFrame`/`I_Update`/`GetTimeRemainingProgress` templates and the public
-  wrappers â€” the core per-frame interpolation logic. They instantiate only when
+  wrappers â€�? the core per-frame interpolation logic. They instantiate only when
   called; nothing in the stub build calls them. Compressed-path ops resolve via
   the AnimTypes.h shims (`CompressedQuat::operator CQuaternion`,
   `FixedFloat::operator float`, `FixedVector::operator CVector`).
@@ -533,9 +533,9 @@ New stub sources in `src/` (TODO markers with exact decomp dir refs):
 All eight stub `.cpp` files compile, plus one combined TU including all nine
 headers (no ODR/redefinition clashes). Warnings only, all pre-existing patterns:
 - GCC `-Winvalid-offsetof` on `CAnimBlendAssociation::FromLink` (offsetof into a
-  class with vtable â€” same construct as gta-reversed; conditionally-supported, MSVC accepts).
+  class with vtable â€�? same construct as gta-reversed; conditionally-supported, MSVC accepts).
 - GCC `-Wc++20-extensions` on the bit-field NSDMIs (`uint16_t m_bHasRotation : 1{};`
-  â€” verbatim from gta-reversed; MSVC accepts).
+  â€�? verbatim from gta-reversed; MSVC accepts).
 - Pre-existing `-Wdeprecated-copy` noise from `include/CVector.h` (not this subsystem).
 - No 32-bit multilib on the check machine, so the guarded `static_assert`s did not
   fire here; layouts were hand-verified against the gta-reversed VALIDATE_SIZE values
@@ -548,7 +548,7 @@ Also pending: the RW layer (`RpClump` etc.), `CQuaternion::Slerp`, the full
 `AnimationId` enum, `CBaseModelInfo`, and `CAnimManager`'s static addresses.
 
 ### Next steps
-1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€” the
+1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€�? the
    guarded asserts fire there if any layout is off.
 2. Port `CQuaternion` (math subsystem) and the RenderWare layer.
 3. Fill in stub bodies from `src/CAnimManager/*.c`, `src/CAnimBlendAssociation/*.c`, etc.
@@ -672,21 +672,21 @@ DrawGallery* have no named .c files.
    eLanguage.h, eRadioID.h, eControllerType.h; pull the real RsKeyCodes with the
    input subsystem; convert CMenuSystem (sibling, shares MenuManager_Internal.h).
 
-## 2026-10-08 â€” scripts_missions subsystem (CRunningScript/CTheScripts/CPickup/CPickups/CStats)
+## 2026-10-08 â€�? scripts_missions subsystem (CRunningScript/CTheScripts/CPickup/CPickups/CStats)
 
 ### What was done
 New headers in `include/` (all adapted from gta-reversed, full member layout + method declarations):
-- `include/CRunningScript.h` â€” from `Scripts/RunningScript.h` (script thread: IP, call stack, locals/timers, opcode command implementations)
-- `include/CTheScripts.h` â€” from `Scripts/TheScripts.h` (script VM manager: script space, running-script lists, script things)
-- `include/CPickup.h` â€” from `Pickup.h` (single world pickup)
-- `include/CPickups.h` â€” from `Pickups.h` (pickup pool manager + messages)
-- `include/CStats.h` â€” from `Stats.h` (player statistics)
-- Dependency header (new, minimal): `include/ScriptParam.h` (from `Scripts/ScriptParam.h` â€” the 4-byte `tScriptParam` union both script headers use)
+- `include/CRunningScript.h` â€�? from `Scripts/RunningScript.h` (script thread: IP, call stack, locals/timers, opcode command implementations)
+- `include/CTheScripts.h` â€�? from `Scripts/TheScripts.h` (script VM manager: script space, running-script lists, script things)
+- `include/CPickup.h` â€�? from `Pickup.h` (single world pickup)
+- `include/CPickups.h` â€�? from `Pickups.h` (pickup pool manager + messages)
+- `include/CStats.h` â€�? from `Stats.h` (player statistics)
+- Dependency header (new, minimal): `include/ScriptParam.h` (from `Scripts/ScriptParam.h` â€�? the 4-byte `tScriptParam` union both script headers use)
 
 New stub sources in `src/` (TODO markers, verify against decomp before implementing):
 - `src/CRunningScript.cpp`, `src/CTheScripts.cpp`, `src/CPickup.cpp`,
   `src/CPickups.cpp`, `src/CStats.cpp`
-- `CMakeLists.txt` â€” all five added to the static library target under `# scripts_missions`
+- `CMakeLists.txt` â€�? all five added to the static library target under `# scripts_missions`
 
 ### Adaptations from gta-reversed
 - Stripped: `InjectHooks()`, `InjectCustomCommandHooks()` (plugin-sdk/NOTSA hooking),
@@ -698,7 +698,7 @@ New stub sources in `src/` (TODO markers, verify against decomp before implement
   the `__thiscall` on `CommandHandlerFn_t` dropped (MSVC x86 member functions are
   `__thiscall` by default).
 - `std::span` views over `ScriptSpace` (C++20) replaced with `MainSCMBlock()` /
-  `MissionBlock()` pointer accessors â€” restore spans when the project moves past C++17.
+  `MissionBlock()` pointer accessors â€�? restore spans when the project moves past C++17.
 - NOTSA `GetSCMChunk<>` template omitted (needs `SCMChunks.hpp`, ported later);
   NOTSA `GetAllActivePickups()` range helper commented out (`std::views` is C++20);
   NOTSA `GetStatValue<T>` kept but adapted to C++17 (no concepts/requires,
@@ -716,7 +716,7 @@ New stub sources in `src/` (TODO markers, verify against decomp before implement
 - Incomplete-type statics (`StreamedScripts`, `ScriptResourceManager`,
   `UpsideDownCars`, `MissionCleanUp`, `StuckCars`, `ScriptsForBrains`) are
   declared in `CTheScripts.h` but defined only when their classes are ported.
-- Bit-field NSDMIs from the original (`: 7{};`) dropped â€” C++20 extension;
+- Bit-field NSDMIs from the original (`: 7{};`) dropped â€�? C++20 extension;
   zero-init still holds via value-initialization.
 - Original quirks noted: `AddToListOfSpecialAnimGroupsAttachedToCharModels`
   had a `Const` typo (fixed), and `tScriptConnectLodsObject`'s VALIDATE_SIZE
@@ -724,7 +724,7 @@ New stub sources in `src/` (TODO markers, verify against decomp before implement
 
 ### Compile check (2026-10-08, g++ 13 C++17 -fsyntax-only)
 All 6 headers + all 5 stub .cpps compile clean. MSVC-only `strcpy_s`/`strncpy_s`
-calls are kept for the Win32 target (a GCC shim stood in for the check) â€” a
+calls are kept for the Win32 target (a GCC shim stood in for the check) â€�? a
 portability wrapper comes later if other compilers are targeted.
 
 ### What's stubbed (needs decomp verification)
@@ -736,7 +736,7 @@ All 5 `src/*.cpp` files are TODO with exact `.c` references. Notes:
 - `GetStatValue<T>` range check was simplified for C++17; restore with C++20.
 
 ### Next steps
-1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€” the
+1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€�? the
    guarded asserts will fire there if any layout is off.
 2. Fill in stub bodies from `src/CRunningScript/*.c`, `src/CTheScripts/*.c`,
    `src/CPickup/*.c`, `src/CPickups/*.c`, `src/CStats/*.c` per the TODOs.
@@ -745,18 +745,18 @@ All 5 `src/*.cpp` files are TODO with exact `.c` references. Notes:
    `CStuckCarCheck`, `CUpsideDownCarCheck`, `CScriptsForBrains`, ped/vehicle
    classes used as parameters.
 
-## 2026-10-08 â€” weapons_combat subsystem (CWeapon/CFire/CFireManager/CWeaponEffects/CExplosion/CShotInfo/CBulletInfo)
+## 2026-10-08 â€�? weapons_combat subsystem (CWeapon/CFire/CFireManager/CWeaponEffects/CExplosion/CShotInfo/CBulletInfo)
 
 ### What was done
-- `include/CWeapon.h` / `src/CWeapon.cpp` â€” adapted from gta-reversed `Weapon.h` (40 methods + ctor + free fn `FireOneInstantHitRound`)
-- `include/CFire.h` / `src/CFire.cpp` â€” adapted from gta-reversed `Fire.h`
-- `include/CFireManager.h` / `src/CFireManager.cpp` â€” adapted from gta-reversed `FireManager.h`
-- `include/CWeaponEffects.h` / `src/CWeaponEffects.cpp` â€” adapted from gta-reversed `WeaponEffects.h`
-- `include/CExplosion.h` / `src/CExplosion.cpp` â€” adapted from gta-reversed `Explosion.h`
-- `include/CShotInfo.h` / `src/CShotInfo.cpp` â€” adapted from gta-reversed `ShotInfo.h`
-- `include/CBulletInfo.h` / `src/CBulletInfo.cpp` â€” adapted from gta-reversed `BulletInfo.h`
+- `include/CWeapon.h` / `src/CWeapon.cpp` â€�? adapted from gta-reversed `Weapon.h` (40 methods + ctor + free fn `FireOneInstantHitRound`)
+- `include/CFire.h` / `src/CFire.cpp` â€�? adapted from gta-reversed `Fire.h`
+- `include/CFireManager.h` / `src/CFireManager.cpp` â€�? adapted from gta-reversed `FireManager.h`
+- `include/CWeaponEffects.h` / `src/CWeaponEffects.cpp` â€�? adapted from gta-reversed `WeaponEffects.h`
+- `include/CExplosion.h` / `src/CExplosion.cpp` â€�? adapted from gta-reversed `Explosion.h`
+- `include/CShotInfo.h` / `src/CShotInfo.cpp` â€�? adapted from gta-reversed `ShotInfo.h`
+- `include/CBulletInfo.h` / `src/CBulletInfo.cpp` â€�? adapted from gta-reversed `BulletInfo.h`
 - New shared enum headers: `include/eWeaponType.h` (moved out of `CWeaponModelInfo.h` per its TODO), `include/eWeaponSkill.h`, `include/ePedPieceTypes.h`
-- `CMakeLists.txt` â€” 7 new .cpps appended to the static lib target
+- `CMakeLists.txt` â€�? 7 new .cpps appended to the static lib target
 
 ### Adaptations from gta-reversed
 - `InjectHooks()` / `friend InjectHooksMain` stripped everywhere
@@ -765,25 +765,25 @@ All 5 `src/*.cpp` files are TODO with exact `.c` references. Notes:
 - No NLOHMANN_DEFINE in these headers (nothing to strip)
 - Integer types -> `<cstdint>` (`uint32` -> `uint32_t`, etc.); `typedef int32 CrossHairId` -> using-alias
 - `_IGNORED_` param annotations dropped (`CFireManager::StartFire`/`StartScriptFire`)
-- `CFire::GetId()` used C++23 deducing-this â€” split into const/non-const overloads (C++17)
+- `CFire::GetId()` used C++23 deducing-this â€�? split into const/non-const overloads (C++17)
 - `CFire::GetFireParticleNameForStrength()` return pinned to `const char*` (was deduced `auto`; gta-reversed .cpp returns string literals)
 - notsa `Constructor()` helpers rewritten with placement new (the original `this->CWeapon::CWeapon(...)` explicit-ctor call is MSVC-only)
 - `CAEExplosionAudioEntity`: interim 0x80-byte stand-in in `CExplosion.h` (audio subsystem not converted; size per gta-reversed `VALIDATE_SIZE`)
 - Forward declarations for unconverted subsystems: `CPed`, `CVehicle`, `CColModel`, `CColPoint`, `CMatrix`, `CWeaponInfo`, `CEntity`, `FxSystem_c`, `RwMatrix`, `RwTexture` (via `RenderTypes.h`)
 
 ### Compile check (2026-10-08, g++ 13 C++17 -fsyntax-only)
-All 11 headers (7 classes + 3 enums + `CWeaponModelInfo.h`) + all 7 stub .cpps compile clean. 32-bit guarded asserts hand-verified (`CWeapon` 0x1C, `CFire` 0x28, `CFireManager` 0x964, `CWeaponEffects` 0x2C, `CExplosion` 0x7C, `CShotInfo` 0x2C, `CBulletInfo` 0x2C); `-m32` check unavailable locally (no multilib) â€” the MSVC Win32 build fires them for real.
+All 11 headers (7 classes + 3 enums + `CWeaponModelInfo.h`) + all 7 stub .cpps compile clean. 32-bit guarded asserts hand-verified (`CWeapon` 0x1C, `CFire` 0x28, `CFireManager` 0x964, `CWeaponEffects` 0x2C, `CExplosion` 0x7C, `CShotInfo` 0x2C, `CBulletInfo` 0x2C); `-m32` check unavailable locally (no multilib) â€�? the MSVC Win32 build fires them for real.
 
 ### What's stubbed (needs decomp verification)
 All 7 `src/*.cpp` files are TODO with exact `.c` references. Notes:
-- `CWeapon::GetWeaponInfo` (x2), `GetWeaponRange`, `GetProjectileType`, free fn `FireOneInstantHitRound` have no named `.c` files â€” identify from binary. `GetWeaponInfo` stubs return a null dereference with a loud TODO (same pattern as the models batch).
-- `CFireManager::GetNumOfFires`/`GetRandomFire`, `CExplosion::Initialise`/`GetFree`/`SetCreator`/`SetVictim`, `CFire` NOTSA helpers (`ExtinguishWithWater`, `DestroyFx`, `SetEntityOnFire`, `SetEntityStartedFire`, `HasTimeToBurn`, `IsNotInRemovalDistance`, `GetFireParticleNameForStrength`, 3x `Start` overloads), `CBulletInfo::GetFree`/`IsTimeToBeDestroyed` â€” no named `.c` files.
-- `Constructor_*` .c files (`CWeapon` 0073b430, `CFire` 00539d90, `CFireManager` 00539da0) are ambiguously named â€” may be the ctor or the notsa `Constructor()` helper; stubs reference them from both.
-- Defaulted ctor/dtor in headers vs named .c files: `CWeaponEffects_00742a90`/`_dtor_CWeaponEffects_00742aa0`, `CFireManager` `Destructor_00538bb0`, `CFire` `_dtor_00538ba0` â€” verify bodies against the .c files before trusting the defaults.
-- `CFireManager::StartFire` has 2 overloads but 2 .c files (`StartFire_00539f00`/`0053a050`) â€” match signatures when filling in.
+- `CWeapon::GetWeaponInfo` (x2), `GetWeaponRange`, `GetProjectileType`, free fn `FireOneInstantHitRound` have no named `.c` files â€�? identify from binary. `GetWeaponInfo` stubs return a null dereference with a loud TODO (same pattern as the models batch).
+- `CFireManager::GetNumOfFires`/`GetRandomFire`, `CExplosion::Initialise`/`GetFree`/`SetCreator`/`SetVictim`, `CFire` NOTSA helpers (`ExtinguishWithWater`, `DestroyFx`, `SetEntityOnFire`, `SetEntityStartedFire`, `HasTimeToBurn`, `IsNotInRemovalDistance`, `GetFireParticleNameForStrength`, 3x `Start` overloads), `CBulletInfo::GetFree`/`IsTimeToBeDestroyed` â€�? no named `.c` files.
+- `Constructor_*` .c files (`CWeapon` 0073b430, `CFire` 00539d90, `CFireManager` 00539da0) are ambiguously named â€�? may be the ctor or the notsa `Constructor()` helper; stubs reference them from both.
+- Defaulted ctor/dtor in headers vs named .c files: `CWeaponEffects_00742a90`/`_dtor_CWeaponEffects_00742aa0`, `CFireManager` `Destructor_00538bb0`, `CFire` `_dtor_00538ba0` â€�? verify bodies against the .c files before trusting the defaults.
+- `CFireManager::StartFire` has 2 overloads but 2 .c files (`StartFire_00539f00`/`0053a050`) â€�? match signatures when filling in.
 
 ### Next steps
-1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€” the guarded asserts fire there if any layout is off.
+1. Real MSVC compile (`cmake -B build -G "Visual Studio 17 2022" -A Win32`) â€�? the guarded asserts fire there if any layout is off.
 2. Fill in stub bodies from `src/CWeapon/*.c`, `src/CFire/*.c`, etc. per the TODOs.
 3. Port `CWeaponInfo` (unblocks `CWeapon::GetWeaponInfo`), `CPed`/`CVehicle` (unblock most `CWeapon` signatures), `FxSystem_c`.
 
@@ -929,21 +929,21 @@ CPad.cpp also stubs the three input-state structs' methods (Clear/CheckForInput/
 3. Port CAEFireAudioEntity (audio subsystem) and eBoneTag.
 4. Fill stub bodies from the decomp .c files.
 
-## 2026-10-08 â€” audio subsystem core (CAudioEngine/CAESound/CAEAudioHardware/CAERadioTrackManager)
+## 2026-10-08 â€�? audio subsystem core (CAudioEngine/CAESound/CAEAudioHardware/CAERadioTrackManager)
 
 ### What was done
 New headers in `include/` (all adapted from gta-reversed, full member layout + method declarations):
-- `include/CAudioEngine.h` â€” from `Audio/AudioEngine.h` (+ `tBeatInfo`, `eRadioID`)
-- `include/CAESound.h` â€” from `Audio/AESound.h` (+ `eSoundEnvironment`)
-- `include/CAEAudioHardware.h` â€” from `Audio/Hardware/AEAudioHardware.h`
+- `include/CAudioEngine.h` â€�? from `Audio/AudioEngine.h` (+ `tBeatInfo`, `eRadioID`)
+- `include/CAESound.h` â€�? from `Audio/AESound.h` (+ `eSoundEnvironment`)
+- `include/CAEAudioHardware.h` â€�? from `Audio/Hardware/AEAudioHardware.h`
   (+ `tVirtualChannelSettings`, `DSCAPS`, `CAEAudioHardwarePlayFlags`, `eAudioChannelFlags`)
-- `include/CAERadioTrackManager.h` â€” from `Audio/Managers/AERadioTrackManager.h`
+- `include/CAERadioTrackManager.h` â€�? from `Audio/Managers/AERadioTrackManager.h`
   (+ `tRadioSettings`, `tRadioState`, `tRadioIndexHistory`, `eRadioTrackMode`)
 
 New stub sources in `src/` (TODO markers, verify against decomp before implementing):
 - `src/CAudioEngine.cpp`, `src/CAESound.cpp`,
   `src/CAEAudioHardware.cpp`, `src/CAERadioTrackManager.cpp`
-- `CMakeLists.txt` â€” all four added to the static library target
+- `CMakeLists.txt` â€�? all four added to the static library target
 
 ### Adaptations from gta-reversed
 - Stripped: `InjectHooks()`, the private `Constructor()`/`Destructor()` hook
@@ -1013,25 +1013,25 @@ Every .cpp is TODO stubs with `// TODO: src/<Class>/*.c` references.
 4. `CAEWeatherAudioEntity` still blocks `CWeather::m_WeatherAudioEntity`.
 
 
-## 2026-10-08 â€” Ped subsystem PART 1 (core ped classes)
+## 2026-10-08 â€�? Ped subsystem PART 1 (core ped classes)
 
 ### What was done
 Converted the 3 core ped classes (task/event classes are a separate batch):
-- `include/CPedIntelligence.h` â€” adapted from gta-reversed `game_sa/PedIntelligence.h`
-- `include/CPed.h` â€” adapted from gta-reversed `game_sa/Entity/Ped/Ped.h`
+- `include/CPedIntelligence.h` â€�? adapted from gta-reversed `game_sa/PedIntelligence.h`
+- `include/CPed.h` â€�? adapted from gta-reversed `game_sa/Entity/Ped/Ped.h`
   (CPed : CPhysical preserved)
-- `include/CPlayerPed.h` â€” adapted from gta-reversed `game_sa/Entity/Ped/PlayerPed.h`
+- `include/CPlayerPed.h` â€�? adapted from gta-reversed `game_sa/Entity/Ped/PlayerPed.h`
   (CPlayerPed : CPed preserved)
 - `src/CPedIntelligence.cpp` (64 stubs), `src/CPed.cpp` (180 stubs),
-  `src/CPlayerPed.cpp` (68 stubs) â€” TODO stubs with `// TODO: decomp src/<Class>/*.c`
+  `src/CPlayerPed.cpp` (68 stubs) â€�? TODO stubs with `// TODO: decomp src/<Class>/*.c`
 - Supporting full enum ports (values verified against gta-reversed):
   `include/ePedState.h`, `include/ePedType.h`, `include/eMoveState.h`,
   `include/ePedStats.h`
-- `CMakeLists.txt` â€” appended the 3 new .cpps to the `gta_sa` static library
+- `CMakeLists.txt` â€�? appended the 3 new .cpps to the `gta_sa` static library
 
 ### Adaptations from gta-reversed
 - `InjectHooks()`, `NOTSA_EXPORT_VTABLE`, `notsa::EntityRef` alias,
-  `Constructor()`/`Destructor()` placement wrappers â€” stripped
+  `Constructor()`/`Destructor()` placement wrappers â€�? stripped
 - `VALIDATE_SIZE`/`VALIDATE_OFFSET` -> 32-bit-guarded `static_assert`
   (CPed 0x79C, CPlayerPed 0x7A4, CPedIntelligence 0x294 + offset 0x274)
 - `StaticRef` statics -> plain static members defined in the .cpps
@@ -1209,50 +1209,50 @@ RemoveCurrentZonesModels, all Set*/GetDefault* helpers, Load/Save.
    CQuaternion clash; CCamera.h vs CVehicleModelInfo.h eVehicleType clash;
    CTxdStore.h/CFileLoader.h/CIplStore.h missing includes.
 
-## 2026-10-08 â€” collision subsystem (CColModel/CCollision)
+## 2026-10-08 â€�? collision subsystem (CColModel/CCollision)
 
 ### What was done
 Filled method bodies from the Ghidra decomp (`src/CColModel/*.c`,
 `src/CCollision/*.c`), verified against gta-reversed where it exists
-(decomp wins on divergences â€” see below).
+(decomp wins on divergences â€�? see below).
 
 New headers in `include/` (all adapted from gta-reversed, faithful layouts):
-- `include/CColTriangle.h` â€” 8 bytes (3x uint16 vert indices + material byte +
+- `include/CColTriangle.h` â€�? 8 bytes (3x uint16 vert indices + material byte +
   light byte; `VALIDATE_SIZE(CColTriangle, 0x8)`). NOTE: NOT 16 bytes / 3x int32
-  as some notes claimed â€” confirmed by `AllocateData`'s `numTriangles * 8`.
-- `include/CColLine.h` â€” SA layout `{m_vecStart, m_fStartSize, m_vecEnd,
+  as some notes claimed â€�? confirmed by `AllocateData`'s `numTriangles * 8`.
+- `include/CColLine.h` â€�? SA layout `{m_vecStart, m_fStartSize, m_vecEnd,
   m_fEndSize}` = 0x20 (no surface member, unlike gta-reversed).
-- `include/CColDisk.h` â€” `CColDisk : CColSphere` + `m_vThickness, m_fThickness`
+- `include/CColDisk.h` â€�? `CColDisk : CColSphere` + `m_vThickness, m_fThickness`
   = 0x24.
-- `include/CSurfaceInfos.h` â€” minimal stand-in: 195 entries, see-through =
+- `include/CSurfaceInfos.h` â€�? minimal stand-in: 195 entries, see-through =
   bit 12, shoot-through = bit 13 of dword at entry+4 (stride 12). TODO: real
   surface.dat loading.
-- `include/CMemoryMgr.h` â€” malloc/free stand-in. TODO: real pool allocator.
+- `include/CMemoryMgr.h` â€�? malloc/free stand-in. TODO: real pool allocator.
 
 Filled sources:
-- `src/CColModel.cpp` â€” constructor, destructor, `AllocateData`
+- `src/CColModel.cpp` â€�? constructor, destructor, `AllocateData`
   (param mapping verified from decomp field offsets; triangles block starts at
   `(vertsOffset + vertsSize + 3) & ~3`), `RemoveCollisionVolumes`,
   `GetTrianglePoint`, `GetData`, `GetLinkPtr`, `operator=`
   (decomp `MakeMultipleAlloc` is actually `operator=`), `bUsesDisks` setter,
   stream read/write as TODO stubs (need file system).
-- `src/CCollision.cpp` â€” the full math core: `TestLineSphere`,
+- `src/CCollision.cpp` â€�? the full math core: `TestLineSphere`,
   `TestLineTriangle`, `ProcessLineTriangle`, `ProcessVerticalLineTriangle`,
   `ProcessLineBox`, `ProcessLineSphere`, `ProcessSphereSphere`,
   `TestSphereTriangle`, `ProcessSphereTriangle`, `TestSphereSphere`
-  (strict `<`, per decomp), `TestLineOfSight` (spheres+boxes only â€” the binary
+  (strict `<`, per decomp), `TestLineOfSight` (spheres+boxes only â€�? the binary
   does NOT test triangles here), `ProcessLineOfSight` (object-space via
   `Invert`, shoot-through + see-through gates, `ms_iProcessLineNumCrossings`
   increments, world-space transform-back), `ProcessVerticalLine`
   (object-space via `InverseTransformPoint`, no shoot-through check, static
   `CStoredCollPoly` + valid flag), `ProcessSphereBox`, `ProcessDiscCollision`,
   `SphereCastVsSphere`, `SphereCastVsBBox`, `GetBoundingBoxFromTwoSpheres`
-  (uses spA's radius for both â€” matches decomp), `RayPolyPOP`,
+  (uses spA's radius for both â€�? matches decomp), `RayPolyPOP`,
   `GetPrincipleAxis`, `PointInPoly` (Y-dominant case uses inverted winding),
   `ClosestPointOnLine`, `Closest3`, `ClosestPointsOnPoly`,
   `ClosestPointOnPoly`, `CalculateTrianglePlanes` (both overloads, LRU cache),
   `RemoveTrianglePlanes` (both overloads), free
-  `ClosestSquaredDistanceBetweenFiniteLines` (0x415A40 â€” the stub header
+  `ClosestSquaredDistanceBetweenFiniteLines` (0x415A40 â€�? the stub header
   claimed it didn't exist; note line2End is a DIRECTION, arg4 its squared
   length), `Init`/`Shutdown` (LRU cache part only), NOTSA helpers
   (`GetClosestPtOnLine`, bary-coords trio, `ClosestPtSegmentSegment`),
@@ -1261,7 +1261,7 @@ Filled sources:
 Shared internal helpers (anonymous namespace, from decomp analysis):
 `ProcessLineTriangleInternal` (ray/plane + B-box short-circuit + edge tests),
 `SphereTriangleClosestPoint` (Christer Ericson 5.1.5, 6-region barycentric),
-`ShouldTestSurface`, `TestLineBox_DW` (DW = "with diagonal"? â€” the decomp's
+`ShouldTestSurface`, `TestLineBox_DW` (DW = "with diagonal"? â€�? the decomp's
 inlined slab test; `ProcessLineBox` uses exactly this, not a separate method),
 `UncompressVert`.
 
@@ -1269,13 +1269,13 @@ inlined slab test; `ProcessLineBox` uses exactly this, not a separate method),
 - `TestSphereSphere` uses strict `<`; `TestLineOfSight` skips triangles;
   `ProcessLineOfSight` increments `ms_iProcessLineNumCrossings` per hit;
   `DAT_00965a20` is just the `valid` field of static poly `DAT_009659fc`.
-- `ClosestPointOnLine`'s param names are misleading â€” it computes the point on
+- `ClosestPointOnLine`'s param names are misleading â€�? it computes the point on
   segment (l1, point) closest to l0 (verified via `ClosestPointsOnPoly` calls).
 - Decomp `unk_*.c` files at 0x40f6e5â€“0x40f759 are decompiler mislabels
   (streaming/task code), NOT CColModel methods. `unk_0040fa70`+ are
   CColTrianglePlane material/light byte ops.
 - `operator new/delete` on CCollisionData: kept as `::operator new/delete`
-  with TODO â€” the original uses CColModelPool, which isn't ported yet.
+  with TODO â€�? the original uses CColModelPool, which isn't ported yet.
 
 ### Compile check (2026-10-08, MSVC 14.29 x64 /std:c++17 /c)
 Both TUs compile CLEAN, zero errors/warnings:
@@ -1285,25 +1285,25 @@ Both TUs compile CLEAN, zero errors/warnings:
 1. `include/CColStore.h`: `#include "Rect.h"` -> `#include "CRect.h"`
    (Rect.h doesn't exist; the header uses `CRect`).
 2. `include/CColStore.h`: `static void* operator new(unsigned size);` ->
-   `static void* operator new(size_t size);` â€” MSVC x64 rejects non-size_t
+   `static void* operator new(size_t size);` â€�? MSVC x64 rejects non-size_t
    first param (error C2821). NOTE: this contradicts the earlier BUILD_NOTES
-   claim that "MSVC accepts it" â€” it does not on x64; on 32-bit (Win32 target)
+   claim that "MSVC accepts it" â€�? it does not on x64; on 32-bit (Win32 target)
    `unsigned` == `size_t` so the original form worked there. If the build
    goes back to Win32 both forms are equivalent.
 3. New headers added: CColTriangle.h, CColLine.h, CColDisk.h,
    CSurfaceInfos.h, CMemoryMgr.h.
 
 ### Still stubbed (TODO, with reasons)
-- `CColModel::ReadCol`/`WriteCol` (2 overloads each) â€” need file system.
-- `CCollision::Tests`, `SortOutCollisionAfterLoad` â€” need TheCamera/world.
-- `IsStoredPolyStillValidVerticalLine` â€” has a decomp .c, needs the
+- `CColModel::ReadCol`/`WriteCol` (2 overloads each) â€�? need file system.
+- `CCollision::Tests`, `SortOutCollisionAfterLoad` â€�? need TheCamera/world.
+- `IsStoredPolyStillValidVerticalLine` â€�? has a decomp .c, needs the
   CColPoint/CStoredCollPoly contract verified before porting.
-- `ProcessColModels` â€” 48KB entity-vs-entity solver, out of scope this pass.
+- `ProcessColModels` â€�? 48KB entity-vs-entity solver, out of scope this pass.
 - `SphereCastVsCaches`, `SphereCastVsEntity`, `SphereVsEntity`,
   `CheckCameraCollision{Buildings,Vehicles,Objects,Peds}`, `CheckPeds`,
   `BuildCacheOfCameraCollision`, `CameraConeCastVsWorldCollision`,
-  `IsThisVehicleSittingOnMe` â€” need entity/ped/vehicle pools.
-- Free `ProcessDiscCollision`, `ResetMadeInvisibleObjects` â€” no named .c in
+  `IsThisVehicleSittingOnMe` â€�? need entity/ped/vehicle pools.
+- Free `ProcessDiscCollision`, `ResetMadeInvisibleObjects` â€�? no named .c in
   src/CCollision/; identify from unk_*.c / binary (member
   `ProcessDiscCollision` is filled and the free function forwards to it).
 
@@ -1313,10 +1313,10 @@ Both TUs compile CLEAN, zero errors/warnings:
    keeps `unsigned`-style idioms working.
 2. Port CWorld sectors/entity pools, then fill the entity-dependent stubs.
 3. Real `surface.dat` loading for `g_surfaceInfos` (currently 195 zeroed
-   entries â€” see-through/shoot-through masks untested against real data).
+   entries â€�? see-through/shoot-through masks untested against real data).
 4. Real `CColModelPool`/`CMemoryMgr` (currently malloc/free stand-in).
 
-## 2026-10-09 â€” camera subsystem (CCam/CCamera method bodies)
+## 2026-10-09 â€�? camera subsystem (CCam/CCamera method bodies)
 
 ### What was done
 Filled C++ method bodies from the Ghidra decomp (`src/CCam/*.c`,
@@ -1359,7 +1359,7 @@ Filled C++ method bodies from the Ghidra decomp (`src/CCam/*.c`,
 - `CVehicle.h::GetRopeID()`: `(uint32)` -> `(uintptr_t)` cast (64-bit).
 
 ### Divergences from gta-reversed (decomp wins)
-- `CCam::ClipBeta`: gta-reversed subtracts 2Ï€ unconditionally in the else
+- `CCam::ClipBeta`: gta-reversed subtracts 2�?€ unconditionally in the else
   branch; decomp only wraps out-of-range angles.
 - `WellBufferMe`: gta-reversed always increases speed; decomp moves speed
   toward the target.
@@ -1367,7 +1367,7 @@ Filled C++ method bodies from the Ghidra decomp (`src/CCam/*.c`,
   the port's CCam.h inherits from CPlaceable (layout differs, logic unaffected).
 
 ### TODOs / blockers
-- `IsLampPost`: returns false; model IDs are binary StaticRefs from IDE â€”
+- `IsLampPost`: returns false; model IDs are binary StaticRefs from IDE â€�?
   needs CModelInfo name lookup (not ported).
 - `CCam::Process` ped smoothing uses CRT `pow()` (0x822130) with globals
   at 0x8CC394/0x8CC398/0xB7CB5C; transcribed as `std::pow()` with shims.
@@ -1434,7 +1434,7 @@ The decomp labels many small reads as CGeneral::unk_00821b40(). Analysis:
 ### CMakeLists.txt
 - Added src/CHud.cpp to target_sources.
 
-## 2026-10-09 â€” weapons_combat subsystem (CWeapon/CFire/CExplosion/CBulletInfo method bodies)
+## 2026-10-09 â€�? weapons_combat subsystem (CWeapon/CFire/CExplosion/CBulletInfo method bodies)
 
 ### What was done
 Filled C++ method bodies for all 4 weapons_combat classes from the Ghidra decomp
@@ -1619,7 +1619,7 @@ same run). No code deleted; unfixable sections are `#if 0` + TODO.
   `include/CQuaternion.h` had no `operator*=`; added `operator*` and
   `operator*=` (faithful to the original CQuaternion API).
 
-## 2026-10-09 â€” CRadar.cpp full fill (decomp conversion)
+## 2026-10-09 â€�? CRadar.cpp full fill (decomp conversion)
 
 ### What was done
 Filled all method bodies in `cpp/src/CRadar.cpp` (~2,450 lines), converting
@@ -1664,8 +1664,8 @@ link-time dependencies. Notable shims: `CTheScripts` (with
 - `ClearBlipForEntity(CPed*)`: handle derivation needs the CPed/pool port.
 
 ### Files updated
-- `cpp/src/CRadar.cpp` â€” full fill (pushed)
-- `cpp/src/CRadar.cpp.b64` â€” base64 mirror regenerated (single line, no
+- `cpp/src/CRadar.cpp` â€�? full fill (pushed)
+- `cpp/src/CRadar.cpp.b64` â€�? base64 mirror regenerated (single line, no
   trailing newline; pushed)
 
 ### CMenuManager.cpp status
@@ -1674,7 +1674,7 @@ Not yet started (10KB, 75 TODO markers). gta-reversed covers ~30 methods;
 1126 lines, `AdditionalOptionInput` 706, `PrintMap` 514). Recommend a
 dedicated session.
 
-## 2026-10-09 â€” Vehicle classes: CAutomobile, CPlane, CHeli, CBike, CBoat, CTrain
+## 2026-10-09 â€�? Vehicle classes: CAutomobile, CPlane, CHeli, CBike, CBoat, CTrain
 
 Filled method bodies for the six vehicle classes in `cpp/src/`. Primary source:
 gta-reversed clean C++ (`source/game_sa/Entity/Vehicle/`), verified against
@@ -1683,21 +1683,21 @@ were converted from the decomp where feasible; the rest keep
 `// TODO: decomp src/<Class>/*.c` markers.
 
 ### Files updated
-- `cpp/src/CAutomobile.cpp` â€” full fill from gta-reversed (127 methods; only
+- `cpp/src/CAutomobile.cpp` â€�? full fill from gta-reversed (127 methods; only
   PreRender 0x6AAB50 and Render 0x6A2B10 were plugin::Call â†’ TODO markers).
   `std::ranges` â†’ plain C++17 loops (tree style). `rng::fill` â†’ manual loops.
-- `cpp/src/CPlane.cpp` â€” ctor/dtor/door/gear/count/zones/Render filled;
+- `cpp/src/CPlane.cpp` â€�? ctor/dtor/door/gear/count/zones/Render filled;
   BlowUpCar, VehicleDamage, PreRender, ProcessControlInputs,
   ProcessFlyingCarStuff, SwitchAmbientPlanes, FindPlaneCreationCoors,
   DoPlaneGenerationAndRemoval â†’ TODO (decomp).
-- `cpp/src/CHeli.cpp` â€” all 26 methods filled. plugin::Call methods converted
+- `cpp/src/CHeli.cpp` â€�? all 26 methods filled. plugin::Call methods converted
   from decomp: BlowUpCar, ProcessControlInputs, ProcessFlyingCarStuff,
   PreRender, ProcessControl (partial). GenerateHeli, UpdateHelis, SendDownSwat,
   SearchLightCone â†’ stub/`#if 0` + TODO (tasks/ropes/streaming/water/RW).
-- `cpp/src/CBike.cpp` â€” ctor/dtor filled; 30+ methods â†’ TODO (decomp).
-- `cpp/src/CBoat.cpp` â€” ctor/dtor/SetupModelNodes filled; wake/render/physics
+- `cpp/src/CBike.cpp` â€�? ctor/dtor filled; 30+ methods â†’ TODO (decomp).
+- `cpp/src/CBoat.cpp` â€�? ctor/dtor/SetupModelNodes filled; wake/render/physics
   â†’ TODO (decomp; RW/Fx).
-- `cpp/src/CTrain.cpp` â€” ctor/SetupModelNodes filled; track system
+- `cpp/src/CTrain.cpp` â€�? ctor/SetupModelNodes filled; track system
   â†’ TODO (CTrainNode not ported).
 
 ### Key findings
@@ -1716,7 +1716,7 @@ were converted from the decomp where feasible; the rest keep
 ### Syntax check status
 - `CHeli.cpp`, `CPlane.cpp`: clean except pre-existing tree header conflicts
   (RenderWare.h vs RenderTypes.h: RwRGBA/RwTextureFilterMode; CPed.h vs
-  AnimTypes.h: eBoneTagU32) â€” same errors in the done `CVehicle.cpp`.
+  AnimTypes.h: eBoneTagU32) â€�? same errors in the done `CVehicle.cpp`.
 - `CAutomobile.cpp`: 100+ errors from subsystem deps (audio/autopilot/cheats
   TODO'd; remaining are deep in 6K lines, need iterative fixing).
 - `CBike.cpp`, `CBoat.cpp`, `CTrain.cpp`: not yet syntax-checked.
@@ -1869,21 +1869,21 @@ redefinitions (all values verified vs `src_prev_export/_types.h`):
 Result: CBike/CBoat/CTrain/CWeapon/CCollision/CRenderer/CVehicle/CHeli/CHud
 all at 0 errors. Remaining 507 errors are the big-5 blocker boundary (see below).
 
-## 2026-10-09 â€” CVehicleModelInfo.cpp: 101 errors -> 0
+## 2026-10-09 â€�? CVehicleModelInfo.cpp: 101 errors -> 0
 
 `src/CVehicleModelInfo.cpp` now compiles clean. Three rebuild iterations
 (101 -> 11 -> 1 -> 0); each round exposed errors previously masked by
 cascades. No regressions: remaining 412 build errors are all in
 CPed.cpp / CPlayerPed.cpp / CPedIntelligence.cpp / CAutomobile.cpp and are
 pre-existing unported-subsystem issues (CGeneral, task system, CPedGroups,
-CPlayerPedData) â€” none reference anything changed here.
+CPlayerPedData) â€�? none reference anything changed here.
 
 ### Header fixes (highest leverage)
 - `include/RenderWare.h`:
   - Defined member layouts (per RW SDK 3.7) for `RwTexture` (name/mask),
     `RpMaterial` (texture/color), `RpMaterialList`
     (materials/numMaterials/space), `RpMeshHeader`, `RpMesh` (material),
-    `RpGeometry` (mesh) â€” the ported code touches these members.
+    `RpGeometry` (mesh) â€�? the ported code touches these members.
   - Moved `RwTextureCallBackFind` typedef here from CVehicleModelInfo.h;
     `RwTextureGetFindCallBack`/`RwTextureSetFindCallBack` now use it
     (was `void*`, broke the `SavedTextureFindCallback` assignment).
@@ -1898,11 +1898,11 @@ CPlayerPedData) â€” none reference anything changed here.
     (RW rpmtrl.h internals).
 - `include/RenderTypes.h`: `CRGBA` gained 4-arg ctor, `CRGBA(const RwRGBA&)`
   converting ctor, `Set()`, `operator==`/`!=` (per gta-reversed RGBA.h).
-  Braced-init users (CHud/CRadar/...) unaffected â€” verified no new errors.
+  Braced-init users (CHud/CRadar/...) unaffected â€�? verified no new errors.
 - `include/CVehicleModelInfo.h`: removed `RwTextureCallBackFind` typedef
   (moved to RenderWare.h); declared
   `static RpMaterial* DisableMatFx(RpMaterial*, void*)`.
-- `include/CPool.h`: placement-new sites now use `::new` â€” a class-specific
+- `include/CPool.h`: placement-new sites now use `::new` â€�? a class-specific
   `operator new(size_t)` (e.g. `CVehicleStructure`) hides the global
   placement new and broke `CPool<T>::New()` instantiation.
 
@@ -1922,7 +1922,7 @@ CPlayerPedData) â€” none reference anything changed here.
   the code calls.
 - `CCustomCarPlateMgr::SetupClump` stub now returns `RpMaterial*` (was
   `void`; broke `auto* material = ...`).
-- `CARPLATE_DEFAULT = 0xFF` â€” value from decomp `SetCarCustomPlate`
+- `CARPLATE_DEFAULT = 0xFF` â€�? value from decomp `SetCarCustomPlate`
   @ 0x4C9450 (`m_nPlateType = 0xff`); TODO: move into CCustomCarPlateMgr.h
   with `eCarPlateType` when it lands.
 - `uintptr` -> `uintptr_t` (2 sites); `<cstdint>` was already included.
@@ -1937,16 +1937,16 @@ CPlayerPedData) â€” none reference anything changed here.
 
 ### Notes for the port worker
 - `eAtomicComponentFlag.h` already existed as a canonical header (real
-  gta-reversed values from VisibilityPlugins.h) â€” the .cpp just wasn't
+  gta-reversed values from VisibilityPlugins.h) â€�? the .cpp just wasn't
   including it.
 - `CVehicleModelInfo.h` still forward-declares `struct RpMaterial;` /
-  `struct RwTexture;` â€” harmless alongside the RenderWare.h definitions,
+  `struct RwTexture;` â€�? harmless alongside the RenderWare.h definitions,
   but could be cleaned up.
 - The old `build_errors.log` (UTF-16) was found truncated (0 bytes) after
-  the rebuilds â€” likely rewritten by a concurrent build; per-build logs
+  the rebuilds â€�? likely rewritten by a concurrent build; per-build logs
   used instead (`build_errors_new*.log`).
 
-## 2026-10-09 â€” CPedIntelligence.cpp: 101 errors -> 0 (mogus)
+## 2026-10-09 â€�? CPedIntelligence.cpp: 101 errors -> 0 (mogus)
 
 ### What was done
 Fixed all compile errors in `src/CPedIntelligence.cpp` (build log showed 101
@@ -2052,7 +2052,7 @@ too). Verified with a full rebuild: **0 errors** in CPedIntelligence.cpp/.h.
 ### Headers created/modified:
 - **CPlayerPedData.h** (created): Full layout from gta-reversed PlayerPedData.h (0xAC bytes).
   Union members NAMED `__anon0`/`__anon1` to match decompiler access pattern.
-  âš ï¸ The CPed.cpp worker overwrote this file with an anonymous union version;
+  âš ï¸�? The CPed.cpp worker overwrote this file with an anonymous union version;
   re-pushed the named version (works for both access patterns).
 - **CWanted.h** (created): Partial - m_ChaosLevel, m_WantedLevel, GetWantedLevel(), Update()
 - **CMBlur.h** (created): Stub with inline no-ops
@@ -2096,14 +2096,14 @@ Busted (simplified)
 - MUST use single-threaded build (`-- /m:1`) - parallel builds fail with C1041 PDB locks
 - Errors appear on stdout (build_out.txt), not build_errors.log
 
-## 2026-10-09 â€” CPed.cpp compile-error fixes
+## 2026-10-09 â€�? CPed.cpp compile-error fixes
 
 ### What was done
 Fixed compile errors in `src/CPed.cpp` (was 102 errors, MSVC C1003 limit hit at line 442).
 
 **New headers created in `include/`:**
-- `CGeneral.h` â€” from gta-reversed `General.h`, plugin-sdk deps stripped. All functions header-inline: LimitAngle, LimitRadianAngle, GetATanOfXY, GetNodeHeadingFromVector, SolveQuadratic, GetRadianAngleBetweenPoints, GetAngleBetweenPoints, GetRandomNumber, GetRandomNumberInRange, RandomBool.
-- `CPlayerPedData.h` â€” full ~30-member struct from reference; layout hand-verified to 0xAC with static_assert.
+- `CGeneral.h` â€�? from gta-reversed `General.h`, plugin-sdk deps stripped. All functions header-inline: LimitAngle, LimitRadianAngle, GetATanOfXY, GetNodeHeadingFromVector, SolveQuadratic, GetRadianAngleBetweenPoints, GetAngleBetweenPoints, GetRandomNumber, GetRandomNumberInRange, RandomBool.
+- `CPlayerPedData.h` â€�? full ~30-member struct from reference; layout hand-verified to 0xAC with static_assert.
 - `CGame.h` (minimal), `CVisibilityPlugins.h` (minimal), `CLocalisation.h` (minimal), `CPopulation.h` (minimal), `CPedGroups.h` (minimal).
 
 **CPed.h changes:**
@@ -2122,7 +2122,7 @@ Fixed compile errors in `src/CPed.cpp` (was 102 errors, MSVC C1003 limit hit at 
 - `CGeneral::unk_00821b40()` â†’ `CGeneral::GetRandomNumber()` (22 sites).
 - `CVector::unk_00406da0()` â†’ `Magnitude()` or `SquaredMagnitude()` per context.
 - `CColSphere::unk_0040fec0(out,in,scale)` â†’ `out = in * scale` (body verified from decomp).
-- `CVector::unk_0040fe30` (vector add), `unk_0040fe90` (scalar mul), `unk_00406d70` (operator-=), `CPlaceable::unk_00411a00` (operator+=) â€” bodies verified from decomp, replaced with operators.
+- `CVector::unk_0040fe30` (vector add), `unk_0040fe90` (scalar mul), `unk_00406d70` (operator-=), `CPlaceable::unk_00411a00` (operator+=) â€�? bodies verified from decomp, replaced with operators.
 - `CFileMgr::uses_ctrlfp_00823820` â†’ `std::floor()` (x87 ctrlfp pattern).
 - `__anon0`/`__anon1`/`bits_*` accesses â†’ mapped to named members (m_nFlags, m_nPhysicalFlags, m_nRandomSeed, GetType(), etc.).
 - `(m_info).bits_m_nType` reads â†’ `GetType()`; the one write site decoded as status-bit operation via `GetStatus()`/`SetStatus()`.
@@ -2133,17 +2133,17 @@ Fixed compile errors in `src/CPed.cpp` (was 102 errors, MSVC C1003 limit hit at 
 - `ushort` â†’ `uint16_t`, `ABS` â†’ `std::abs`, `SQRT` â†’ `std::sqrt`.
 
 ### What's stubbed / needs verification
-- `FxInterpInfo_c::unk_00822130()` â€” declared unresolved; body is pow(base,exp) but args were on FPU stack.
-- `DAT_00b6f03c`, `DAT_00b6f02c`, `DAT_00c092a8`, `_unk_00858ca0`, `_DAT_00b6f118` â€” file-static stubs with TODOs; identities unknown.
-- `pCVar8[0x19]`, `colPhysical[1]`, `m_standingOnEntity[1]` â€” suspicious decomp indexing; kept verbatim with TODOs.
-- Platform-rotation physics in `UpdatePosition()` â€” vector ops reconstructed from verified bodies but several call sites dropped args; marked TODO.
+- `FxInterpInfo_c::unk_00822130()` â€�? declared unresolved; body is pow(base,exp) but args were on FPU stack.
+- `DAT_00b6f03c`, `DAT_00b6f02c`, `DAT_00c092a8`, `_unk_00858ca0`, `_DAT_00b6f118` â€�? file-static stubs with TODOs; identities unknown.
+- `pCVar8[0x19]`, `colPhysical[1]`, `m_standingOnEntity[1]` â€�? suspicious decomp indexing; kept verbatim with TODOs.
+- Platform-rotation physics in `UpdatePosition()` â€�? vector ops reconstructed from verified bodies but several call sites dropped args; marked TODO.
 - `bIsStanding`/`bRemoveHead` flag RMW sequences â†’ direct bool assignments.
-- Task-type enums (`TASK_*`) and speech-context enums (`CTX_*`) â€” minimal values from gta-reversed; full enums when those batches land.
+- Task-type enums (`TASK_*`) and speech-context enums (`CTX_*`) â€�? minimal values from gta-reversed; full enums when those batches land.
 
 ### Build status
 CPed.cpp compiles with errors remaining (101 errors at last check, MSVC stops at 100). Iterating through them. Other files (CPlayerPed.cpp) have separate errors out of scope for this task.
 
-## 2026-10-09 â€” CAutomobile.cpp compile errors fixed (101 â†’ 0)
+## 2026-10-09 â€�? CAutomobile.cpp compile errors fixed (101 â†’ 0)
 
 ### What was done
 Fixed all 101 compile errors in `src/CAutomobile.cpp` (GTA SA vehicle logic, ~6,600 lines).
@@ -2151,44 +2151,44 @@ Error count trajectory: 101 â†’ 98 â†’ 84 â†’ 50 â†’ 32 â�
 wave exposed deeper code).
 
 ### Headers added (new, minimal stand-ins with TODOs)
-- `include/eGameState.h` â€” GAME_STATE_INITIAL=0 (gta-reversed Enums/eGameState.h)
-- `include/CColTrianglePlane.h` â€” CColTrianglePlane stub
-- `include/Fx.h` â€” Fx_c (g_fx), eSparkType, FxPrtMult_c (gta-reversed Fx/Fx.h, FxPrtMult.h)
-- `include/CEventVehicleOnFire.h` â€” CEventVehicleOnFire (gta-reversed Events/EventVehicleOnFire.h)
-- `include/CEventDamage.h` â€” CEventDamage, CPedDamageResponseCalculator
-- `include/CEventKnockOffBike.h` â€” CEventKnockOffBike, KNOCK_OFF_TYPE_FALL
-- `include/CEventDanger.h` â€” CEventDanger
-- `include/CBuoyancy.h` â€” CBuoyancy, mod_Buoyancy (restored after accidental overwrite)
-- `include/CStreaming.h` â€” CStreaming::m_bStreamHarvesterModelsThisFrame
-- `include/CLocalisation.h` â€” CLocalisation::ShootLimbs(), Blood()
-- `include/CAudioEngine.h` â€” CAudioEngine, AudioEngine, AE_WEAPON_FIRE
-- `include/CCrime.h` â€” CCrime::ReportCrime(), eCrimeType
-- `include/CGlass.h` â€” CGlass::CarWindscreenShatters()
-- `include/CPtrListDoubleLink.h` â€” CPtrListDoubleLink<T> (iterable stub)
-- `include/CRepeatSector.h` â€” CRepeatSector (Vehicles list)
-- `include/Pools.h` â€” GetObjectPool(), GetPedPool() (CPoolStandIn<T>)
-- `include/PedSpeechContexts.h` â€” CTX_GLOBAL_* speech contexts (values from gta-reversed)
-- `include/eAudioEvents.h` â€” AE_CAR_BONNET_OPEN/CLOSE (values from gta-reversed)
+- `include/eGameState.h` â€�? GAME_STATE_INITIAL=0 (gta-reversed Enums/eGameState.h)
+- `include/CColTrianglePlane.h` â€�? CColTrianglePlane stub
+- `include/Fx.h` â€�? Fx_c (g_fx), eSparkType, FxPrtMult_c (gta-reversed Fx/Fx.h, FxPrtMult.h)
+- `include/CEventVehicleOnFire.h` â€�? CEventVehicleOnFire (gta-reversed Events/EventVehicleOnFire.h)
+- `include/CEventDamage.h` â€�? CEventDamage, CPedDamageResponseCalculator
+- `include/CEventKnockOffBike.h` â€�? CEventKnockOffBike, KNOCK_OFF_TYPE_FALL
+- `include/CEventDanger.h` â€�? CEventDanger
+- `include/CBuoyancy.h` â€�? CBuoyancy, mod_Buoyancy (restored after accidental overwrite)
+- `include/CStreaming.h` â€�? CStreaming::m_bStreamHarvesterModelsThisFrame
+- `include/CLocalisation.h` â€�? CLocalisation::ShootLimbs(), Blood()
+- `include/CAudioEngine.h` â€�? CAudioEngine, AudioEngine, AE_WEAPON_FIRE
+- `include/CCrime.h` â€�? CCrime::ReportCrime(), eCrimeType
+- `include/CGlass.h` â€�? CGlass::CarWindscreenShatters()
+- `include/CPtrListDoubleLink.h` â€�? CPtrListDoubleLink<T> (iterable stub)
+- `include/CRepeatSector.h` â€�? CRepeatSector (Vehicles list)
+- `include/Pools.h` â€�? GetObjectPool(), GetPedPool() (CPoolStandIn<T>)
+- `include/PedSpeechContexts.h` â€�? CTX_GLOBAL_* speech contexts (values from gta-reversed)
+- `include/eAudioEvents.h` â€�? AE_CAR_BONNET_OPEN/CLOSE (values from gta-reversed)
 
 ### Headers modified
-- `include/Common.h` â€” PI/HALF_PI/TWO_PI constexpr, sq(), DotProduct(), CrossProduct(),
+- `include/Common.h` â€�? PI/HALF_PI/TWO_PI constexpr, sq(), DotProduct(), CrossProduct(),
   DegreesToRadians() (now constexpr), StaticRef, notsa::dyn_cast_if_present, notsa::contains
-- `include/ModelIndices.h` â€” IsKart, IsRCBandit, IsCementTruck, HasMiscComponent, IsFireTruckLadder,
+- `include/ModelIndices.h` â€�? IsKart, IsRCBandit, IsCementTruck, HasMiscComponent, IsFireTruckLadder,
   IsBFInjection, IsAmphibiousHeli, IsSwatVan, MI_GRASSHOUSE/GRASSPLANT/HARVESTERBODYPART* constants
-- `include/eModelID.h` â€” MODEL_COMET, STALLION, KART, RCBANDIT, FARMTR1, UTILTR1, MODEL_TEMPCOL_* (374-380),
+- `include/eModelID.h` â€�? MODEL_COMET, STALLION, KART, RCBANDIT, FARMTR1, UTILTR1, MODEL_TEMPCOL_* (374-380),
   MODEL_SEASPAR, MODEL_LEVIATHN, MODEL_SWATVAN, MODEL_BFINJECT, MODEL_FIRELA
-- `include/CVector.h` â€” float operators
-- `include/CPhysical.h` â€” GetCollidingEntities() restored (std::span, C++20)
-- `include/CObject.h` â€” CObject::nNoTempObjects static
-- `include/CVisibilityPlugins.h` â€” SetClumpForAllAtomicsFlag, SetAtomicRenderCallback(void*)
-- `include/CSurfaceInfos.h` â€” eAdhesionGroup, GetAdhesionGroup(), GetWetMultiplier(), IsWater(), IsSand()
-- `include/cHandlingDataMgr.h` â€” HasFrontWheelDrive(), HasRearWheelDrive()
-- `include/RenderWare.h` â€” RpMatFXMaterialSetEffects(), rpMATFXEFFECTNULL, RwTextureAddRef(),
+- `include/CVector.h` â€�? float operators
+- `include/CPhysical.h` â€�? GetCollidingEntities() restored (std::span, C++20)
+- `include/CObject.h` â€�? CObject::nNoTempObjects static
+- `include/CVisibilityPlugins.h` â€�? SetClumpForAllAtomicsFlag, SetAtomicRenderCallback(void*)
+- `include/CSurfaceInfos.h` â€�? eAdhesionGroup, GetAdhesionGroup(), GetWetMultiplier(), IsWater(), IsSand()
+- `include/cHandlingDataMgr.h` â€�? HasFrontWheelDrive(), HasRearWheelDrive()
+- `include/RenderWare.h` â€�? RpMatFXMaterialSetEffects(), rpMATFXEFFECTNULL, RwTextureAddRef(),
   RpAtomicGetFlags(), rpATOMICRENDER
-- `include/RenderTypes.h` â€” CRGBA::operator*(), ToRwRGBA()
-- `include/CMatrix.h` â€” SetRotateKeepPos()
-- `include/CPlayerInfo.h` â€” m_nLastTimeBigGunFired and 7 other members
-- `include/CPedIntelligence.h` â€” CTaskManager::HasAnyOf<>, Has<> templates
+- `include/RenderTypes.h` â€�? CRGBA::operator*(), ToRwRGBA()
+- `include/CMatrix.h` â€�? SetRotateKeepPos()
+- `include/CPlayerInfo.h` â€�? m_nLastTimeBigGunFired and 7 other members
+- `include/CPedIntelligence.h` â€�? CTaskManager::HasAnyOf<>, Has<> templates
 
 ### CAutomobile.cpp fixes
 - Removed local stubs conflicting with real headers (CGeneral, FxSystem_c, FxManager_c, g_fxMan, CBuoyancy)
@@ -2220,34 +2220,34 @@ Fixed the 99 errors stopping CPed.cpp at line ~1257, plus proactively fixed the
 same error patterns in the rest of the file (the compiler had not reached them yet).
 
 ### New headers (all minimal, every stub has `// TODO(port)`)
-- `include/CPointLights.h` â€” CPointLights::RemoveLightsAffectingObject + free
+- `include/CPointLights.h` â€�? CPointLights::RemoveLightsAffectingObject + free
   functions ActivateDirectional/DeActivateDirectional/SetAmbientColours
   (gta-reversed declares these in source/app/app.h).
-- `include/CTaskSimpleJetPack.h` â€” minimal class with RenderJetPack(CPed*)
+- `include/CTaskSimpleJetPack.h` â€�? minimal class with RenderJetPack(CPed*)
   (gta-reversed: member function, not static).
-- `include/CCoverPoint.h` â€” minimal class with ReleaseCoverPointForPed(CPed*)
+- `include/CCoverPoint.h` â€�? minimal class with ReleaseCoverPointForPed(CPed*)
   (gta-reversed: member function, not static).
-- `include/CTempColModels.h` â€” CTempColModels::ms_colModelPed2 (static CColModel).
+- `include/CTempColModels.h` â€�? CTempColModels::ms_colModelPed2 (static CColModel).
 
 ### Modified headers
-- `include/RenderWare.h` â€” defined RwObject/RwLLLink/RpClump/RwFrame (RW SDK 3.7
+- `include/RenderWare.h` â€�? defined RwObject/RwLLLink/RpClump/RwFrame (RW SDK 3.7
   layouts, only accessed members); added RpClumpRender(RpClump*) decl.
-- `include/CVisibilityPlugins.h` â€” added AddWeaponPedForPC(CPed*) (gta-reversed
+- `include/CVisibilityPlugins.h` â€�? added AddWeaponPedForPC(CPed*) (gta-reversed
   VisibilityPlugins.h:211).
-- `include/CPedIntelligence.h` â€” eTaskType extended with the 12 IDs CPed.cpp's
+- `include/CPedIntelligence.h` â€�? eTaskType extended with the 12 IDs CPed.cpp's
   deleted local enum had (307/308/309/310/426/701/703/704/824/1004/1204/1600,
   values verified vs gta-reversed Enums/eTaskType.h).
-- `include/CEventDamage.h` â€” CPedDamageResponseCalculator gained m_pDamager /
+- `include/CEventDamage.h` â€�? CPedDamageResponseCalculator gained m_pDamager /
   m_fDamageFactor / m_bodyPart + default ctor; CEventDamage gained m_nAnimGroup /
   m_nAnimID / m_fAnimBlend / m_fAnimSpeed / bits_m_bJumpedOutOfMovingCar + default
   ctor (default ctors exist only so the decomp can placement-new into reserved
   stack space).
-- `include/CPlayerPedData.h` â€” the `__anon0` union is now anonymous, so
+- `include/CPlayerPedData.h` â€�? the `__anon0` union is now anonymous, so
   m_nPlayerFlags is directly accessible (matches gta-reversed); CPlayerPed.cpp:156
   updated to drop `__anon0`.
-- `include/Pools.h` â€” CPoolStandIn gained GetRef/GetIndex/Free stand-ins.
-- `include/CEventSoundQuiet.h` â€” added unk_005e0540 stub (used by CPed::operator new).
-- `include/CEntity.h` â€” added public GetFlags() accessor (decomp reads m_nFlags
+- `include/Pools.h` â€�? CPoolStandIn gained GetRef/GetIndex/Free stand-ins.
+- `include/CEventSoundQuiet.h` â€�? added unk_005e0540 stub (used by CPed::operator new).
+- `include/CEntity.h` â€�? added public GetFlags() accessor (decomp reads m_nFlags
   on another entity).
 
 ### CPed.cpp call-site fixes
@@ -2302,7 +2302,7 @@ line ~2090 (was ~1257), with 98 errors remaining (down from 117 at the peak).
 - **Staticâ†’member calls**: GetIsTypePhysical, RegisterReference, GetTaskUseGun
   (already done), AllocateMatrix, UpdateMatrix, SetRotateZOnly, Normalise,
   ClearAimFlag/ClearLookFlag, SetMoveAnimSpeed, GetLocalDirection.
-- **Floatâ†”pointer punning**: All `(float)ptr` and `(CEntity*)float` patterns
+- **Floatâ†�?pointer punning**: All `(float)ptr` and `(CEntity*)float` patterns
   converted to `std::bit_cast` + `reinterpret_cast` (decomp stores float bits
   in pointer fields and vice versa).
 - **New stub headers**: CCustomBuildingDNPipeline.h, Hoodlum.h, CGameLogic.h,
@@ -2599,11 +2599,11 @@ unions first (a previous worker hit the same C1202 class on CPed.cpp).
 **Goal:** Standalone playable executable, built from game files, replacing original gta_sa.exe.
 
 **Milestone 1 complete:**
-- `src/main.cpp` â€” wWinMain entry point, Win32 window (1280x720, "GTA SA C++"), PeekMessage loop, ESC/close to quit
-- `include/D3DRenderer.h` / `src/D3DRenderer.cpp` â€” minimal D3D9 wrapper (no D3DX dependency):
+- `src/main.cpp` â€�? wWinMain entry point, Win32 window (1280x720, "GTA SA C++"), PeekMessage loop, ESC/close to quit
+- `include/D3DRenderer.h` / `src/D3DRenderer.cpp` â€�? minimal D3D9 wrapper (no D3DX dependency):
   - Direct3DCreate9, HAL device with HWâ†’SW vertex processing fallback
   - BeginFrame (clear), DrawTestTriangle (RGB triangle via DrawPrimitiveUP), EndFrame (present)
-- `CMakeLists.txt` â€” new `gtasa_cpp` executable target (WIN32_EXECUTABLE, links d3d9)
+- `CMakeLists.txt` â€�? new `gtasa_cpp` executable target (WIN32_EXECUTABLE, links d3d9)
 - Build: `cmake --build build --target gtasa_cpp --config Debug` â†’ clean, gtasa_cpp.exe produced
 - Test: process stays alive 5+ seconds (window created, D3D9 initialized, render loop running).
   Screenshot not possible (no interactive desktop in SSH session), but survival proves init path.
@@ -2619,19 +2619,19 @@ unions first (a previous worker hit the same C1202 class on CPed.cpp).
 ## 2026-10-09 - gtasa_cpp.exe Milestone 2: DFF Loader + Model Rendering âœ…
 
 **Files added:**
-- `include/DffLoader.h` / `src/DffLoader.cpp` â€” RenderWare 3.x binary DFF parser:
+- `include/DffLoader.h` / `src/DffLoader.cpp` â€�? RenderWare 3.x binary DFF parser:
   - Section walker (Clump â†’ GeometryList â†’ Geometry)
   - Extracts vertices, triangles, normals, UVs from morph targets
   - Handles prelit/textured flags, RW version check for legacy color fields
   - Triangle winding converted RW (v2,v1,v3) â†’ D3D CCW (v1,v2,v3)
-- `include/D3DRenderer.h` / `src/D3DRenderer.cpp` â€” extended:
+- `include/D3DRenderer.h` / `src/D3DRenderer.cpp` â€�? extended:
   - D3DRenderMesh (VB/IB), CreateMesh/DrawMesh/DestroyMesh
   - MeshVertex (pos+normal+uv), MESH_FVF
   - SetViewMatrix/SetProjMatrix, MatrixIdentity/PerspectiveFov/LookAt helpers (no D3DX)
-- `src/main.cpp` â€” loads models\generic\arrow.DFF, renders all meshes; falls back to test triangle
+- `src/main.cpp` â€�? loads models\generic\arrow.DFF, renders all meshes; falls back to test triangle
 
 **Verification:**
-- `dfftest.exe` console tool: arrow.DFF (138v/52t), air_vlo.DFF (145v/91t), wheels.DFF (20 meshes), zonecylb.DFF (40v/20t) â€” all parse
+- `dfftest.exe` console tool: arrow.DFF (138v/52t), air_vlo.DFF (145v/91t), wheels.DFF (20 meshes), zonecylb.DFF (40v/20t) â€�? all parse
 - `gtasa_cpp.exe` runs 5+ seconds with DFF rendering path active (no crash, D3D9 device healthy)
 
 **Next:**
@@ -2738,20 +2738,20 @@ unions first (a previous worker hit the same C1202 class on CPed.cpp).
 - M5: WASD camera controls
 - M6: Game loop integration
 
-## 2026-10-09 â€” M4 fix: load ALL LA IDE/IPL files (not just LAe/LAe2)
+## 2026-10-09 â€�? M4 fix: load ALL LA IDE/IPL files (not just LAe/LAe2)
 
 **Problem:** Q reported "random artifacts with some street textures, nothing coherent."
-Debug: LAe.ipl/LAe2.ipl only contain ground/roads/trees/LODs â€” Grove Street houses
+Debug: LAe.ipl/LAe2.ipl only contain ground/roads/trees/LODs â€�? Grove Street houses
 live in the other LA IPL files (LAn, LAs, LAw, etc.).
 
 **Changes to src/main.cpp:**
 - IDE list: LAe, LAe2, LAhills, LAn, LAn2, LAs, LAs2, LAw, LAw2, LaWn, LAxref (11 files)
 - IPL list: LAe, LAe2, LAhills, LAn, LAn2, LAs, LAs2, LAw, LAw2, LaWn (10 files; LAxref has no .ipl)
 - Object cap: 300 -> 1500 (more instances now in filter area)
-- Camera: eye moved to (cx, cy-220, 55), target (cx, cy+80, 12) â€” looks down Grove Street
+- Camera: eye moved to (cx, cy-220, 55), target (cx, cy+80, 12) â€�? looks down Grove Street
   instead of at the frustum edge.
 
-**Build:** cmake --build . --target gtasa_cpp --config Debug â€” clean, exe produced.
+**Build:** cmake --build . --target gtasa_cpp --config Debug â€�? clean, exe produced.
 **Test:** Q to run `gtasa_cpp.exe --frames 120 --screenshot m4_shot.bmp` on the PC.
 
 ## 2026-10-09 - House Test Mode
@@ -2817,3 +2817,23 @@ Q asked for playable with GTA SA controls and debug info. Built --play mode:
 - main.cpp: mouse now yaw += dx*MOUSE_SENS, pitch -= dy*MOUSE_SENS (standard FPS).
 - Arrow keys aligned too: LEFT/RIGHT yaw signs flipped so RIGHT = look right (UP/DOWN pitch were already correct).
 - Backup of pre-fix main.cpp at src\main.cpp.bak_mousefix. Build clean.
+
+## 2026-10-09 - Real Grove Street cul-de-sac in play mode
+- Play mode scene rebuilt to the real Grove Street: north-south street along Y, 10 houses total.
+- CJs house at north end (2490,-1580) facing south; west side x=2485 (3 houses, y=-1620/-1665/-1710) facing east; east side x=2535 (4 houses, y=-1620/-1665/-1710/-1755) facing west; cul-de-sac end y=-1565 (2 houses, x=2500/2520) facing south.
+- Player now starts at the south end (2510,-1740), yaw=1.5708 facing north toward CJs house.
+- Load log updated to %d/10 houses. --housetest and --grove modes unchanged. Build clean.
+
+## 2026-10-09 (late) - Real Grove Street houses in --play mode
+
+Found and wired up the actual Grove Street house models from gta3.img:
+- laesmokeshse.dff (Big Smoke's house, TXD laesmokecnthus) - IDE id 5421
+- sweetshou1_lae2.dff + sweetsdoor_lae2.dff (Sweet's house, TXD contachou1_lae2) - IDE ids 17698/17566
+- ryder2.dff + ryder3.dff (Ryder's house, TXD ryderholes)
+- bdupshouse_lae.dff kept as CJ's (Johnson) house at north end of cul-de-sac
+
+Note: HD versions are NOT placed by static IPLs (only LODsmokeshse found in LAe.ipl).
+The game streams/places them dynamically; we place manually like housetest.
+
+Player start moved closer (2510, -1680) for better scale perception.
+Build clean. NOT visually verified (D3D9 needs interactive session).
