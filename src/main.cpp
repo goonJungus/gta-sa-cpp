@@ -175,6 +175,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const char* ideFiles[] = {
         "data\\maps\\LA\\LAe.ide",
         "data\\maps\\LA\\LAe2.ide",
+        "data\\maps\\LA\\LAhills.ide",
+        "data\\maps\\LA\\LAn.ide",
+        "data\\maps\\LA\\LAn2.ide",
+        "data\\maps\\LA\\LAs.ide",
+        "data\\maps\\LA\\LAs2.ide",
+        "data\\maps\\LA\\LAw.ide",
+        "data\\maps\\LA\\LAw2.ide",
+        "data\\maps\\LA\\LaWn.ide",
+        "data\\maps\\LA\\LAxref.ide",
     };
     for (const char* f : ideFiles) {
         std::string path = FindGameFile(f);
@@ -193,6 +202,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const char* iplFiles[] = {
         "data\\maps\\LA\\LAe.ipl",
         "data\\maps\\LA\\LAe2.ipl",
+        "data\\maps\\LA\\LAhills.ipl",
+        "data\\maps\\LA\\LAn.ipl",
+        "data\\maps\\LA\\LAn2.ipl",
+        "data\\maps\\LA\\LAs.ipl",
+        "data\\maps\\LA\\LAs2.ipl",
+        "data\\maps\\LA\\LAw.ipl",
+        "data\\maps\\LA\\LAw2.ipl",
+        "data\\maps\\LA\\LaWn.ipl",
     };
     for (const char* f : iplFiles) {
         std::string path = FindGameFile(f);
@@ -273,7 +290,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     std::vector<MapObject> mapObjects;
     int loadedModels = 0, failedModels = 0, skippedNoIde = 0;
 
-    const size_t maxObjects = 300;  // cap for first test
+    const size_t maxObjects = 1500;  // cap raised: all LA IPLs now load
     size_t processed = 0;
 
     for (auto& inst : filtered) {
@@ -317,8 +334,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         const CachedModel& cm = cacheIt->second;
 
         MapObject obj;
+        // DEBUG: log instance data and matrix
+        Log("INST %s at (%.1f, %.1f, %.1f) quat (%.3f, %.3f, %.3f, %.3f)",
+            inst.modelName.c_str(), inst.x, inst.y, inst.z,
+            inst.qx, inst.qy, inst.qz, inst.qw);
         obj.worldMatrix = QuatToD3DMatrix(inst.qx, inst.qy, inst.qz, inst.qw,
                                           inst.x, inst.y, inst.z);
+        Log("  matrix: [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f %.2f] [%.2f %.2f %.2f %.2f]",
+            obj.worldMatrix.m[0][0], obj.worldMatrix.m[0][1], obj.worldMatrix.m[0][2], obj.worldMatrix.m[0][3],
+            obj.worldMatrix.m[1][0], obj.worldMatrix.m[1][1], obj.worldMatrix.m[1][2], obj.worldMatrix.m[1][3],
+            obj.worldMatrix.m[2][0], obj.worldMatrix.m[2][1], obj.worldMatrix.m[2][2], obj.worldMatrix.m[2][3],
+            obj.worldMatrix.m[3][0], obj.worldMatrix.m[3][1], obj.worldMatrix.m[3][2], obj.worldMatrix.m[3][3]);
 
         for (auto& dffMesh : cm.dff.meshes) {
             // DffVertex and MeshVertex have identical layout (x,y,z,nx,ny,nz,u,v)
@@ -345,8 +371,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
     // ---- Camera ----
     // Look at Grove Street from the south, elevated
-    D3DMATRIX view = MatrixLookAt(cx, cy - 150.0f, 80.0f,   // eye
-                                   cx, cy, 10.0f,             // target
+    D3DMATRIX view = MatrixLookAt(cx, cy - 220.0f, 55.0f,   // eye (south of street)
+                                   cx, cy + 80.0f, 12.0f,      // target (looking down Grove St)
                                    0.0f, 0.0f, 1.0f);         // up (Z-up world)
     D3DMATRIX proj = MatrixPerspectiveFov(60.0f * 3.14159f / 180.0f,
                                            (float)WIDTH / (float)HEIGHT,

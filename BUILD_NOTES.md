@@ -2737,3 +2737,19 @@ unions first (a previous worker hit the same C1202 class on CPed.cpp).
 - Test M4: run exe in interactive session, verify Grove Street renders
 - M5: WASD camera controls
 - M6: Game loop integration
+
+## 2026-10-09 — M4 fix: load ALL LA IDE/IPL files (not just LAe/LAe2)
+
+**Problem:** Q reported "random artifacts with some street textures, nothing coherent."
+Debug: LAe.ipl/LAe2.ipl only contain ground/roads/trees/LODs — Grove Street houses
+live in the other LA IPL files (LAn, LAs, LAw, etc.).
+
+**Changes to src/main.cpp:**
+- IDE list: LAe, LAe2, LAhills, LAn, LAn2, LAs, LAs2, LAw, LAw2, LaWn, LAxref (11 files)
+- IPL list: LAe, LAe2, LAhills, LAn, LAn2, LAs, LAs2, LAw, LAw2, LaWn (10 files; LAxref has no .ipl)
+- Object cap: 300 -> 1500 (more instances now in filter area)
+- Camera: eye moved to (cx, cy-220, 55), target (cx, cy+80, 12) — looks down Grove Street
+  instead of at the frustum edge.
+
+**Build:** cmake --build . --target gtasa_cpp --config Debug — clean, exe produced.
+**Test:** Q to run `gtasa_cpp.exe --frames 120 --screenshot m4_shot.bmp` on the PC.
