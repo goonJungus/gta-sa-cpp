@@ -105,6 +105,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     int maxFrames = 0;
     std::string shotPath;
     std::string logPath = "m4_test.log";
+    bool houseTest = false;
+    bool groveTest = false;
     {
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -127,13 +129,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 WideToUtf8(argv[i + 1], p, sizeof(p));
                 logPath = p;
                 i++;
+            } else if (a == "--housetest") {
+                houseTest = true;
+            } else if (a == "--grove") {
+                groveTest = true;
             }
         }
         LocalFree(argv);
     }
 
     g_log = fopen(logPath.c_str(), "w");
-    Log("gtasa_cpp M4 starting");
+    { char cwd[MAX_PATH] = {}; GetCurrentDirectoryA(sizeof(cwd), cwd); Log("gtasa_cpp M4 starting (cwd=%s)", cwd); }
 
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
@@ -167,7 +173,242 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     }
     Log("IMG opened: %u entries", (unsigned)img.EntryCount());
 
-    // ---- Load IDE ----
+    // ---- Texture cache (needed by both modes) ----
+    std::unordered_map<std::string, TxdTexture> texMap;
+    std::unordered_map<std::string, bool> txdLoaded;
+    // D3D texture cache: txd texture name -> IDirect3DTexture9*
+    std::unordered_map<std::string, IDirect3DTexture9*> d3dTexCache;
+
+    auto ensureTxd = [&](const std::string& txdName) {
+        if (txdName.empty() || txdLoaded[txdName])
+            return;
+        txdLoaded[txdName] = true;
+        std::string fname = txdName + ".txd";
+        if (!img.HasFile(fname)) {
+            Log("TXD not in IMG: %s", fname.c_str());
+            return;
+        }
+        std::vector<uint8_t> data = img.Extract(fname);
+        if (data.empty()) {
+            Log("TXD extract failed: %s", fname.c_str());
+            return;
+        }
+        std::vector<TxdTexture> texs = TxdLoader::LoadFromMemory(data.data(), data.size());
+        int added = 0;
+        for (auto& t : texs) {
+            std::string key = TxdLoader::KeyOf(t.name);
+            if (texMap.find(key) == texMap.end()) {
+                texMap.emplace(key, std::move(t));
+                added++;
+            }
+        }
+        Log("TXD %s: %u textures (%d new)", fname.c_str(), (unsigned)texs.size(), added);
+    };
+
+    auto getD3dTexture = [&](const std::string& texName) -> IDirect3DTexture9* {
+        std::string key = TxdLoader::KeyOf(texName);
+        auto it = d3dTexCache.find(key);
+        if (it != d3dTexCache.end())
+            return it->second;
+        auto texIt = texMap.find(key);
+        if (texIt == texMap.end())
+            return nullptr;
+        TxdTexture& txd = texIt->second;
+        IDirect3DTexture9* d3dTex = g_renderer.CreateTexture(
+            txd.width, txd.height, txd.d3dFormat,
+            txd.mip0.data(), (unsigned)txd.mip0.size());
+        d3dTexCache[key] = d3dTex;  // may be nullptr on failure; cached anyway
+        return d3dTex;
+    };
+
+    std::vector<MapObject> mapObjects;
+
+    if (houseTest) {
+        // ===== HOUSE TEST MODE =====
+        // Place 3 known house models on a flat plane in front of camera.
+        // This bypasses IPL loading to isolate building rendering.
+        Log("HOUSE TEST MODE: placing 3 houses");
+
+        struct HouseDef {
+            const char* dffName;  // in gta3.img (lowercase)
+            const char* txdName;  // base name (no .txd)
+            float x, y, z;
+        };
+        HouseDef houses[] = {
+            { "bdupshouse_lae.dff",  "bdupshouse_lae", 2480.0f, -1650.0f, 0.0f },
+            { "santahouse02_law2.dff", "bev_law2",     2510.0f, -1650.0f, 0.0f },
+            { "cehillhouse04.dff",   "lahillshilhse",  2540.0f, -1650.0f, 0.0f },
+        };
+
+        int housesLoaded = 0;
+        for (int h = 0; h < 3; h++) {
+            Log("House %d: %s at (%.1f, %.1f, %.1f)",
+                h, houses[h].dffName, houses[h].x, houses[h].y, houses[h].z);
+
+            if (!img.HasFile(houses[h].dffName)) {
+                Log("  FAIL: DFF not in IMG: %s", houses[h].dffName);
+                continue;
+            }
+            std::vector<uint8_t> dffData = img.Extract(houses[h].dffName);
+            if (dffData.empty()) {
+                Log("  FAIL: DFF extract failed: %s", houses[h].dffName);
+                continue;
+            }
+            Log("  DFF extracted: %u bytes", (unsigned)dffData.size());
+
+            DffModel dff = DffLoader::LoadFromMemory(dffData.data(), dffData.size());
+            if (!dff.valid) {
+                Log("  FAIL: DFF parse failed: %s", houses[h].dffName);
+                continue;
+            }
+            Log("  DFF parsed: %u meshes", (unsigned)dff.meshes.size());
+            for (size_t m = 0; m < dff.meshes.size(); m++) {
+                Log("    Mesh %u: %u verts, %u indices, tex='%s'",
+                    (unsigned)m,
+                    (unsigned)dff.meshes[m].vertices.size(),
+                    (unsigned)dff.meshes[m].indices.size(),
+                    dff.meshes[m].textureName.c_str());
+            }
+
+            // Load TXD
+            ensureTxd(houses[h].txdName);
+
+            // Build MapObject with identity rotation at position
+            MapObject obj;
+            obj.worldMatrix = QuatToD3DMatrix(0, 0, 0, 1,  // identity quaternion
+                                              houses[h].x, houses[h].y, houses[h].z);
+            for (auto& dffMesh : dff.meshes) {
+                const MeshVertex* verts = reinterpret_cast<const MeshVertex*>(dffMesh.vertices.data());
+                D3DRenderMesh* mesh = g_renderer.CreateMesh(
+                    verts,
+                    (uint32_t)dffMesh.vertices.size(),
+                    dffMesh.indices.data(),
+                    (uint32_t)dffMesh.indices.size());
+                if (!mesh) {
+                    Log("  FAIL: CreateMesh failed for mesh");
+                    continue;
+                }
+                if (!dffMesh.textureName.empty()) {
+                    mesh->texture = getD3dTexture(dffMesh.textureName);
+                    if (!mesh->texture)
+                        Log("  WARNING: texture not found: %s", dffMesh.textureName.c_str());
+                }
+                obj.meshes.push_back(mesh);
+            }
+
+            if (!obj.meshes.empty()) {
+                mapObjects.push_back(std::move(obj));
+                housesLoaded++;
+                Log("  OK: house %d has %u meshes", h, (unsigned)mapObjects.back().meshes.size());
+            } else {
+                Log("  FAIL: house %d has 0 meshes", h);
+            }
+        }
+
+        Log("HOUSE TEST: %d/3 houses loaded, %u map objects", housesLoaded, (unsigned)mapObjects.size());
+
+        // Camera: 60 units south of center house, 25 up, looking at houses
+        float camX = 2510.0f, camY = -1710.0f, camZ = 25.0f;
+        D3DMATRIX view = MatrixLookAt(camX, camY, camZ,
+                                      2510.0f, -1650.0f, 8.0f,  // target: center house
+                                      0.0f, 0.0f, 1.0f);
+        D3DMATRIX proj = MatrixPerspectiveFov(60.0f * 3.14159f / 180.0f,
+                                              (float)WIDTH / (float)HEIGHT,
+                                              1.0f, 2000.0f);
+        g_renderer.SetViewMatrix(view);
+        g_renderer.SetProjMatrix(proj);
+        Log("HOUSE TEST: camera at (%.1f, %.1f, %.1f)", camX, camY, camZ);
+    } else if (groveTest) {
+        // ===== GROVE STREET MODE =====
+        // Street scene: houses on both sides of a road, camera looking down the street.
+        Log("GROVE STREET MODE: building street scene");
+
+        struct GroveHouse {
+            const char* dffName;
+            const char* txdName;
+            float x, y, z;
+            float rotZ;  // yaw rotation in radians (0 = facing +Y/south)
+        };
+        // Street runs along X axis. Houses on north (y=-1635) and south (y=-1665) sides.
+        GroveHouse ghouses[] = {
+            // North side (facing south toward street)
+            { "bdupshouse_lae.dff",   "bdupshouse_lae", 2480.0f, -1635.0f, 0.0f, 3.14159f },
+            { "compmedhos1_lae.dff",  "comedhos1_la",   2500.0f, -1635.0f, 0.0f, 3.14159f },
+            { "compmedhos2_lae.dff",  "comedhos1_la",   2520.0f, -1635.0f, 0.0f, 3.14159f },
+            { "ganghous01_lax.dff",   "ganghouse1_lax", 2540.0f, -1635.0f, 0.0f, 3.14159f },
+            // South side (facing north toward street)
+            { "santahouse02_law2.dff", "bev_law2",      2490.0f, -1665.0f, 0.0f, 0.0f },
+            { "compmedhos3_lae.dff",   "comedhos1_la",  2510.0f, -1665.0f, 0.0f, 0.0f },
+            { "cehillhouse04.dff",     "lahillshilhse", 2530.0f, -1665.0f, 0.0f, 0.0f },
+            { "ganghous02_lax.dff",    "ganghouse1_lax",2550.0f, -1665.0f, 0.0f, 0.0f },
+        };
+        const int numGrove = sizeof(ghouses) / sizeof(ghouses[0]);
+
+        int groveLoaded = 0;
+        for (int h = 0; h < numGrove; h++) {
+            Log("Grove house %d: %s at (%.1f, %.1f, %.1f)",
+                h, ghouses[h].dffName, ghouses[h].x, ghouses[h].y, ghouses[h].z);
+
+            if (!img.HasFile(ghouses[h].dffName)) {
+                Log("  SKIP: DFF not in IMG: %s", ghouses[h].dffName);
+                continue;
+            }
+            std::vector<uint8_t> dffData = img.Extract(ghouses[h].dffName);
+            if (dffData.empty()) {
+                Log("  FAIL: DFF extract failed: %s", ghouses[h].dffName);
+                continue;
+            }
+
+            DffModel dff = DffLoader::LoadFromMemory(dffData.data(), dffData.size());
+            if (!dff.valid) {
+                Log("  FAIL: DFF parse failed: %s", ghouses[h].dffName);
+                continue;
+            }
+
+            ensureTxd(ghouses[h].txdName);
+
+            // Yaw rotation quaternion: (0, 0, sin(yaw/2), cos(yaw/2))
+            float hy = ghouses[h].rotZ * 0.5f;
+            MapObject obj;
+            obj.worldMatrix = QuatToD3DMatrix(0.0f, 0.0f, sinf(hy), cosf(hy),
+                                              ghouses[h].x, ghouses[h].y, ghouses[h].z);
+            for (auto& dffMesh : dff.meshes) {
+                const MeshVertex* verts = reinterpret_cast<const MeshVertex*>(dffMesh.vertices.data());
+                D3DRenderMesh* mesh = g_renderer.CreateMesh(
+                    verts,
+                    (uint32_t)dffMesh.vertices.size(),
+                    dffMesh.indices.data(),
+                    (uint32_t)dffMesh.indices.size());
+                if (!mesh) continue;
+                if (!dffMesh.textureName.empty()) {
+                    mesh->texture = getD3dTexture(dffMesh.textureName);
+                }
+                obj.meshes.push_back(mesh);
+            }
+
+            if (!obj.meshes.empty()) {
+                mapObjects.push_back(std::move(obj));
+                groveLoaded++;
+                Log("  OK: grove house %d has %u meshes", h, (unsigned)mapObjects.back().meshes.size());
+            }
+        }
+
+        Log("GROVE: %d/%d houses loaded, %u map objects", groveLoaded, numGrove, (unsigned)mapObjects.size());
+
+        // Camera: west end of street, elevated, looking east down the street
+        float gcamX = 2460.0f, gcamY = -1650.0f, gcamZ = 18.0f;
+        D3DMATRIX gview = MatrixLookAt(gcamX, gcamY, gcamZ,
+                                       2530.0f, -1650.0f, 6.0f,   // target: east down street
+                                       0.0f, 0.0f, 1.0f);
+        D3DMATRIX gproj = MatrixPerspectiveFov(60.0f * 3.14159f / 180.0f,
+                                               (float)WIDTH / (float)HEIGHT,
+                                               1.0f, 2000.0f);
+        g_renderer.SetViewMatrix(gview);
+        g_renderer.SetProjMatrix(gproj);
+        Log("GROVE: camera at (%.1f, %.1f, %.1f)", gcamX, gcamY, gcamZ);
+    } else {
+    // ---- Normal M4 map loading ----
+    // (IDE/IPL loading code follows, wrapped in else block)
     std::vector<IdeObject> ideObjects;
     std::unordered_map<int, size_t> ideById;
     std::unordered_map<std::string, size_t> ideByName;
@@ -237,57 +478,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     }
     Log("Filtered to %u instances near Grove Street", (unsigned)filtered.size());
 
-    // ---- Texture cache ----
-    std::unordered_map<std::string, TxdTexture> texMap;
-    std::unordered_map<std::string, bool> txdLoaded;
-    // D3D texture cache: txd texture name -> IDirect3DTexture9*
-    std::unordered_map<std::string, IDirect3DTexture9*> d3dTexCache;
-
-    auto ensureTxd = [&](const std::string& txdName) {
-        if (txdName.empty() || txdLoaded[txdName])
-            return;
-        txdLoaded[txdName] = true;
-        std::string fname = txdName + ".txd";
-        if (!img.HasFile(fname)) {
-            Log("TXD not in IMG: %s", fname.c_str());
-            return;
-        }
-        std::vector<uint8_t> data = img.Extract(fname);
-        if (data.empty()) {
-            Log("TXD extract failed: %s", fname.c_str());
-            return;
-        }
-        std::vector<TxdTexture> texs = TxdLoader::LoadFromMemory(data.data(), data.size());
-        int added = 0;
-        for (auto& t : texs) {
-            std::string key = TxdLoader::KeyOf(t.name);
-            if (texMap.find(key) == texMap.end()) {
-                texMap.emplace(key, std::move(t));
-                added++;
-            }
-        }
-        Log("TXD %s: %u textures (%d new)", fname.c_str(), (unsigned)texs.size(), added);
-    };
-
-    auto getD3dTexture = [&](const std::string& texName) -> IDirect3DTexture9* {
-        std::string key = TxdLoader::KeyOf(texName);
-        auto it = d3dTexCache.find(key);
-        if (it != d3dTexCache.end())
-            return it->second;
-        auto texIt = texMap.find(key);
-        if (texIt == texMap.end())
-            return nullptr;
-        TxdTexture& txd = texIt->second;
-        IDirect3DTexture9* d3dTex = g_renderer.CreateTexture(
-            txd.width, txd.height, txd.d3dFormat,
-            txd.mip0.data(), (unsigned)txd.mip0.size());
-        d3dTexCache[key] = d3dTex;  // may be nullptr on failure; cached anyway
-        return d3dTex;
-    };
+    // (Texture cache already defined above - shared by both modes)
 
     // ---- Load models and build map objects ----
     std::unordered_map<std::string, CachedModel> modelCache;
-    std::vector<MapObject> mapObjects;
+    // (mapObjects already declared above - shared by both modes)
     int loadedModels = 0, failedModels = 0, skippedNoIde = 0;
 
     const size_t maxObjects = 1500;  // cap raised: all LA IPLs now load
@@ -379,6 +574,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                            1.0f, 2000.0f);
     g_renderer.SetViewMatrix(view);
     g_renderer.SetProjMatrix(proj);
+
+    } // end else (normal M4 mode) - houseTest mode skips to here
 
     IDirect3DDevice9* dev = g_renderer.GetDevice();
 
