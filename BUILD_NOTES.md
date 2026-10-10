@@ -2786,3 +2786,34 @@ Usage: gtasa_cpp.exe --grove --frames 120 --screenshot grove.bmp --log grove.log
 
 Build: clean, exe at cpp/build/Debug/gtasa_cpp.exe
 
+
+## 2026-10-09 - PLAYABLE BUILD (--play mode)
+
+Q asked for playable with GTA SA controls and debug info. Built --play mode:
+
+**New features in src/main.cpp:**
+- `--play` flag: playable Grove Street with first-person controls
+- **Fixed street layout**: 8 houses spaced 45 units apart (was 20, overlapping),
+  two clean rows at y=-1630 (north) and y=-1670 (south), 40-unit wide street
+- **Ground plane**: 2000x2000 green quad at z=0 so houses don't float in void
+- **WASD movement**: camera-relative, 25 u/s walk, 50 u/s with Shift (run)
+- **Mouse look**: yaw/pitch with 0.0035 sensitivity, cursor hidden and centered
+- **Arrow keys**: fallback look controls
+- **Space**: jump with simple gravity (12 u/s up, 30 u/s^2 down)
+- **Debug overlay**: bitmap 8x8 font renders FPS, position, yaw, object count,
+  controls help at top-left in yellow. Window title also shows live FPS/pos.
+- **ESC**: quit (existing)
+
+**Preserved**: --housetest, --grove, M4 map modes all still work.
+
+**Build**: clean, gtasa_cpp.exe (399KB).
+
+**Test command for Q**:
+"C:\Users\fufid\Documents\Decomps\gta-sa decomp\cpp\build\Debug\gtasa_cpp.exe" --play
+
+## 2026-10-09 - Mouse look both axes fixed
+- Q reported BOTH mouse axes inverted after the Y-only flip.
+- Root cause: view-space math shows yaw+ = look right, pitch+ = look up; code had yaw -= dx and pitch += dy.
+- main.cpp: mouse now yaw += dx*MOUSE_SENS, pitch -= dy*MOUSE_SENS (standard FPS).
+- Arrow keys aligned too: LEFT/RIGHT yaw signs flipped so RIGHT = look right (UP/DOWN pitch were already correct).
+- Backup of pre-fix main.cpp at src\main.cpp.bak_mousefix. Build clean.

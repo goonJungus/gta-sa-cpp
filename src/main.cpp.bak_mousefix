@@ -552,16 +552,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 int dx = mp.x - center.x;
                 int dy = mp.y - center.y;
                 if (dx != 0 || dy != 0) {
-                    yaw   += dx * MOUSE_SENS;
-                    pitch -= dy * MOUSE_SENS;
+                    yaw   -= dx * MOUSE_SENS;
+                    pitch += dy * MOUSE_SENS;
                     if (pitch >  1.5f) pitch =  1.5f;
                     if (pitch < -1.5f) pitch = -1.5f;
                     SetCursorPos(center.x, center.y);
                 }
             }
             // Arrow keys as fallback look
-            if (GetAsyncKeyState(VK_LEFT)  & 0x8000) yaw   -= 2.5f * dt;
-            if (GetAsyncKeyState(VK_RIGHT) & 0x8000) yaw   += 2.5f * dt;
+            if (GetAsyncKeyState(VK_LEFT)  & 0x8000) yaw   += 2.5f * dt;
+            if (GetAsyncKeyState(VK_RIGHT) & 0x8000) yaw   -= 2.5f * dt;
             if (GetAsyncKeyState(VK_UP)    & 0x8000) pitch += 2.0f * dt;
             if (GetAsyncKeyState(VK_DOWN)  & 0x8000) pitch -= 2.0f * dt;
             if (pitch >  1.5f) pitch =  1.5f;
