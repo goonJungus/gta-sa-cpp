@@ -80,11 +80,13 @@ DffModel DffLoader::Load(const std::string& path) {
             break;
 
         if (h.type == RW_GEOMETRYLIST) {
-            // GeometryList struct: numGeometries
+            // GeometryList struct: numGeometries [+ material index array]
             SectionHeader sh;
             if (r.ReadHeader(sh) && sh.type == RW_STRUCT) {
+                size_t listStructEnd = r.pos + sh.size;
                 int32_t numGeos = 0;
                 r.ReadT(numGeos);
+                r.pos = listStructEnd;  // skip any trailing index array
                 // Geometries follow
                 for (int32_t i = 0; i < numGeos && r.pos < sectionEnd; i++) {
                     SectionHeader gh;
@@ -92,11 +94,11 @@ DffModel DffLoader::Load(const std::string& path) {
                         break;
                     size_t geoEnd = r.pos + gh.size;
                     if (gh.type == RW_GEOMETRY) {
-                        DffMesh mesh;
-                        if (ParseGeometry(r, gh.size, mesh))
-                            model.meshes.push_back(std::move(mesh));
+                        if (!ParseGeometry(r, gh.size, model.meshes))
+                            r.pos = geoEnd;  // keep going on a bad geometry
+                    } else {
+                        r.pos = geoEnd;
                     }
-                    r.pos = geoEnd;
                     if (r.pos > r.size)
                         break;
                 }
@@ -109,7 +111,82 @@ DffModel DffLoader::Load(const std::string& path) {
     return model;
 }
 
-bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize, DffMesh& mesh) {
+bool DffLoader::ParseMaterialList(Reader& r, size_t listEnd,
+                                  std::vector<DffMaterial>& outMats) {
+    SectionHeader h;
+    if (!r.ReadHeader(h) || h.type != RW_STRUCT)
+        return false;
+    size_t structEnd = r.pos + h.size;
+    int32_t numMaterials = 0;
+    if (!r.ReadT(numMaterials))
+        return false;
+    r.pos = structEnd;  // skip material index array / padding
+
+    for (int32_t i = 0; i < numMaterials && r.pos < listEnd; i++) {
+        if (!r.ReadHeader(h))
+            break;
+        size_t matEnd = r.pos + h.size;
+        if (matEnd > r.size || h.type != RW_MATERIAL) {
+            r.pos = matEnd;
+            continue;
+        }
+        DffMaterial mat;
+        // Material struct (flags, color, surface props) - skip by size
+        if (r.ReadHeader(h) && h.type == RW_STRUCT) {
+            r.pos += h.size;
+        }
+        // Inner sections: RW_TEXTURE*, RW_EXTENSION
+        while (r.pos + 12 <= matEnd && r.pos < r.size) {
+            size_t innerPos = r.pos;
+            if (!r.ReadHeader(h))
+                break;
+            size_t innerEnd = r.pos + h.size;
+            if (innerEnd > matEnd)
+                break;
+            if (h.type == RW_TEXTURE) {
+                // struct (filter flags) + RW_STRING name + RW_STRING mask
+                if (r.ReadHeader(h) && h.type == RW_STRUCT)
+                    r.pos += h.size;  // skip filter flags
+                int strIdx = 0;
+                while (r.pos + 12 <= innerEnd && r.pos < r.size) {
+                    if (!r.ReadHeader(h))
+                        break;
+                    size_t strEnd = r.pos + h.size;
+                    if (strEnd > innerEnd)
+                        break;
+                    if (h.type == RW_STRING && strIdx == 0 && mat.textureName.empty()) {
+                        const char* s = (const char*)(r.data + r.pos);
+                        size_t n = h.size;
+                        while (n > 0 && s[n - 1] == '\0')
+                            n--;
+                        mat.textureName.assign(s, n);
+                    }
+                    strIdx++;
+                    r.pos = strEnd;
+                }
+            } else if (h.type == RW_STRING && mat.materialName.empty()) {
+                // A bare RW_STRING directly under the material (rare; some
+                // exporters stash a material name here).
+                const char* s = (const char*)(r.data + r.pos);
+                size_t n = h.size;
+                while (n > 0 && s[n - 1] == '\0')
+                    n--;
+                mat.materialName.assign(s, n);
+                r.pos = innerEnd;
+            } else {
+                r.pos = innerEnd;  // extension / unknown: skip
+            }
+            (void)innerPos;
+        }
+        outMats.push_back(std::move(mat));
+        r.pos = matEnd;
+    }
+    r.pos = listEnd;
+    return true;
+}
+
+bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize,
+                              std::vector<DffMesh>& outMeshes) {
     size_t geoEnd = r.pos + geomSize;
 
     SectionHeader h;
@@ -129,10 +206,9 @@ bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize, DffMesh& mesh) {
     bool prelit = (flags & GEO_PRELIT) != 0;
     bool textured = (flags & GEO_TEXTURED) != 0;
     bool flagNormals = (flags & GEO_NORMALS) != 0;
+    (void)flagNormals;
 
     // RW < 3.4 has ambient/diffuse/specular floats; SA is 3.4+, skip check via version
-    uint32_t ver = (h.version >> 16) & 0xFFFF;
-    // version field layout: libID(16) | major(8)... actually use raw compare
     if (h.version < 0x34000) {
         float dummy[3];
         r.Read(dummy, sizeof(dummy));
@@ -150,7 +226,6 @@ bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize, DffMesh& mesh) {
         uvs.resize((size_t)numVerts * 2);
         if (!r.Read(uvs.data(), uvs.size() * sizeof(float)))
             return false;
-        mesh.hasUVs = true;
     }
 
     // Triangles: (v2, v1, materialId, v3) uint16 each
@@ -181,7 +256,6 @@ bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize, DffMesh& mesh) {
             normals.resize((size_t)numVerts * 3);
             if (!r.Read(normals.data(), normals.size() * sizeof(float)))
                 return false;
-            mesh.hasNormals = true;
         } else if (morphHasNormals) {
             if (!r.Skip((size_t)numVerts * 3 * sizeof(float)))
                 return false;
@@ -191,10 +265,27 @@ bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize, DffMesh& mesh) {
     if (positions.empty())
         return false;
 
-    // Build mesh
-    mesh.vertices.resize(numVerts);
+    // Material list + extension follow the morph data (M3)
+    std::vector<DffMaterial> materials;
+    while (r.pos + 12 <= geoEnd && r.pos < r.size) {
+        if (!r.ReadHeader(h))
+            break;
+        size_t secEnd = r.pos + h.size;
+        if (secEnd > geoEnd || secEnd > r.size)
+            break;
+        if (h.type == RW_MATERIALLIST) {
+            ParseMaterialList(r, secEnd, materials);
+        } else {
+            r.pos = secEnd;  // RW_EXTENSION / unknown: skip
+        }
+    }
+    r.pos = geoEnd;
+    (void)structEnd;
+
+    // Build shared vertex array
+    std::vector<DffVertex> verts(numVerts);
     for (uint32_t i = 0; i < numVerts; i++) {
-        DffVertex& v = mesh.vertices[i];
+        DffVertex& v = verts[i];
         v.x = positions[i * 3 + 0];
         v.y = positions[i * 3 + 1];
         v.z = positions[i * 3 + 2];
@@ -212,15 +303,35 @@ bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize, DffMesh& mesh) {
             v.u = 0; v.v = 0;
         }
     }
-    mesh.indices.reserve((size_t)numTris * 3);
+
+    // Group triangle indices per material; one DffMesh per material so each
+    // mesh carries a single textureName.
+    size_t numBuckets = materials.empty() ? 1 : materials.size();
+    std::vector<std::vector<uint16_t>> bucketTris(numBuckets);
     for (uint32_t i = 0; i < numTris; i++) {
+        size_t b = 0;
+        if (!materials.empty()) {
+            b = tris[i].matId < materials.size() ? tris[i].matId : 0;
+        }
         // RW stores (v2, v1, v3); convert to CCW (v1, v2, v3) for D3D
-        mesh.indices.push_back(tris[i].v1);
-        mesh.indices.push_back(tris[i].v2);
-        mesh.indices.push_back(tris[i].v3);
+        bucketTris[b].push_back(tris[i].v1);
+        bucketTris[b].push_back(tris[i].v2);
+        bucketTris[b].push_back(tris[i].v3);
     }
 
-    r.pos = geoEnd;
-    (void)structEnd;
-    return true;
+    for (size_t b = 0; b < numBuckets; b++) {
+        if (bucketTris[b].empty())
+            continue;  // material with no triangles: no mesh
+        DffMesh mesh;
+        mesh.vertices = verts;  // shared copy; simple and correct
+        mesh.indices = std::move(bucketTris[b]);
+        mesh.hasNormals = !normals.empty();
+        mesh.hasUVs = !uvs.empty();
+        if (b < materials.size()) {
+            mesh.textureName = materials[b].textureName;
+            mesh.materialName = materials[b].materialName;
+        }
+        outMeshes.push_back(std::move(mesh));
+    }
+    return !outMeshes.empty();
 }

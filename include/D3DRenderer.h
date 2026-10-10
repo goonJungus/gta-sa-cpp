@@ -10,6 +10,7 @@
 struct D3DRenderMesh {
     IDirect3DVertexBuffer9* vb = nullptr;
     IDirect3DIndexBuffer9*  ib = nullptr;
+    IDirect3DTexture9* texture = nullptr;  // M3: optional diffuse texture (untextured if null)
     uint32_t vertexCount = 0;
     uint32_t indexCount = 0;
 };
@@ -40,18 +41,30 @@ public:
     void DrawMesh(D3DRenderMesh* mesh);
     void DestroyMesh(D3DRenderMesh* mesh);
 
+    // Textures (M3: raw D3D9, no D3DX). data is the level-0 mip in the
+    // format's native byte order; DXT blocks are copied per block-row.
+    IDirect3DTexture9* CreateTexture(uint32_t width, uint32_t height,
+                                     D3DFORMAT fmt, const void* data,
+                                     uint32_t dataSize);
+    void DestroyTexture(IDirect3DTexture9* tex);
+
+    // Test helper: save the current backbuffer to a 32-bit BMP file.
+    bool SaveScreenshot(const char* path);
+
     // Camera (raw D3DMATRIX, column-major as D3D expects)
     void SetViewMatrix(const D3DMATRIX& view);
     void SetProjMatrix(const D3DMATRIX& proj);
 
     bool IsValid() const { return m_device != nullptr; }
     IDirect3DDevice9* GetDevice() const { return m_device; }
+    const char* GetAdapterDesc() const { return m_adapterDesc; }
 
 private:
     IDirect3D9*       m_d3d;
     IDirect3DDevice9* m_device;
     int               m_width;
     int               m_height;
+    char              m_adapterDesc[128];
 };
 
 // Math helpers (no D3DX)

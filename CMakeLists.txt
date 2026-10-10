@@ -165,11 +165,12 @@ add_executable(gtasa_cpp
     src/main.cpp
     src/D3DRenderer.cpp
     src/DffLoader.cpp
+    src/TxdLoader.cpp
 )
 target_include_directories(gtasa_cpp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_link_libraries(gtasa_cpp PRIVATE d3d9)
+target_link_libraries(gtasa_cpp PRIVATE d3d9 shell32)
 if(MSVC)
     target_compile_options(gtasa_cpp PRIVATE
         /W3

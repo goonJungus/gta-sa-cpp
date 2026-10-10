@@ -1,11 +1,34 @@
 # gta-sa-cpp
 
+[![Discord](https://img.shields.io/badge/Discord-Chat_with_me-5865F2?logo=discord&logoColor=white)](https://discord.com/users/261653544854093825)
+
 C++ port of Grand Theft Auto: San Andreas, in progress. Classes are ported from
 a full decompilation, organized the way the original game organizes them, and
 verified against the decomp as they land.
 
 > **Goal:** a compilable C++ codebase that mirrors the original game's
 > structure — every class ported, every method verified.
+
+## 🙏 Please contribute
+
+This is a big job — nearly a thousand classes — and it goes faster with more
+hands. You don't need to be a reverse engineer: pick one class, port it,
+verify it, and that's a real contribution. `port_plan/` tells you exactly what
+to do and in what order, and [CONTRIBUTING.md](CONTRIBUTING.md) walks you
+through it. Every class landed is progress. Come help.
+
+## Progress
+
+**~20%** — 199 of 996 classes have headers ported, and the full `gta_sa`
+static library builds with **zero errors** (13.3 MB lib).
+
+```
+████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 20%
+```
+
+Counted 2026-10-09: ported headers in `include/` vs. classes in `port_plan/`.
+Headers mean the class exists; `BUILD_NOTES.md` tracks which method bodies are
+verified vs. still TODO stubs.
 
 ## Code only — bring your own copy
 
@@ -19,8 +42,6 @@ is not implemented yet; when it is, the build will point at your install and
 nothing else.
 
 ## Status
-
-The full `gta_sa` static library builds with **zero errors** (13.3 MB lib).
 
 **Ported:** core math/containers, collision (`CColModel` / `CCollision`),
 world entities (`CPlaceable` → `CEntity` → `CPhysical` → `CObject`, `CBuilding`,
@@ -108,8 +129,18 @@ reverse-engineering community:
 All port code in this repository is written for this project. No Rockstar
 Games assets are included.
 
+## AI agents
+
+This project is built with AI help:
+
+- **Pi** — runs the decomp-to-rewrite pipeline (decompilation through C++
+  porting).
+- **Claude Code** — complex coding tasks on the build machine.
+- **mogus (Muse)** — project infrastructure, repo automation, and scaffolding.
+
 ## Legal
 
 This project does not contain, download, or redistribute any Rockstar Games
 assets or game data. You must provide your own legal copy of GTA San Andreas.
-Ported from a decompilation done for interoperability research.
+Ported from a decompilation done for interoperability research. Licensed under
+the [MIT License](LICENSE).
