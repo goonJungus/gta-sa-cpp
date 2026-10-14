@@ -27,6 +27,10 @@ struct FeSettings {
     int frameLimit = 0;       // 0 = off (unlimited), else frames per second
     bool vsync = false;
     float drawDist = 1.1f;    // CMenuManager::m_fDrawDistance, 0.925 .. 1.8
+    // Gameplay style: 0 = classic (retail), 1 = rewrite (momentum handling /
+    // modern shoulder cameras).
+    int movementStyle = 0;
+    int cameraStyle = 0;
 };
 
 class FeMenu {

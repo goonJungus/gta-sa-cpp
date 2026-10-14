@@ -39,4 +39,8 @@ class IfpLoader {
 public:
     // Load every clip of an ANP3 file. Keys are lowercase clip names.
     static bool Load(const std::string& path, std::unordered_map<std::string, AnimClip>& out);
+    // Same, from an ANP3 image (e.g. a file of anim\anim.img). keepExisting:
+    // clips already in out win over same-named ones in this file.
+    static bool LoadFromMemory(const std::vector<uint8_t>& data,
+                               std::unordered_map<std::string, AnimClip>& out, bool keepExisting = false);
 };

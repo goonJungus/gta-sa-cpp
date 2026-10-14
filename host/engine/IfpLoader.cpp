@@ -24,6 +24,11 @@ bool IfpLoader::Load(const std::string& path, std::unordered_map<std::string, An
         if (std::fread(d.data(), 1, d.size(), f) != d.size()) d.clear();
     }
     std::fclose(f);
+    return LoadFromMemory(d, out);
+}
+
+bool IfpLoader::LoadFromMemory(const std::vector<uint8_t>& d, std::unordered_map<std::string, AnimClip>& out,
+                               bool keepExisting) {
     if (d.size() < 36 || std::memcmp(d.data(), "ANP3", 4) != 0) return false;
 
     auto get32 = [&](size_t at) -> uint32_t {
@@ -80,6 +85,7 @@ bool IfpLoader::Load(const std::string& path, std::unordered_map<std::string, An
         }
         std::string key = clip.name;
         for (char& ch : key) ch = (char)std::tolower((unsigned char)ch);
+        if (keepExisting && out.count(key)) continue;
         out[key] = std::move(clip);
     }
     return !out.empty();

@@ -199,8 +199,11 @@ const AnimClip* PlayerPed::Clip(const char* name) const {
     return it == m_clips.end() ? nullptr : &it->second;
 }
 
-const char* PlayerPed::ClipName() const {
-    return m_cur.clip ? m_cur.clip->name.c_str() : "-";
+const char* PlayerPed::ClipName() const {   // the dominant association
+    const Assoc* best = nullptr;
+    for (const Assoc& a : m_assocs)
+        if (!best || a.blend > best->blend) best = &a;
+    return best ? best->clip->name.c_str() : "-";
 }
 
 bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
@@ -212,6 +215,11 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
     if (!IfpLoader::Load(gameDir + "\\anim\\ped.ifp", m_clips)) {
         std::fprintf(stderr, "[CJ] anim\\ped.ifp failed to load\n");
         return false;
+    }
+    {   // the skydive steering clips (parachute.ifp, in anim\anim.img)
+        ImgLoader anims;
+        if (anims.Open(gameDir + "\\anim\\anim.img"))
+            IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), m_clips, true);
     }
     auto txd = [&](const char* name) {
         std::vector<uint8_t> b = img.Extract(std::string(name) + ".txd");
@@ -317,13 +325,14 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         part.mesh = r.CreateMesh(part.skinned.data(), (uint32_t)part.skinned.size(),
                                  c->indices.data(), (uint32_t)c->indices.size());
         if (part.mesh) part.mesh->texture = m_textures[pd.tex];
+        part.isHead = pd.tex == 1;
         m_parts.push_back(std::move(part));
     }
     std::fprintf(stderr, "[CJ] %zu parts, %zu frames, %zu clips, body '%s', feet z %.3f\n",
                  m_parts.size(), m_skeleton.size(), m_clips.size(),
                  m_skeleton.size() > 1 ? m_skeleton[1].name.c_str() : "-", m_bindMinZ);
     m_ready = m_parts.size() == 5 && Clip("idle_stance");
-    if (m_ready) Play(Clip("idle_stance"), true, 0.0f, false);
+    if (m_ready) Add(Clip("idle_stance"), true, false);
     return m_ready;
 }
 
@@ -335,35 +344,160 @@ void PlayerPed::Shutdown(D3DRenderer& r) {
     m_ready = false;
 }
 
-void PlayerPed::Play(const AnimClip* clip, bool loop, float fade, bool keepPhase) {
-    if (!clip || clip == m_cur.clip) return;
-    float phase = 0.0f;
-    if (keepPhase && m_cur.clip && m_cur.clip->duration > 0)
-        phase = m_cur.time / m_cur.clip->duration;
-    m_prev = m_cur;
-    m_cur = {clip, phase * clip->duration, loop};
-    if (fade <= 0.0f || !m_prev.clip) { m_blend = 1.0f; m_blendRate = 0.0f; }
-    else { m_blend = 0.0f; m_blendRate = 1.0f / fade; }
+// ---- Blend associations (CAnimBlendAssociation / CAnimManager) ----
+
+PlayerPed::Assoc* PlayerPed::Get(const AnimClip* c) {
+    for (Assoc& a : m_assocs)
+        if (a.clip == c && !a.dead) return &a;
+    return nullptr;
 }
 
-void PlayerPed::Sample(const Track& tr, std::vector<Pose>& out) const {
-    out.resize(m_skeleton.size());
-    for (size_t f = 0; f < m_skeleton.size(); f++) {
-        RowsToQuat(m_skeleton[f].local, out[f].q);
-        for (int k = 0; k < 3; k++) out[f].t[k] = m_skeleton[f].local.m[3][k];
-        const AnimSequence* s = tr.clip ? tr.clip->FindBone(m_skeleton[f].boneId) : nullptr;
-        if (!s || s->keys.empty() || m_skeleton[f].boneId < 0) continue;
-        const std::vector<AnimKey>& keys = s->keys;
-        size_t k = 0;
-        while (k + 1 < keys.size() && keys[k + 1].time <= tr.time) k++;
-        const AnimKey& a = keys[k];
-        const AnimKey& b = keys[std::min(k + 1, keys.size() - 1)];
-        const float span = b.time - a.time;
-        const float t = span > 1e-5f ? std::clamp((tr.time - a.time) / span, 0.0f, 1.0f) : 0.0f;
-        Slerp(a.q, b.q, t, out[f].q);
-        if (s->hasTranslation)
-            for (int i = 0; i < 3; i++) out[f].t[i] = a.t[i] + (b.t[i] - a.t[i]) * t;
-        if (m_skeleton[f].boneId == 0) { out[f].t[0] = 0.0f; out[f].t[1] = 0.0f; }   // root motion
+// CAnimManager::AddAnimation: the clip at full blend, the others untouched.
+PlayerPed::Assoc* PlayerPed::Add(const AnimClip* c, bool loop, bool movement) {
+    if (!c) return nullptr;
+    Assoc* a = Get(c);
+    if (!a) {
+        m_assocs.emplace_back();
+        a = &m_assocs.back();
+        a->clip = c;
+    }
+    a->time = a->prevTime = 0.0f;
+    a->blend = 1.0f;
+    a->delta = 0.0f;
+    a->speed = 1.0f;
+    a->loop = loop;
+    a->movement = movement;
+    a->playing = true;
+    a->finished = false;
+    return a;
+}
+
+// CAnimManager::BlendAnimation: fade the clip in at `delta` per second and
+// every other association out at the same rate.
+PlayerPed::Assoc* PlayerPed::Blend(const AnimClip* c, bool loop, bool movement, float delta) {
+    if (!c) return nullptr;
+    Assoc* a = Get(c);
+    for (Assoc& o : m_assocs)
+        if (&o != a && !o.dead) o.delta = -delta;
+    if (!a) {
+        a = Add(c, loop, movement);
+        a->blend = 0.0f;
+    }
+    a->delta = delta;
+    a->playing = true;
+    return a;
+}
+
+void PlayerPed::Remove(const AnimClip* c) {
+    if (Assoc* a = Get(c)) { a->dead = true; a->blend = 0.0f; }
+}
+
+// Root (bone 0) translation of a clip at a time: the part retail extracts
+// into the ped's velocity.
+float PlayerPed::RootY(const AnimClip* clip, float time, float* x) const {
+    const AnimSequence* s = clip ? clip->FindBone(0) : nullptr;
+    if (x) *x = 0.0f;
+    if (!s || !s->hasTranslation || s->keys.empty()) return 0.0f;
+    const std::vector<AnimKey>& keys = s->keys;
+    size_t k = 0;
+    while (k + 1 < keys.size() && keys[k + 1].time <= time) k++;
+    const AnimKey& a = keys[k];
+    const AnimKey& b = keys[std::min(k + 1, keys.size() - 1)];
+    const float span = b.time - a.time;
+    const float t = span > 1e-5f ? std::clamp((time - a.time) / span, 0.0f, 1.0f) : 0.0f;
+    if (x) *x = a.t[0] + (b.t[0] - a.t[0]) * t;
+    return a.t[1] + (b.t[1] - a.t[1]) * t;
+}
+
+// RpAnimBlendClumpUpdateAnimations: movement clips advance phase-locked at
+// the blend-weighted mean length; blends move by their delta.
+void PlayerPed::Advance(float dt) {
+    float totalLen = 0.0f, totalMoveBlend = 0.0f, totalBlend = 0.0f;
+    for (const Assoc& a : m_assocs) {
+        if (a.dead) continue;
+        totalBlend += a.blend;
+        if (a.movement && a.blend > 0.0f) {
+            totalLen += a.clip->duration * a.blend;
+            totalMoveBlend += a.blend;
+        }
+    }
+    const float meanLen = totalMoveBlend > 0.0f ? totalLen / totalMoveBlend : 0.0f;
+    m_rootDX = m_rootDY = 0.0f;
+    for (Assoc& a : m_assocs) {
+        if (a.dead) continue;
+        a.prevTime = a.time;
+        const float dur = a.clip->duration;
+        if (a.playing && dur > 0.0f) {
+            float step = dt * a.speed;
+            if (a.movement && meanLen > 0.0f) step *= dur / meanLen;
+            float t = a.time + step;
+            bool wrapped = false;
+            if (a.loop) {
+                if (t >= dur) { t = std::fmod(t, dur); wrapped = true; }
+            } else if (t >= dur) {
+                t = dur;
+                a.finished = true;
+            }
+            a.time = t;
+            if (totalBlend > 0.0f && a.blend > 0.0f) {
+                float x0, x1, xe, xs;
+                const float y0 = RootY(a.clip, a.prevTime, &x0), y1 = RootY(a.clip, t, &x1);
+                float dy = y1 - y0, dx = x1 - x0;
+                if (wrapped) {
+                    const float ye = RootY(a.clip, dur, &xe), ys = RootY(a.clip, 0.0f, &xs);
+                    dy = (ye - y0) + (y1 - ys);
+                    dx = (xe - x0) + (x1 - xs);
+                }
+                m_rootDX += dx * a.blend / totalBlend;
+                m_rootDY += dy * a.blend / totalBlend;
+            }
+        }
+        a.blend = std::clamp(a.blend + a.delta * dt, 0.0f, 1.0f);
+        if (a.blend <= 0.0f && a.delta < 0.0f) a.dead = true;
+    }
+    for (auto it = m_assocs.begin(); it != m_assocs.end();)
+        it = it->dead ? m_assocs.erase(it) : it + 1;
+}
+
+// The blended pose: per bone, the weighted quaternion sum (signs aligned,
+// normalised) and weighted translation, normalised by the total weight.
+void PlayerPed::BuildPose() {
+    const size_t n = m_skeleton.size();
+    m_pose.resize(n);
+    for (size_t f = 0; f < n; f++) {
+        Pose& out = m_pose[f];
+        float q[4] = {0, 0, 0, 0}, t[3] = {0, 0, 0}, w = 0.0f;
+        for (const Assoc& a : m_assocs) {
+            if (a.dead || a.blend <= 0.0f || m_skeleton[f].boneId < 0) continue;
+            const AnimSequence* s = a.clip->FindBone(m_skeleton[f].boneId);
+            if (!s || s->keys.empty()) continue;
+            const std::vector<AnimKey>& keys = s->keys;
+            size_t k = 0;
+            while (k + 1 < keys.size() && keys[k + 1].time <= a.time) k++;
+            const AnimKey& ka = keys[k];
+            const AnimKey& kb = keys[std::min(k + 1, keys.size() - 1)];
+            const float span = kb.time - ka.time;
+            const float u = span > 1e-5f ? std::clamp((a.time - ka.time) / span, 0.0f, 1.0f) : 0.0f;
+            float sq[4];
+            Slerp(ka.q, kb.q, u, sq);
+            float st[3];
+            for (int i = 0; i < 3; i++)
+                st[i] = s->hasTranslation ? ka.t[i] + (kb.t[i] - ka.t[i]) * u : m_skeleton[f].local.m[3][i];
+            if (m_skeleton[f].boneId == 0) { st[0] = 0.0f; st[1] = 0.0f; }   // extracted root motion
+            const float dot = q[0] * sq[0] + q[1] * sq[1] + q[2] * sq[2] + q[3] * sq[3];
+            const float sign = (w > 0.0f && dot < 0.0f) ? -1.0f : 1.0f;
+            for (int i = 0; i < 4; i++) q[i] += sq[i] * a.blend * sign;
+            for (int i = 0; i < 3; i++) t[i] += st[i] * a.blend;
+            w += a.blend;
+        }
+        if (w <= 0.0f) {   // no clip drives this bone: bind pose
+            RowsToQuat(m_skeleton[f].local, out.q);
+            for (int i = 0; i < 3; i++) out.t[i] = m_skeleton[f].local.m[3][i];
+            continue;
+        }
+        const float len = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+        for (int i = 0; i < 4; i++) out.q[i] = len > 1e-6f ? q[i] / len : (i == 3 ? 1.0f : 0.0f);
+        for (int i = 0; i < 3; i++) out.t[i] = t[i] / w;
     }
 }
 
@@ -396,100 +530,378 @@ void PlayerPed::ShoulderBoneRotation() {
     }
 }
 
-void PlayerPed::Update(const Input& in) {
-    if (!m_ready) return;
-    const float speed = std::sqrt(in.moveX * in.moveX + in.moveY * in.moveY);
+// ---- On foot ----
 
-    // Face the direction of travel, turning at a bounded rate.
-    if (speed > 0.3f) {
-        float target = std::atan2(in.moveY, in.moveX), d = target - m_heading;
+// CTaskSimplePlayerOnFoot::PlayerControlZelda @ 006883d0 (movement part) and
+// the heading step of CPed::CalculateNewVelocity @ 005e4c50.
+void PlayerPed::ControlOnFoot(const Input& in) {
+    float sx = in.stickX, sy = in.stickY;
+    if (in.rewrite) m_move.FilterStick(in.dt, sx, sy, in.walk, in.sprint, in.blocked);
+    m_stickX = sx;
+    m_stickY = sy;
+    const float mag = std::min(1.0f, std::sqrt(sx * sx + sy * sy));
+    // The pad reports +-128; PlayerControlZelda divides by 60, so a full
+    // stick asks for a move blend ratio of 2.13 (run). PedWalk caps it at 1.
+    float pad = mag * 128.0f / 60.0f;
+    if (in.walk && pad > 1.0f) pad = 1.0f;
+    if (pad > 0.0f) {
+        m_aimHeading = std::atan2(sy, sx);
+        const float step = 0.07f * 50.0f * in.dt;   // 0.07 per 1/50 s timestep
+        const float d = pad - m_ratio;
+        m_ratio = d > step ? m_ratio + step : d < -step ? m_ratio - step : pad;
+    } else {
+        m_ratio = 0.0f;
+    }
+    SetRealMoveAnim(in.sprint && pad > 0.0f);
+
+    if (in.rewrite) {
+        const bool moving = mag >= m_move.p.minimumMovementInput || Active(Clip("walk_player")) ||
+                            Active(Clip("run_player")) || Active(Clip("sprint_civi"));
+        m_heading = m_move.Heading(in.dt, m_heading, m_aimHeading, moving);
+    } else {
+        // STAT_PLAYER heading change rate: 9 degrees per 1/50 s timestep.
+        float d = m_aimHeading - m_heading;
         while (d > kPi) d -= 2 * kPi;
         while (d < -kPi) d += 2 * kPi;
-        const float step = 12.0f * in.dt;
+        const float step = 9.0f * (kPi / 180.0f) * 50.0f * m_headingRate * in.dt;
         m_heading += std::clamp(d, -step, step);
-        while (m_heading > kPi) m_heading -= 2 * kPi;
-        while (m_heading < -kPi) m_heading += 2 * kPi;
+    }
+    while (m_heading > kPi) m_heading -= 2 * kPi;
+    while (m_heading < -kPi) m_heading += 2 * kPi;
+}
+
+// CPlayerPed::SetRealMoveAnim @ 0060a9c0: walk / run weights from the move
+// blend ratio, the walk start, sprint in and out, and the run stop.
+void PlayerPed::SetRealMoveAnim(bool sprintState) {
+    const AnimClip *idle = Clip("idle_stance"), *walk = Clip("walk_player"), *run = Clip("run_player"),
+                   *sprint = Clip("sprint_civi"), *walkStart = Clip("walk_start"),
+                   *runStop = Clip("run_stop"), *runStopR = Clip("run_stopr");
+    Assoc* aIdle = Get(idle);
+    Assoc* aWalk = Get(walk);
+    Assoc* aRun = Get(run);
+    Assoc* aSprint = Get(sprint);
+    Assoc* aStart = Get(walkStart);
+    Assoc* aStop = Get(runStop);
+    if (!aStop) aStop = Get(runStopR);
+
+    if (aStop && !aStop->finished) return;   // skidding to a halt
+    if (aStop && aStop->delta >= 0.0f) {     // the stop is done: back to idle
+        m_headingRate = 1.0f;                // CPed::RestoreHeadingRate
+        Assoc* i = aIdle ? aIdle : Blend(idle, true, false, 8.0f);
+        i->blend = 0.0f;
+        i->delta = 8.0f;
+        aStop->delta = -8.0f;
+        return;
     }
 
-    const AnimClip* walk = Clip("walk_player");
-    const AnimClip* run = Clip("run_player");
-    const AnimClip* sprint = Clip("sprint_civi");
-    auto natural = [](const AnimClip* c) {   // root travel per second
-        const AnimSequence* s = c ? c->FindBone(0) : nullptr;
-        if (!s || s->keys.size() < 2 || c->duration <= 0) return 1.0f;
-        return std::max(0.1f, (s->keys.back().t[1] - s->keys.front().t[1]) / c->duration);
-    };
-    auto isLoco = [&](const AnimClip* c) { return c && (c == walk || c == run || c == sprint); };
-    float rate = 1.0f;
-
-    if (!in.onGround) {
-        m_airTime += in.dt;
-        const AnimClip* launch = Clip("jump_launch");
-        const AnimClip* glide = Clip("jump_glide");
-        if (m_wasOnGround && in.velZ > 0.0f) Play(launch, false, 0.08f, false);
-        else if (m_cur.clip == launch && m_cur.time >= launch->duration) Play(glide, true, 0.1f, false);
-        else if (m_airTime > 0.8f && in.velZ < 0.0f) Play(Clip("fall_fall"), true, 0.25f, false);
-        else if (m_cur.clip != launch && m_cur.clip != glide && m_cur.clip != Clip("fall_fall"))
-            Play(glide, true, 0.15f, false);
-    } else {
-        if (!m_wasOnGround && m_airTime > 0.15f) {
-            m_landClip = Clip(m_airTime > 0.8f ? "fall_land" : "jump_land");
-            Play(m_landClip, false, 0.05f, false);
+    if (m_ratio != 0.0f || aSprint) {
+        if (aIdle) {   // setting off from a standstill: WALK_start first
+            aStart = Add(walkStart, false, false);
+            if (aWalk) aWalk->time = 0.0f;
+            if (aRun) aRun->time = 0.0f;
+            Remove(idle);
+            if (aSprint) { Remove(sprint); aSprint = nullptr; }
         }
+        if (!aWalk) { aWalk = Add(walk, true, true); aWalk->blend = 0.0f; }
+        if (!aRun) { aRun = Add(run, true, true); aRun->blend = 0.0f; }
+        if (aStart && aStart->finished) {
+            Remove(walkStart);
+            aStart = nullptr;
+            aWalk->playing = aRun->playing = true;
+        }
+        if (sprintState && aStart) sprintState = false;
+
+        if (!aSprint || (sprintState && m_ratio >= 0.4f)) {
+            if (aStart) {   // walk/run wait for the walk start to finish
+                aWalk->playing = aRun->playing = false;
+                aWalk->blend = aRun->blend = 0.0f;
+                return;
+            }
+            aWalk->playing = aRun->playing = true;
+            if (sprintState) {
+                if (!aSprint) {
+                    if (aRun->blend < 1.0f) {   // reach a full run before sprinting
+                        if (aWalk->blend == 0.0f && aRun->blend == 0.0f) aWalk->blend = 1.0f;
+                        if (aRun->delta <= 0.0f) aRun = Blend(run, true, true, 4.0f);
+                        m_ratio = aRun->delta + 1.0f;
+                        return;
+                    }
+                    Blend(sprint, true, true, 2.0f);
+                } else if (aSprint->delta < 0.0f) {
+                    aSprint->delta = 2.0f;
+                    aRun->delta = -2.0f;
+                }
+                return;
+            }
+            if (m_ratio >= 1.0f) {
+                aWalk->blend = m_ratio >= 2.0f ? 0.0f : 2.0f - m_ratio;
+                aRun->blend = m_ratio >= 2.0f ? 1.0f : m_ratio - 1.0f;
+            } else {
+                aWalk->blend = 1.0f;
+                aRun->blend = 0.0f;
+            }
+            aWalk->delta = aRun->delta = 0.0f;
+            return;
+        }
+        // Sprint released (or the stick let go) while the sprint is in.
+        if (aSprint->blend == 0.0f) {
+            Remove(sprint);
+        } else if (aSprint->delta >= 0.0f || aSprint->blend >= 0.8f) {
+            if (m_ratio >= 0.4f) {
+                if (aSprint->delta >= 0.0f) { aSprint->delta = -1.0f; aRun->delta = 1.0f; }
+            } else {   // RUN_STOP / RUN_STOPR by which foot is down
+                const bool second = aSprint->time / aSprint->clip->duration >= 0.5f;
+                Add(second ? runStopR : runStop, false, false);
+                m_headingRate = 0.0f;
+                Remove(sprint);
+                aWalk->playing = aRun->playing = false;
+                aWalk->blend = aRun->blend = 0.0f;
+                aWalk->delta = aRun->delta = 0.0f;
+            }
+        } else if (m_ratio < 1.0f) {
+            aSprint->delta = -8.0f;
+            aRun->delta = 8.0f;
+        }
+        return;
+    }
+    if (!aIdle) Blend(idle, true, false, 4.0f);   // standing still
+}
+
+// ---- In the air ----
+
+// CTaskSimpleInAir::ProcessPed @ 00680600 (anim choice) and CTaskSimpleJump.
+// The skydive pose is the parachute script's (main.scm), approximated.
+void PlayerPed::ControlInAir(const Input& in) {
+    const AnimClip *launch = Clip("jump_launch"), *jumpGlide = Clip("jump_glide"),
+                   *fallGlide = Clip("fall_glide"), *fall = Clip("fall_fall"), *sky = Clip("fall_skydive");
+    if (!m_inAir) {   // take-off: keep the ground speed (no air control)
+        m_inAir = true;
+        m_jumping = in.jumped;
+        m_minVelZ = 0.0f;
         m_airTime = 0.0f;
-        const bool landing = m_cur.clip && m_cur.clip == m_landClip && m_cur.time < m_cur.clip->duration;
-        if (!landing || speed > 2.0f) {
-            const AnimClip* want = speed < 0.3f ? Clip("idle_stance")
-                                 : speed < 3.0f ? walk : speed < 7.6f ? run : sprint;
-            Play(want, true, isLoco(want) && isLoco(m_cur.clip) ? 0.25f : 0.2f,
-                 isLoco(want) && isLoco(m_cur.clip));
-            if (isLoco(m_cur.clip)) rate = std::clamp(speed / natural(m_cur.clip), 0.4f, 1.6f);
+        m_airVelX = m_velX;
+        m_airVelY = m_velY;
+        m_busy = false;
+        m_busyNext = nullptr;
+        if (in.jumped) Blend(launch, false, false, 8.0f);
+    }
+    m_airTime += in.dt;
+    m_minVelZ = std::min(m_minVelZ, in.velZ);
+    const bool falling = Active(fall) || Active(sky);
+    if (m_jumping) {
+        const Assoc* l = Get(launch);
+        if ((!l || l->finished) && !Active(jumpGlide) && !falling) Blend(jumpGlide, true, false, 4.0f);
+    } else if (in.heightAboveGround > 1.3f && !Active(fallGlide) && !falling) {
+        Blend(fallGlide, true, false, 4.0f);   // walked off an edge
+    }
+    // No ground within 4 m and dropping faster than 0.1 per timestep (5 m/s).
+    if (in.heightAboveGround > 4.0f && in.velZ < -5.0f && !falling) Blend(fall, true, false, 4.0f);
+    if (Active(fall) && in.heightAboveGround > 35.0f && in.velZ < -15.0f) Blend(sky, true, false, 1.0f);
+    m_velX = m_airVelX;
+    m_velY = m_airVelY;
+}
+
+// CTaskComplexInAirAndLand::CreateNextSubTask @ 0067ccb0: how CJ lands.
+void PlayerPed::Land(const Input& in) {
+    const AnimClip *jumpGlide = Clip("jump_glide"), *fallGlide = Clip("fall_glide"), *fall = Clip("fall_fall"),
+                   *sky = Clip("fall_skydive"), *launch = Clip("jump_launch");
+    const Assoc* aSky = Get(sky);
+    const Assoc* aFall = Get(fall);
+    const bool airAnim = (aSky && aSky->blend > 0.0f) || (aFall && aFall->blend > 0.0f) ||
+                         Get(jumpGlide) || Get(fallGlide) || Get(launch);
+    m_inAir = false;
+    if (!airAnim) return;   // a short drop: no in-air animation ever started
+    auto busy = [&](const char* clip, const char* next, bool soft) {
+        if (!Clip(clip)) return;
+        Blend(Clip(clip), false, false, 8.0f);
+        m_busy = true;
+        m_busySoft = soft;
+        m_busyClip = Clip(clip);
+        m_busyNext = next ? Clip(next) : nullptr;
+        m_ratio = 0.0f;
+    };
+    if (aSky && aSky->blend > 0.5f) {
+        // FALL_skyDive_DIE starts from the skydive pose and ends face down
+        // (retail kills CJ here; without health he gets back up).
+        busy(Clip("fall_skydive_die") ? "fall_skydive_die" : "ko_skid_front", "getup_front", false);
+    } else if (aFall && aFall->blend > 0.5f) {
+        // m_fMinZSpeed >= -0.4 per timestep (-20 m/s): FALL_COLLAPSE, else a KO skid.
+        if (m_minVelZ >= -20.0f) busy("fall_collapse", nullptr, false);
+        else busy("ko_skid_back", "getup_front", false);   // ends in getup_front's first pose
+    } else {
+        const float mag = std::sqrt(in.stickX * in.stickX + in.stickY * in.stickY);
+        if (m_ratio > 1.5f && mag > 0.0f) {   // running: land on the move
+            m_landClip = Clip("jump_land");
+            if (m_landClip) Blend(m_landClip, false, false, 8.0f);
+        } else {
+            busy("fall_land", nullptr, true);
         }
     }
-    m_wasOnGround = in.onGround;
+}
 
-    auto advance = [&](Track& tr, float r) {
-        if (!tr.clip) return;
-        tr.time += in.dt * r;
-        const float dur = tr.clip->duration;
-        if (dur <= 0) tr.time = 0;
-        else if (tr.loop) tr.time = std::fmod(tr.time, dur);
-        else tr.time = std::min(tr.time, dur);
-    };
-    advance(m_cur, rate);
-    advance(m_prev, rate);
+// ---- Rewrite pose layers ----
+
+namespace {
+// Rotation about a model-space axis through a pivot, as an RW (row vector)
+// matrix: v' = (v - p) R + p.
+RwMat AxisRotation(const float axis[3], float radians, const float pivot[3]) {
+    const float c = std::cos(radians), s = std::sin(radians), t = 1.0f - c;
+    const float x = axis[0], y = axis[1], z = axis[2];
+    // column-vector Rodrigues matrix, transposed into RW rows
+    const float m[3][3] = {{t * x * x + c, t * x * y - s * z, t * x * z + s * y},
+                           {t * x * y + s * z, t * y * y + c, t * y * z - s * x},
+                           {t * x * z - s * y, t * y * z + s * x, t * z * z + c}};
+    RwMat r;
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) r.m[i][j] = m[j][i];
+    float rp[3];
+    r.ApplyDir(pivot, rp);
+    for (int k = 0; k < 3; k++) r.m[3][k] = pivot[k] - rp[k];
+    return r;
+}
+}  // namespace
+
+// Rewrite body pose: the ped matrix rolled by the lean and tipped by
+// the pitch about the ped centre, the lower legs turned back so
+// the shins stay upright and the head turned a little further
+//. Model space: +Y forward, +X right, +Z up, origin = ped centre.
+void PlayerPed::ApplyRewritePose() {
+    const MovementParams& p = m_move.p;
+    const float kDeg = kPi / 180.0f;
+    const float lean = m_move.Lean(), pitch = m_move.Pitch();
+    if (std::fabs(lean) < p.minimumVisiblePoseDegrees && std::fabs(pitch) < p.minimumVisiblePoseDegrees) return;
+    const float fwd[3] = {0, 1, 0}, right[3] = {1, 0, 0}, origin[3] = {0, 0, 0};
+    const RwMat body = AxisRotation(fwd, lean * kDeg, origin) * AxisRotation(right, pitch * kDeg, origin);
+    for (size_t f = 1; f < m_globals.size(); f++) m_globals[f] = m_globals[f] * body;
+
+    // Lower legs (calf 42/52 and everything below it) turned back about the knee.
+    for (int calfId : {42, 52}) {
+        const int knee = m_frameOfBone[calfId];
+        if (knee < 0) continue;
+        const float pv[3] = {m_globals[knee].m[3][0], m_globals[knee].m[3][1], m_globals[knee].m[3][2]};
+        const RwMat back = AxisRotation(right, -pitch * p.pitchCompensation * kDeg, pv) *
+                           AxisRotation(fwd, -lean * p.bankCompensation * kDeg, pv);
+        for (size_t f = 0; f < m_skeleton.size(); f++)
+            for (int a = (int)f; a >= 0; a = m_skeleton[a].parent)
+                if (a == knee) { m_globals[f] = m_globals[f] * back; break; }
+    }
+
+    // Head (bones 5..8) a little further into the lean and pitch.
+    const int head = m_frameOfBone[5];
+    if (head >= 0) {
+        const float pv[3] = {m_globals[head].m[3][0], m_globals[head].m[3][1], m_globals[head].m[3][2]};
+        const RwMat extra = AxisRotation(fwd, lean * p.headLeanInfluence * kDeg, pv) *
+                            AxisRotation(right, pitch * p.headPitchInfluence * kDeg, pv);
+        for (int id = 5; id <= 8; id++)
+            if (m_frameOfBone[id] >= 0) m_globals[m_frameOfBone[id]] = m_globals[m_frameOfBone[id]] * extra;
+    }
+}
+
+// ---- Frame update ----
+
+void PlayerPed::Update(const Input& in) {
+    if (!m_ready) return;
+    const float dt = in.dt;
+    m_stickX = in.stickX;
+    m_stickY = in.stickY;
+
+    if (in.noclip) {
+        // F4 fly: CJ floats in the skydive pose, accelerating when moving.
+        m_inAir = false;
+        m_busy = false;
+        m_ratio = 0.0f;
+        const float mag = std::sqrt(in.stickX * in.stickX + in.stickY * in.stickY);
+        const AnimClip* accel = Clip("fall_skydive_accel");
+        const AnimClip* want = mag > 0.1f && accel ? accel : Clip("fall_skydive");
+        if (!Active(want)) Blend(want, true, false, 2.0f);
+        if (mag > 0.1f) {
+            m_aimHeading = std::atan2(in.stickY, in.stickX);
+            float d = m_aimHeading - m_heading;
+            while (d > kPi) d -= 2 * kPi;
+            while (d < -kPi) d += 2 * kPi;
+            m_heading += std::clamp(d, -7.85f * dt, 7.85f * dt);
+        }
+        m_move.Reset();
+    } else if (!in.onGround) {
+        ControlInAir(in);
+    } else {
+        if (m_inAir) Land(in);
+        if (m_landClip) {   // JUMP_land over the run: fade it out when done
+            Assoc* l = Get(m_landClip);
+            if (!l) m_landClip = nullptr;
+            else if (l->finished) { l->delta = -8.0f; m_landClip = nullptr; }
+        }
+        if (m_busy) {
+            Assoc* b = Get(m_busyClip);
+            const float mag = std::sqrt(in.stickX * in.stickX + in.stickY * in.stickY);
+            const bool cut = m_busySoft && b && mag > 0.0f && b->time >= 0.5f * b->clip->duration;
+            if (!b || b->finished || cut) {
+                if (m_busyNext) {
+                    m_busyClip = m_busyNext;
+                    m_busyNext = nullptr;
+                    Blend(m_busyClip, false, false, 4.0f);
+                } else {
+                    m_busy = false;
+                    if (b) b->delta = -4.0f;
+                }
+            }
+        }
+        if (!m_busy) ControlOnFoot(in);
+        else m_ratio = 0.0f;
+    }
+
     // Dev: GTA_CJPOSE="clip:seconds" freezes CJ in one frame of one clip.
     if (const char* pose = std::getenv("GTA_CJPOSE")) {
         const char* colon = std::strchr(pose, ':');
-        const std::string name = colon ? std::string(pose, colon) : std::string(pose);
+        const std::string name = Lower(colon ? std::string(pose, colon) : std::string(pose));
         if (const AnimClip* c = Clip(name.c_str())) {
-            m_cur = {c, colon ? (float)std::atof(colon + 1) : 0.0f, false};
-            m_prev = {};
-            m_blend = 1.0f;
+            m_assocs.clear();
+            Assoc* a = Add(c, false, false);
+            a->time = colon ? (float)std::atof(colon + 1) : 0.0f;
+            a->playing = false;
         }
     }
-    m_blend = std::min(1.0f, m_blend + in.dt * m_blendRate);
 
-    Sample(m_cur, m_poseA);
-    if (m_blend < 1.0f && m_prev.clip) {
-        Sample(m_prev, m_poseB);
-        for (size_t f = 0; f < m_poseA.size(); f++) {
-            float q[4];
-            Slerp(m_poseB[f].q, m_poseA[f].q, m_blend, q);
-            std::memcpy(m_poseA[f].q, q, sizeof q);
-            for (int i = 0; i < 3; i++)
-                m_poseA[f].t[i] = m_poseB[f].t[i] + (m_poseA[f].t[i] - m_poseB[f].t[i]) * m_blend;
-        }
+    Advance(dt);
+
+    // Velocity: the extracted root shift, model space (+Y forward) to world.
+    if (in.noclip) {
+        m_velX = m_velY = 0.0f;
+    } else if (in.onGround && dt > 0.0f) {
+        const float a = m_heading - kPi * 0.5f, c = std::cos(a), s = std::sin(a);
+        m_velX = (m_rootDX * c - m_rootDY * s) / dt;
+        m_velY = (m_rootDX * s + m_rootDY * c) / dt;
     }
-    BuildGlobals(m_poseA);
+
+    if (in.rewrite && in.onGround && !in.noclip) {
+        const float speed = std::sqrt(m_velX * m_velX + m_velY * m_velY);
+        const float mag = std::min(1.0f, std::sqrt(m_stickX * m_stickX + m_stickY * m_stickY));
+        // the stick's left/right part relative to the camera, as CPad reports it
+        const float right = m_stickX * std::sin(in.camYaw) - m_stickY * std::cos(in.camYaw);
+        float turn = m_aimHeading - m_heading;
+        while (turn > kPi) turn -= 2 * kPi;
+        while (turn < -kPi) turn += 2 * kPi;
+        // CTimer::ms_fTimeStep * 0.02, capped at 0.1 s
+        m_move.UpdateBody(std::min(dt, 0.1f), right, mag, m_ratio, turn, speed >= 0.12f);
+    } else if (!in.rewrite) {
+        m_move.Reset();
+    }
+
+    BuildPose();
+    BuildGlobals(m_pose);
     ShoulderBoneRotation();
+    if (in.rewrite) ApplyRewritePose();
+    Skin();
+}
 
-    // CPU skinning: v' = sum_k w_k * (v * inverseBind_k * bone_k).
+// CPU skinning: v' = sum_k w_k * (v * inverseBind_k * bone_k).
+void PlayerPed::Skin() {
     std::vector<RwMat> skin;
+    const bool bind = std::getenv("GTA_CJBIND") != nullptr;   // dev: the raw bind mesh
     for (Part& p : m_parts) {
         skin.resize(p.inverseBind.size());
         for (size_t n = 0; n < skin.size(); n++) skin[n] = p.inverseBind[n] * m_globals[p.boneFrame[n]];
-        if (std::getenv("GTA_CJBIND")) skin.assign(skin.size(), RwMat());   // dev: the raw bind mesh
+        if (bind) skin.assign(skin.size(), RwMat());
         for (size_t v = 0; v < p.verts.size(); v++) {
             const SkinVertex& sv = p.verts[v];
             float pos[3] = {0, 0, 0}, nrm[3] = {0, 0, 0};
@@ -510,7 +922,18 @@ void PlayerPed::Update(const Input& in) {
     }
 }
 
-void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ) {
+bool PlayerPed::BoneWorldPos(int boneId, float x, float y, float feetZ, float out[3]) const {
+    const int f = boneId >= 0 && boneId < 512 ? m_frameOfBone[boneId] : -1;
+    if (f < 0 || f >= (int)m_globals.size()) return false;
+    const float a = m_heading - kPi * 0.5f, c = std::cos(a), s = std::sin(a);
+    const float* p = m_globals[f].m[3];
+    out[0] = x + p[0] * c - p[1] * s;
+    out[1] = y + p[0] * s + p[1] * c;
+    out[2] = feetZ - m_bindMinZ + p[2];
+    return true;
+}
+
+void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHead) {
     if (!m_ready) return;
     IDirect3DDevice9* dev = r.GetDevice();
     if (!dev) return;
@@ -519,7 +942,7 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ) {
     D3DMATRIX w = {c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, x, y, feetZ - m_bindMinZ, 1};
     dev->SetTransform(D3DTS_WORLD, &w);
     for (Part& p : m_parts) {
-        if (!p.mesh) continue;
+        if (!p.mesh || (hideHead && p.isHead)) continue;
         r.UpdateMeshVertices(p.mesh, p.skinned.data(), (uint32_t)p.skinned.size());
         r.DrawMesh(p.mesh);
     }

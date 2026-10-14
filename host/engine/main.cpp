@@ -60,6 +60,7 @@ static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
 static Sky g_sky;        // CClouds: moon, stars, low clouds
 static TimeCycleHour g_tcNow;  // this frame's timecyc sample
 static bool g_startThirdPerson = false;   // --third
+static int  g_forceStyle = -1;            // --classic / --rewrite (not saved)
 
 // Per-frame hitch profiler (shown in the F1 overlay; R resets the worst frame).
 // A frame is logged as a HITCH when it is over kHitchMs and >2x the average.
@@ -91,7 +92,34 @@ static bool g_keyState[256] = { false };
 // every game key goes through GameKey: typing in another window must not move
 // the player or fire dev keys.
 static volatile bool g_hasFocus = true;
-static SHORT GameKey(int vk) { return g_hasFocus ? GetAsyncKeyState(vk) : 0; }
+// Dev (headless tests): GTA_KEYS="from-to:KEYS;..." holds keys over frame
+// ranges, e.g. "0-120:W;120-200:WA;200-260:W+;260:_" (+ = Shift, ^ = Alt,
+// _ = Space, # = F4, other letters = their key).
+static int g_scriptFrame = 0;
+static bool ScriptedKey(int vk) {
+    static const char* spec = getenv("GTA_KEYS");
+    if (!spec) return false;
+    for (const char* p = spec; *p;) {
+        int a = atoi(p), b = a;
+        while (*p && *p != '-' && *p != ':') p++;
+        if (*p == '-') { b = atoi(++p); while (*p && *p != ':') p++; }
+        if (*p != ':') break;
+        const char* keys = ++p;
+        while (*p && *p != ';') p++;
+        if (g_scriptFrame >= a && g_scriptFrame <= b)
+            for (const char* k = keys; k < p; k++) {
+                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4
+                               : toupper((unsigned char)*k);
+                if (want == vk) return true;
+            }
+        if (*p == ';') p++;
+    }
+    return false;
+}
+static SHORT GameKey(int vk) {
+    if (ScriptedKey(vk)) return (SHORT)0x8000;
+    return g_hasFocus ? GetAsyncKeyState(vk) : 0;
+}
 // Edge-triggered key read: true only on the frame the key goes down.
 static bool DevKeyPressed(int vk) {
     if (vk < 0 || vk > 255) return false;
@@ -138,6 +166,8 @@ static void LoadSettings(FeSettings& s) {
     GetPrivateProfileStringA("Display", "DrawDistance", "1.1", buf, sizeof(buf), g_iniPath);
     float dd = (float)atof(buf);
     s.drawDist = dd < 0.925f ? 0.925f : (dd > 1.8f ? 1.8f : dd);
+    s.movementStyle = GetPrivateProfileIntA("Gameplay", "MovementStyle", 0, g_iniPath) == 1 ? 1 : 0;
+    s.cameraStyle = GetPrivateProfileIntA("Gameplay", "CameraStyle", 0, g_iniPath) == 1 ? 1 : 0;
 }
 static void SaveSettings(const FeSettings& s) {
     char buf[32];
@@ -146,6 +176,8 @@ static void SaveSettings(const FeSettings& s) {
     WritePrivateProfileStringA("Display", "VSync", s.vsync ? "1" : "0", g_iniPath);
     snprintf(buf, sizeof(buf), "%.4f", s.drawDist);
     WritePrivateProfileStringA("Display", "DrawDistance", buf, g_iniPath);
+    WritePrivateProfileStringA("Gameplay", "MovementStyle", s.movementStyle ? "1" : "0", g_iniPath);
+    WritePrivateProfileStringA("Gameplay", "CameraStyle", s.cameraStyle ? "1" : "0", g_iniPath);
 }
 static HWND g_hwnd = nullptr;
 // Pending window resize (WndProc -> main loop): keep the backbuffer matched to
@@ -634,6 +666,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 startMenuScreen = atoi(n); i++;   // headless: open the pause menu on screen N
             } else if (a == "--debug-collision") {
                 g_devShowCollision = true;  // start with the pink COL view on
+            } else if (a == "--rewrite") {
+                g_forceStyle = 1;           // headless: rewrite movement + cameras
+            } else if (a == "--classic") {
+                g_forceStyle = 0;
             } else if (a == "--third") {
                 g_startThirdPerson = true;  // headless: start in the third-person camera
             } else if (a == "--walk") {
@@ -707,6 +743,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     Log("GAME: %s", g_gameDir.c_str());
     // Display settings from the pause menu (frame limiter, VSync, draw distance).
     LoadSettings(g_menu.Settings());
+    if (g_forceStyle >= 0) g_menu.Settings().movementStyle = g_menu.Settings().cameraStyle = g_forceStyle;
     g_renderer.SetVsync(g_menu.Settings().vsync);   // before Init: picks the present interval
     g_world.SetHdDrawScale(g_menu.Settings().drawDist);
     g_escOpensMenu = playMode && !scripted && !flyover;
@@ -1017,6 +1054,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     float pitch = 0.0f;   // radians, positive = look up
     float velZ = 0.0f;    // vertical velocity for jumping
     bool onGround = true;
+    bool cjBlocked = false;   // CJ pushed into a wall last frame
     bool thirdPerson = g_startThirdPerson; // V toggles 1st/3rd person camera
     bool prevV = false;       // edge-detect for V key
     const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters
@@ -1802,7 +1840,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // Headless --walk probe: wall-clock dt is ~0 at uncapped FPS, so the
         // player barely moves. Force a fixed 60Hz step so the walk covers real
         // distance deterministically (collision test, not a timing test).
-        if (g_autoWalk) dt = 1.0f / 60.0f;
+        if (g_autoWalk || getenv("GTA_KEYS")) dt = 1.0f / 60.0f;   // headless motion tests: fixed step
 
         // ---- Dev/test keys (ignored in the scripted/flyover capture modes) ----
         if (playMode && !scripted && !flyover) {
@@ -2194,7 +2232,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     playerZ = gz + EYE_HEIGHT;  // GetGroundHeight capped the step
                     curFeetZ = gz;
                 } else if (onGround && gz < curFeetZ - 0.001f) {
-                    onGround = false;  // walked off an edge - start falling
+                    // Peds stay on the ground they stand on: follow slopes and
+                    // step down curbs; only a real drop starts a fall (which
+                    // used to flash the in-air pose on every downhill frame).
+                    const float hs = cjReady ? sqrtf(g_cj.VelX() * g_cj.VelX() + g_cj.VelY() * g_cj.VelY()) : speed;
+                    const float stepDown = fmaxf(0.3f, hs * dt * 1.5f);
+                    if (curFeetZ - gz <= stepDown) {
+                        playerZ = gz + EYE_HEIGHT;
+                        curFeetZ = gz;
+                    } else {
+                        onGround = false;  // walked off an edge - start falling
+                    }
                 }
             }
             // ---- AABB collision: slide along walls ----
@@ -2255,11 +2303,63 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 velZ = 0.0f;
                 onGround = true;
+                if (cjReady) {   // CJ floats in the skydive pose
+                    PlayerPed::Input pin;
+                    pin.dt = dt;
+                    pin.stickX = dxm;
+                    pin.stickY = dym;
+                    const float hl = sqrtf(dxm * dxm + dym * dym);
+                    if (hl > 1.0f) { pin.stickX /= hl; pin.stickY /= hl; }
+                    pin.noclip = true;
+                    g_cj.Update(pin);
+                }
             } else {
-            float nx = playerX + mx * speed * dt;
-            float ny = playerY + my * speed * dt;
+            // ---- Jump (not while CJ is landing or getting up) ----
+            bool jumped = false;
+            if (onGround && !(cjReady && g_cj.Busy()) &&
+                ((GameKey(VK_SPACE) & 0x8000) || (g_autoWalk && g_autoGait == 3))) {
+                velZ = JUMP_VEL;
+                onGround = false;
+                jumped = true;
+            }
+            // ---- CJ: the animation decides how fast he moves ----
+            // (CPed extracts the root motion of the blended walk/run/sprint
+            // clips, so he speeds up and slows down with them.)
+            float vx = mx * speed, vy = my * speed;
+            if (cjReady) {
+                PlayerPed::Input pin;
+                pin.dt = dt;
+                pin.stickX = mx;
+                pin.stickY = my;
+                pin.walk = (GameKey(VK_MENU) & 0x8000) || (g_autoWalk && g_autoGait == 1);
+                pin.sprint = (GameKey(VK_SHIFT) & 0x8000) || (g_autoWalk && g_autoGait == 2);
+                pin.onGround = onGround;
+                pin.jumped = jumped;
+                pin.velZ = velZ;
+                pin.heightAboveGround = 1e3f;
+                if (worldReady) {
+                    const float g = g_world.GetGroundHeight(playerX, playerY, playerZ - EYE_HEIGHT);
+                    if (g > ColLoader::kNoGround * 0.5f) pin.heightAboveGround = playerZ - EYE_HEIGHT - g;
+                }
+                pin.blocked = cjBlocked;
+                pin.rewrite = g_menu.Settings().movementStyle == 1;
+                pin.camYaw = yaw;
+                g_cj.Update(pin);
+                if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
+                if (getenv("GTA_CJLOG"))   // dev: per-frame animation trace
+                    Log("CJ f%d clip=%s v=%.2f ratio=%.2f ground=%d hag=%.2f z=%.2f", frame, g_cj.ClipName(),
+                        sqrtf(vx * vx + vy * vy), g_cj.MoveBlendRatio(), (int)onGround, pin.heightAboveGround, playerZ - EYE_HEIGHT);
+            }
+            const float ox = playerX, oy = playerY;
+            float nx = playerX + vx * dt;
+            float ny = playerY + vy * dt;
             if (!hitsSolid(playerX, playerY, nx, playerY)) playerX = nx;
             if (!hitsSolid(playerX, playerY, playerX, ny)) playerY = ny;
+            {   // pushing into a wall (rewrite handling drops its momentum)
+                const float want = sqrtf(vx * vx + vy * vy) * dt;
+                const float got = sqrtf((playerX - ox) * (playerX - ox) + (playerY - oy) * (playerY - oy));
+                cjBlocked = want > 1e-4f && got < 0.3f * want;
+            }
             if (g_autoWalk) {   // collision-probe trace
                 static float wStartX = playerX, wStartY = playerY, wPrevX = playerX, wPrevY = playerY;
                 if ((frame % 40) == 0) {
@@ -2271,11 +2371,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
 
-            // ---- Jump / gravity (feet rest on gz) ----
-            if (onGround && ((GameKey(VK_SPACE) & 0x8000) || (g_autoWalk && g_autoGait == 3))) {
-                velZ = JUMP_VEL;
-                onGround = false;
-            }
+            // ---- Gravity (feet rest on gz) ----
             if (!onGround) {
                 velZ -= GRAVITY * dt;
                 playerZ += velZ * dt;
@@ -2285,19 +2381,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
             }
 
-            // ---- CJ animation: driven by the move the player asked for ----
-            // (like CPlayerPed, which turns to the stick and picks the gait from
-            // it). Measuring the actual displacement instead made the heading and
-            // gait jitter at high frame rates and against walls (collision slides).
-            if (cjReady && dt > 0.0f) {
-                PlayerPed::Input pin;
-                pin.dt = dt;
-                pin.moveX = mx * speed;
-                pin.moveY = my * speed;
-                pin.onGround = onGround || g_devNoClip;
-                pin.velZ = velZ;
-                g_cj.Update(pin);
-            }
 
             // ---- V toggles 1st/3rd person camera ----
             bool vDown = (GameKey('V') & 0x8000) != 0;
@@ -2583,7 +2666,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
         }
 
+        // Dev (headless tests): GTA_SHOTSEQ="dir|start|step|count" saves
+        // dir\seq_<frame>.bmp every step frames.
+        if (const char* seq = getenv("GTA_SHOTSEQ")) {
+            char dir[MAX_PATH] = {};
+            int start = 0, step = 1, count = 0;
+            if (const char* bar = strchr(seq, '|')) {
+                memcpy(dir, seq, (size_t)std::min<ptrdiff_t>(bar - seq, MAX_PATH - 1));
+                sscanf(bar + 1, "%d|%d|%d", &start, &step, &count);
+                if (step > 0 && frame >= start && (frame - start) % step == 0 && (frame - start) / step < count) {
+                    char shot[MAX_PATH];
+                    snprintf(shot, sizeof(shot), "%s\\seq_%04d.bmp", dir, frame);
+                    g_renderer.SaveScreenshot(shot);
+                }
+            }
+        }
+
         frame++;
+        g_scriptFrame = frame;
         if (maxFrames > 0 && frame >= maxFrames) break;
     }
 
