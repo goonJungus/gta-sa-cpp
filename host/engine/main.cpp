@@ -1972,12 +1972,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 // a = minute of the day as an angle (noon = pi), drawn by
                 // CCoronas::DoSunAndMoon at 0.95 * FarClp with sizes SunSz * 2.7335
                 // (core) and SunSz * 6 (corona). A corona of size s at depth z spans
-                // about 1.4 * s / z (CSprite::CalcScreenCoors at the 70 deg FOV).
+                // about 1.05 * s / z (CSprite::CalcScreenCoors, 70 deg 4:3 FOV).
                 const float a = clockHour * 60.0f * 0.004363323f;
                 const float vx = sinf(a) + 0.7f, vy = -0.7f, vz = 0.2f - cosf(a);
                 const float depth = (tc.farClip > 100.0f ? tc.farClip : 100.0f) * 0.95f;
                 g_renderer.SetSun(vx, vy, vz, tc.sunCore, tc.sunCorona,
-                                  1.4f * tc.sunSize * 2.7335f / depth, 1.4f * tc.sunSize * 6.0f / depth);
+                                  1.05f * tc.sunSize * 2.7335f / depth, 1.05f * tc.sunSize * 6.0f / depth);
             }
             // ---- World lighting (timecyc ambient + directional sun) ----
             // Retail lights world geometry per vertex from two timecyc ambient
@@ -2119,7 +2119,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // ---- WASD movement (camera-relative, on XY plane) ----
             // CJ's own speeds (root travel of WALK_player / run_player /
             // sprint_civi): run by default, Shift sprints, Alt walks.
-            const float prevPlayerX = playerX, prevPlayerY = playerY;
             float speed = (GameKey(VK_SHIFT) & 0x8000) ? CJ_SPRINT_SPEED
                         : (GameKey(VK_MENU) & 0x8000)  ? CJ_WALK_SPEED : CJ_RUN_SPEED;
             if (g_autoWalk && g_autoGait == 1) speed = CJ_WALK_SPEED;
@@ -2286,12 +2285,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
             }
 
-            // ---- CJ animation: driven by how far he actually moved ----
+            // ---- CJ animation: driven by the move the player asked for ----
+            // (like CPlayerPed, which turns to the stick and picks the gait from
+            // it). Measuring the actual displacement instead made the heading and
+            // gait jitter at high frame rates and against walls (collision slides).
             if (cjReady && dt > 0.0f) {
                 PlayerPed::Input pin;
                 pin.dt = dt;
-                pin.moveX = (playerX - prevPlayerX) / dt;
-                pin.moveY = (playerY - prevPlayerY) / dt;
+                pin.moveX = mx * speed;
+                pin.moveY = my * speed;
                 pin.onGround = onGround || g_devNoClip;
                 pin.velZ = velZ;
                 g_cj.Update(pin);

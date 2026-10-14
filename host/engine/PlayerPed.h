@@ -63,6 +63,7 @@ private:
     void Play(const AnimClip* clip, bool loop, float fade, bool keepPhase);
     void Sample(const Track& tr, std::vector<Pose>& out) const;
     void BuildGlobals(const std::vector<Pose>& pose);
+    void ShoulderBoneRotation();
 
     bool m_ready = false;
     std::vector<SkinFrame> m_skeleton;

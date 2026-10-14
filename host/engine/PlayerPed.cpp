@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -94,6 +95,79 @@ RwMat Invert(const RwMat& a) {
     return r;
 }
 
+// CMatrix::ConvertToEulerAngles / ConvertFromEulerAngles @ 0059A840 / 0059AA40.
+// The 3x3 rotation is read row-wise (right, up, at); kEulerNext/kEulerAxis are
+// the exe's tables at 0x866D94 / 0x866D9C.
+constexpr uint8_t kEulerNext[8] = {1, 2, 0, 1, 0, 0, 0, 0};
+constexpr uint8_t kEulerAxis[4] = {0, 1, 2, 0};
+
+void ToEuler(const RwMat& mat, float& x, float& y, float& z, unsigned flags) {
+    float m[9];
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++) m[r * 3 + c] = mat.m[r][c];
+    const unsigned i = kEulerAxis[(flags >> 3) & 3], neg = (flags >> 2) & 1;
+    const unsigned k = kEulerNext[i - neg + 1], j = kEulerNext[neg + i];
+    if ((flags >> 1) & 1) {
+        const float s = std::sqrt(m[i * 3 + k] * m[i * 3 + k] + m[i * 3 + j] * m[i * 3 + j]);
+        if (s > 1.9073486e-06f) {
+            x = std::atan2(m[i * 3 + j], m[i * 3 + k]);
+            y = std::atan2(s, m[i * 4]);
+            z = std::atan2(m[i + j * 3], -m[i + k * 3]);
+        } else {
+            x = std::atan2(-m[k + j * 3], m[j * 4]);
+            y = std::atan2(s, m[i * 4]);
+            z = 0.0f;
+        }
+    } else {
+        const float c = std::sqrt(m[i * 4] * m[i * 4] + m[j * 3 + i] * m[j * 3 + i]);
+        if (c > 1.9073486e-06f) {
+            x = std::atan2(m[j + k * 3], m[k * 4]);
+            y = std::atan2(-m[k * 3 + i], c);
+            z = std::atan2(m[j * 3 + i], m[i * 4]);
+        } else {
+            x = std::atan2(-m[j * 3 + k], m[j * 4]);
+            y = std::atan2(-m[i + k * 3], c);
+            z = 0.0f;
+        }
+    }
+    if (neg) { x = -x; y = -y; z = -z; }
+    if (flags & 1) std::swap(x, z);
+}
+
+void FromEuler(RwMat& mat, float x, float y, float z, unsigned flags) {   // rotation only
+    const unsigned i = kEulerAxis[(flags >> 3) & 3], neg = (flags >> 2) & 1;
+    const unsigned j = kEulerNext[neg + i], k = kEulerNext[i - neg + 1];
+    if (flags & 1) std::swap(x, z);
+    if (neg) { x = -x; y = -y; z = -z; }
+    const float cx = std::cos(x), cy = std::cos(y), cz = std::cos(z);
+    const float sx = std::sin(x), sy = std::sin(y), sz = std::sin(z);
+    const float cc = cz * cx, cs = cx * sz, sc = sx * cz, ss = sx * sz;
+    float m[9];
+    if ((flags >> 1) & 1) {
+        m[i * 4] = cy;
+        m[i * 3 + j] = sy * sx;
+        m[i * 3 + k] = sy * cx;
+        m[j * 3 + i] = sz * sy;
+        m[j * 4] = cc - ss * cy;
+        m[j * 3 + k] = -(cs * cy) - sc;
+        m[i + k * 3] = -(sy * cz);
+        m[k * 3 + j] = sc * cy + cs;
+        m[k * 4] = cc * cy - ss;
+    } else {
+        m[i * 4] = cz * cy;
+        m[i * 3 + j] = sc * sy - cs;
+        m[i * 3 + k] = cc * sy + ss;
+        m[j * 3 + i] = sz * cy;
+        m[j * 4] = ss * sy + cc;
+        m[j * 3 + k] = cs * sy - sc;
+        m[i + k * 3] = -sy;
+        m[k * 3 + j] = sx * cy;
+        m[k * 4] = cy * cx;
+    }
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++) mat.m[r][c] = m[r * 3 + c];
+}
+
 const TxdTexture* FindTex(const std::vector<TxdTexture>& txd, const char* name) {
     for (const TxdTexture& t : txd)
         if (!name || Lower(t.name) == name) return &t;
@@ -148,7 +222,7 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
     struct TexDef { const char* baseTxd; const char* baseTex; const char* overTxd; const char* overTex; };
     const TexDef texDefs[4] = {
         {"player_torso", "torso", "vest", "vest"},      // "torso" material
-        {"head", nullptr, nullptr, nullptr},            // "head"
+        {"player_face", "face", nullptr, nullptr},      // "head" (no head texture key -> player_face)
         {"player_legs", "legs", "jeansdenim", "legs"},  // "legs"
         {"sneakerbincblk", nullptr, nullptr, nullptr},  // "feet"
     };
@@ -304,6 +378,24 @@ void PlayerPed::BuildGlobals(const std::vector<Pose>& pose) {
     }
 }
 
+// CPed::ShoulderBoneRotation @ 005DF560, run on every skinned ped after its
+// animation: the breast bones (301/302) are really shoulder helpers. Each is
+// set to its upper arm's matrix with the first Euler angle (order 0x15) of the
+// arm's rotation relative to the clavicle halved, so the shoulder skin
+// follows the arm half way.
+void PlayerPed::ShoulderBoneRotation() {
+    struct Side { int breast, upperArm, clavicle; };
+    for (const Side& sd : {Side{302, 32, 31}, Side{301, 22, 21}}) {
+        const int fb = m_frameOfBone[sd.breast], fu = m_frameOfBone[sd.upperArm], fc = m_frameOfBone[sd.clavicle];
+        if (fb < 0 || fu < 0 || fc < 0) continue;
+        RwMat local = m_globals[fu] * Invert(m_globals[fc]);   // the arm relative to the clavicle
+        float x, y, z;
+        ToEuler(local, x, y, z, 0x15);
+        FromEuler(local, x * 0.5f, y, z, 0x15);
+        m_globals[fb] = local * m_globals[fc];
+    }
+}
+
 void PlayerPed::Update(const Input& in) {
     if (!m_ready) return;
     const float speed = std::sqrt(in.moveX * in.moveX + in.moveY * in.moveY);
@@ -366,6 +458,16 @@ void PlayerPed::Update(const Input& in) {
     };
     advance(m_cur, rate);
     advance(m_prev, rate);
+    // Dev: GTA_CJPOSE="clip:seconds" freezes CJ in one frame of one clip.
+    if (const char* pose = std::getenv("GTA_CJPOSE")) {
+        const char* colon = std::strchr(pose, ':');
+        const std::string name = colon ? std::string(pose, colon) : std::string(pose);
+        if (const AnimClip* c = Clip(name.c_str())) {
+            m_cur = {c, colon ? (float)std::atof(colon + 1) : 0.0f, false};
+            m_prev = {};
+            m_blend = 1.0f;
+        }
+    }
     m_blend = std::min(1.0f, m_blend + in.dt * m_blendRate);
 
     Sample(m_cur, m_poseA);
@@ -380,12 +482,14 @@ void PlayerPed::Update(const Input& in) {
         }
     }
     BuildGlobals(m_poseA);
+    ShoulderBoneRotation();
 
     // CPU skinning: v' = sum_k w_k * (v * inverseBind_k * bone_k).
     std::vector<RwMat> skin;
     for (Part& p : m_parts) {
         skin.resize(p.inverseBind.size());
         for (size_t n = 0; n < skin.size(); n++) skin[n] = p.inverseBind[n] * m_globals[p.boneFrame[n]];
+        if (std::getenv("GTA_CJBIND")) skin.assign(skin.size(), RwMat());   // dev: the raw bind mesh
         for (size_t v = 0; v < p.verts.size(); v++) {
             const SkinVertex& sv = p.verts[v];
             float pos[3] = {0, 0, 0}, nrm[3] = {0, 0, 0};

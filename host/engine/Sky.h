@@ -3,9 +3,9 @@
 // additive sprites right after the sky polys (D3DRenderer::RenderSky) and
 // before the world. Positions, sizes and the cloud/star tables are retail.
 //
-// Approximations, where the decomp lost float arithmetic: the moon's
-// brightness ramp and tint, the star flicker scale, and CWeather::CloudCoverage
-// (1 in the CLOUDY / RAINY / STORM weathers, 0 otherwise). Moon phases (the
+// Approximations, where the decomp lost float arithmetic: the star flicker
+// scale, and CWeather::CloudCoverage / Foggyness
+// (1 in the CLOUDY / RAINY / STORM / FOGGY weathers, 0 otherwise). Moon phases (the
 // "lunar" mask through destination alpha), the rainbow and the shooting star
 // are not drawn.
 

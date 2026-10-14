@@ -22,9 +22,10 @@ constexpr float kStarZ[9] = {0.0f, 0.45f, 0.9f, 1.0f, 0.85f, 0.52f, 0.48f, 0.35f
 constexpr float kStarSize[9] = {1.0f, 1.4f, 0.9f, 1.0f, 0.6f, 1.5f, 1.3f, 1.0f, 0.8f};
 constexpr int kMoonSize = 3;   // CCoronas::MoonSize
 
-// CSprite::CalcScreenCoors sizes sprites by 1/depth at the 70 degree FOV:
-// a sprite of size s spans about 1.4 * s world units at its depth.
-constexpr float kSpriteScale = 1.4f;
+// CSprite::CalcScreenCoors makes a sprite of size s span s * screen height /
+// depth pixels vertically; with SA's 70 degree (horizontal, 4:3) FOV that is
+// s * 2 * tan(35) * 3/4 = 1.05 * s world units at the sprite's depth.
+constexpr float kSpriteScale = 1.05f;
 
 uint32_t Rgb(int r, int g, int b) {
     return 0xFF000000u | ((uint32_t)std::clamp(r, 0, 255) << 16) |
@@ -59,13 +60,19 @@ void Sky::Render(D3DRenderer& r, float camX, float camY, float camZ, float hour,
     const int h = (int)hour, minutes = (int)((hour - h) * 60.0f);
     D3DRenderer::SkySprite s[16];
 
-    // Moon: 100 m south, 15 m up, brightening as the sun sets (the sun's
-    // height is CTimeCycle's m_VectorToSun z).
-    const float a = hour * 60.0f * 0.004363323f;
-    const float vx = std::sin(a) + 0.7f, vz = 0.2f - std::cos(a);
-    const float sunZ = vz / std::sqrt(vx * vx + 0.49f + vz * vz);
-    if (m_moon) {
-        const int b = std::clamp((int)((0.05f - sunZ) * 600.0f), 0, 255);
+    // CloudCoverage / Foggyness stand-in (CWeather): 1 in overcast or foggy weathers.
+    const bool cloudy = weather.find("CLOUDY") != std::string::npos ||
+                        weather.find("RAIN") != std::string::npos ||
+                        weather.find("STORM") != std::string::npos;
+    const float cover = cloudy || weather.find("FOG") != std::string::npos ? 1.0f : 0.0f;
+
+    // Moon (gta_sa.exe 0x7139B2..0x713D21): up from 00:00 to 07:20, brightest
+    // at 03:40: b = (220 - |minute of day - 220|) * (1 - max(clouds, fog)).
+    // 100 m south and 15 m up; size 2 * MoonSize + 4; colour (b, b, 0.85 b).
+    // The phase mask drawn through destination alpha is not reproduced.
+    const int dist = (int)std::fabs(hour * 60.0f - 220.0f);
+    if (m_moon && dist < 220) {
+        const int b = (int)((220 - dist) * (1.0f - cover));
         if (b > 0) {
             const float half = (2.0f * kMoonSize + 4.0f) * kSpriteScale;
             s[0] = {camX, camY - 100.0f, camZ + 15.0f, half, half, Rgb(b, b, b * 85 / 100)};
@@ -96,9 +103,6 @@ void Sky::Render(D3DRenderer& r, float camX, float camY, float camZ, float hour,
 
     // Low clouds: a ring 800 m out, 40..142 m above sea level, LowClouds RGB
     // scaled by the cloud coverage (additive, so clear weather shows nothing).
-    const bool cloudy = weather.find("CLOUDY") != std::string::npos ||
-                        weather.find("RAIN") != std::string::npos ||
-                        weather.find("STORM") != std::string::npos;
     if (cloudy && m_cloud) {
         for (int i = 0; i < 12; i++)
             s[i] = {camX + kLowCloudX[i] * 800.0f, camY + kLowCloudY[i] * 800.0f, kLowCloudZ[i] * 60.0f + 40.0f,
