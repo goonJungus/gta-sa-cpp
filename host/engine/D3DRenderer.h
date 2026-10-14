@@ -79,7 +79,7 @@ public:
     // (BeginFrame does not touch FILLMODE), so set it once per toggle.
     void SetWireframe(bool on);
 
-    // Sky (M4): gradient dome + sun billboard. Call after BeginFrame.
+    // Sky (M4): CClouds::RenderSkyPolys + sun billboard. Call after BeginFrame.
     void RenderSky(float camX, float camY, float camZ);
 
     // --- Night light glows (make the world feel alive after dark) ---
@@ -91,15 +91,29 @@ public:
     struct GlowSprite { float x, y, z; float size; uint32_t color; };
     void DrawCoronas(const GlowSprite* s, int count);
 
+    // Camera-facing additive (ONE/ONE) sprites with no depth test or write:
+    // CClouds' stars, moon and low clouds, drawn after the sky polys and before
+    // the world so the world covers them. half* are world-space half extents.
+    struct SkySprite { float x, y, z; float halfW, halfH; uint32_t color; };
+    void DrawSkySprites(const SkySprite* s, int count, IDirect3DTexture9* tex);
+
+    // Unlit, world-space, alpha-blended triangles whose vertex colour (alpha
+    // included) modulates the texture: CWaterLevel's RwIm3D water batches.
+    // Depth-tested without depth writes; fog is left as the caller set it.
+    struct ColorTexVertex { float x, y, z; uint32_t color; float u, v; };
+    void DrawBlendedTriangles(const ColorTexVertex* verts, uint32_t vertexCount,
+                              const uint16_t* indices, uint32_t indexCount,
+                              IDirect3DTexture9* tex);
+
     // Time-of-day sky inputs, straight from timecyc.dat (0..255 channels).
-    // Changing the colours marks the dome dirty; it rebuilds on next RenderSky.
     // Defaults are retail SUNNY_LA midday: SkyTop (30,117,210), SkyBot (53,162,227).
     void SetSkyColors(float topR, float topG, float topB,
                       float botR, float botG, float botB);
-    // SunCore colour (0..255), direction (in world units, normalized here) and
-    // a size scale (1 = 150 units radius billboard). sizeScale <= 0 hides it.
-    void SetSun(float dirX, float dirY, float dirZ,
-                float r, float g, float b, float sizeScale);
+    // Sun: direction towards it (CTimeCycle::m_VectorToSun, normalized here),
+    // SunCore and SunCorona colours (0..255) and the two sprite sizes as
+    // angles (corona size / distance, in radians).
+    void SetSun(float dirX, float dirY, float dirZ, const float core[3],
+                const float corona[3], float coreSize, float coronaSize);
 
     // World lighting from timecyc.dat: global ambient + one directional sun.
     // Channels are 0..255 (as read from the file); `toSun*` is the direction
@@ -177,12 +191,9 @@ private:
     void ApplyDeviceState();          // render states set after device create/Reset
     void drawGlowBatch(const void* verts, int quadCount);  // additive glow quads (coronas/pools)
 
-    // Sky resources (M4), built lazily on first RenderSky.
+    // Sky resources (M4): the sun glow texture, built on first RenderSky.
     D3DMATRIX m_view;  // cached view matrix (billboard orientation)
     D3DMATRIX m_proj;  // cached projection matrix (frustum culling)
-    IDirect3DVertexBuffer9* m_skyVB = nullptr;
-    IDirect3DIndexBuffer9*  m_skyIB = nullptr;
-    uint32_t m_skyIndexCount = 0;
     IDirect3DTexture9* m_sunTex = nullptr;
     void BuildSkyResources();
 
@@ -191,8 +202,9 @@ private:
     float m_skyBot[3] = {53.0f, 162.0f, 227.0f};
     float m_sunDir[3] = {0.30f, -0.55f, 0.72f};
     float m_sunCol[3] = {1.0f, 1.0f, 1.0f};
-    float m_sunSize = 1.0f;
-    bool  m_skyDirty = false;
+    float m_sunCorona[3] = {1.0f, 1.0f, 1.0f};
+    float m_sunCoreSize = 0.0f, m_sunCoronaSize = 0.0f;
+    float m_belowHorizon[3] = {63.0f, 135.0f, 177.0f};  // SetSkyColors
 
     // World lighting (SetWorldLighting), in 0..1 device units.
     bool  m_lightingReady = false;

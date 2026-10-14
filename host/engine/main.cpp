@@ -51,9 +51,14 @@
 #include "Profiler.h"
 #include "FeMenu.h"
 #include "PlayerPed.h"
+#include "Water.h"
+#include "Sky.h"
 
 static D3DRenderer g_renderer;
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
+static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
+static Sky g_sky;        // CClouds: moon, stars, low clouds
+static TimeCycleHour g_tcNow;  // this frame's timecyc sample
 static bool g_startThirdPerson = false;   // --third
 
 // Per-frame hitch profiler (shown in the F1 overlay; R resets the worst frame).
@@ -104,6 +109,7 @@ static size_t g_weatherIdx = 0;
 static float g_gameSeconds = 12.0f * 3600.0f;
 static bool g_timeFlow = true;
 static DWORD g_fogColor = 0xFF35A2E3;  // = timecyc SkyBot (horizon)
+static float g_waterRGBA[4] = {90, 110, 120, 240};  // timecyc Water, refreshed every frame
 static bool  g_fogEnable = true;        // timecyc decides (clear weather = no band)
 // World lighting: last timecyc ambient (0..255, incl. the night lift) and the
 // sun visibility 0..1 that scales the directional light. Overlay only.
@@ -960,53 +966,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     std::vector<ColTriangle> colTris; // COL3 ground triangles (roads), world space (Agent 15)
     int solidCount = 0;
 
-    // ---- Ground plane (grass-colored safety net under the real geometry) ----
-    auto buildGround = [&]() -> D3DRenderMesh* {
-        // 8000x8000 water quad centered on Grove Street (2500,-1680) at SA sea
-        // level (~0). Sitting near sea level (not z=9) keeps it BELOW the LS
-        // concrete channel / lower freeway (bed ~4 m) so those read dry instead
-        // of flooded; it only fills genuinely low gaps (harbour, ocean, river
-        // bed). Translucent, drawn after the world (see the draw call).
-        const float WZ = 0.5f;
-        MeshVertex verts[4] = {
-            {-1500, -5680, WZ,  0,0,1,  0xFFFFFFFFu,  0,0},
-            { 6500, -5680, WZ,  0,0,1,  0xFFFFFFFFu,  1,0},
-            { 6500,  2320, WZ,  0,0,1,  0xFFFFFFFFu,  1,1},
-            {-1500,  2320, WZ,  0,0,1,  0xFFFFFFFFu,  0,1},
-        };
-        uint16_t idx[6] = {0,1,2, 0,2,3};
-        // Colour (white) is the FVF diffuse field the prelit meshes bake their
-        // authored shading into; this hand-built quad is not prelit and gets
-        // its green from the 1x1 texture below.
-        D3DRenderMesh* m = g_renderer.CreateMesh(verts, 4, idx, 6);
-        return m;
-    };
-
-    // Water-coloured 1x1 texture for the fill plane. This plane sits at z=9 and
-    // shows through wherever the retail map has no ground -- in San Andreas that
-    // is almost always water (harbour, river, ocean). Rendering it as a
-    // TRANSLUCENT teal (instead of an opaque grass sheet) means (a) those gaps
-    // read as water rather than a flat "skybox sheet", and (b) a lower freeway
-    // sunk beneath z=9 shows THROUGH it instead of being occluded.
-    IDirect3DTexture9* groundTex = nullptr;
-    {
-        IDirect3DDevice9* dev = g_renderer.GetDevice();
-        if (dev) {
-            IDirect3DTexture9* t = nullptr;
-            if (SUCCEEDED(dev->CreateTexture(4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &t, nullptr))) {
-                D3DLOCKED_RECT lr = {};
-                if (SUCCEEDED(t->LockRect(0, &lr, nullptr, 0))) {
-                    uint32_t* p = (uint32_t*)lr.pBits;
-                    for (int i = 0; i < 16; i++) p[i] = 0xB0244E66; // translucent water teal
-                    t->UnlockRect(0);
-                    groundTex = t;
-                }
-            }
-        }
-    }
-
-    D3DRenderMesh* groundMesh = buildGround();
-    if (groundMesh) { groundMesh->texture = groundTex; groundMesh->alphaBlend = true; }
+    // ---- Water (CWaterLevel): water.dat surfaces and the open sea ----
+    g_water.Load(g_renderer, GameDir());
+    g_sky.Load(g_renderer, GameDir());
 
     const float CJ_HEIGHT = 1.8132f; // measured from player.img part DFFs (feet/legs/torso/head/hands) bind-pose vertices
     // ---- CJ-scale player reference: box of exactly CJ_HEIGHT ----
@@ -1050,7 +1012,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
     // ---- Player state (first-person, real human scale) ----
     float playerX = 2505.0f, playerY = -1710.0f, playerZ = 13.7f; // eye
-    float camPosX = 2505.0f, camPosY = -1710.0f, camPosZ = 13.7f; // camera world pos (sky dome follows)
+    float camPosX = 2505.0f, camPosY = -1710.0f, camPosZ = 13.7f; // camera world pos (the sky follows it)
     float yaw = 1.5708f;  // radians, facing north (+Y) toward CJ's house
     float pitch = 0.0f;   // radians, positive = look up
     float velZ = 0.0f;    // vertical velocity for jumping
@@ -2005,9 +1967,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             float ce = cosf(elev);
             bool sunUp = (clockHour > 5.5f && clockHour < 18.5f);
             float sunX = ce * cosf(az), sunY = -ce * sinf(az), sunZ = sinf(elev);
-            g_renderer.SetSun(sunX, sunY, sunZ,
-                              tc.sunCore[0], tc.sunCore[1], tc.sunCore[2],
-                              sunUp ? 1.0f : 0.0f);
+            {
+                // Sun sprites as CTimeCycle::CalcColoursForPoint places them:
+                // a = minute of the day as an angle (noon = pi), drawn by
+                // CCoronas::DoSunAndMoon at 0.95 * FarClp with sizes SunSz * 2.7335
+                // (core) and SunSz * 6 (corona). A corona of size s at depth z spans
+                // about 1.4 * s / z (CSprite::CalcScreenCoors at the 70 deg FOV).
+                const float a = clockHour * 60.0f * 0.004363323f;
+                const float vx = sinf(a) + 0.7f, vy = -0.7f, vz = 0.2f - cosf(a);
+                const float depth = (tc.farClip > 100.0f ? tc.farClip : 100.0f) * 0.95f;
+                g_renderer.SetSun(vx, vy, vz, tc.sunCore, tc.sunCorona,
+                                  1.4f * tc.sunSize * 2.7335f / depth, 1.4f * tc.sunSize * 6.0f / depth);
+            }
             // ---- World lighting (timecyc ambient + directional sun) ----
             // Retail lights world geometry per vertex from two timecyc ambient
             // columns plus a directional sun light. `Ambient` alone is a dark
@@ -2079,6 +2050,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Log("FOG: farClip=%.0f fogSt=%.0f -> start=%.0f end=%.0f realBand=%d",
                     tc.farClip, tc.fogSt, fogStart, fogEnd, (int)g_fogEnable);
             }
+            for (int i = 0; i < 4; i++) g_waterRGBA[i] = tc.water[i];
+            g_tcNow = tc;
             g_fogColor = D3DCOLOR_COLORVALUE(tc.skyBot[0] / 255.0f,
                                             tc.skyBot[1] / 255.0f,
                                             tc.skyBot[2] / 255.0f, 1.0f);
@@ -2361,10 +2334,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_devPaused) g_renderer.BeginFrame(0.03f, 0.03f, 0.05f);
         else             g_renderer.BeginFrame(0.4f, 0.6f, 0.9f);
 
-        // Sky gradient dome + sun (M4). Drawn first, no depth.
-        if (playMode && !g_devPaused) g_renderer.RenderSky(camPosX, camPosY, camPosZ);
+        // Sky polys + sun, then the moon, stars and low clouds. Drawn first, no depth.
+        if (playMode && !g_devPaused) {
+            g_renderer.RenderSky(camPosX, camPosY, camPosZ);
+            if (g_timecycOk)
+                g_sky.Render(g_renderer, camPosX, camPosY, camPosZ, clockHour,
+                             g_timecyc.WeatherName(g_weatherIdx), g_tcNow);
+        }
 
-        // Distance fog in play mode (hides the ground-plane edge and the
+        // Distance fog in play mode (hides the sea's far edge and the
         // streaming/draw-distance cut, colour = timecyc SkyBot). TABLE (pixel)
         // fog, not vertex fog: it's computed per pixel from depth so big ground
         // triangles and sparsely-tessellated LODs haze smoothly like retail SA,
@@ -2406,13 +2384,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // transparent pass, so glass/fences in front of it depth-test
             // against it instead of the old "player drawn over everything".
             drawPlayerBox();
-            // Water fill plane (translucent) before the world's alpha meshes:
-            // it's a far, low surface, so nearer glass/foliage blends over it.
-            if (groundMesh) {
-                D3DMATRIX ident = QuatToD3DMatrix(0,0,0,1, 0,0,0);
-                dev->SetTransform(D3DTS_WORLD, &ident);
-                g_renderer.DrawMesh(groundMesh);
-            }
+            // Water (translucent) before the world's alpha meshes: it's a far,
+            // low surface, so nearer glass/foliage blends over it.
+            // Wavyness = WindClipped + 0.3 in CWeather::Update; there is no wind yet.
+            g_water.Render(g_renderer, camPosX, camPosY, fogEnd, GetTickCount(), g_waterRGBA, 0.3f);
             // Transparent world pass (glass, decals, soft foliage), back-to-front.
             g_world.RenderAlpha(g_renderer);
             // Night street-lamp glows (coronas + ground light pools). Ramp on at
@@ -2659,8 +2634,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
     for (auto& obj : mapObjects)
         for (auto* mesh : obj.meshes) g_renderer.DestroyMesh(mesh);
-    if (groundMesh) g_renderer.DestroyMesh(groundMesh);
-    if (groundTex) groundTex->Release();
+    g_water.Shutdown(g_renderer);
+    g_sky.Shutdown(g_renderer);
     if (playerMesh) g_renderer.DestroyMesh(playerMesh);
     if (playerTex) playerTex->Release();
     for (auto& kv : d3dTexCache)

@@ -177,10 +177,7 @@ bool D3DRenderer::SetVsync(bool on) {
 }
 
 void D3DRenderer::Shutdown() {
-    if (m_skyVB) { m_skyVB->Release(); m_skyVB = nullptr; }
-    if (m_skyIB) { m_skyIB->Release(); m_skyIB = nullptr; }
     if (m_sunTex) { m_sunTex->Release(); m_sunTex = nullptr; }
-    m_skyIndexCount = 0;
     if (m_device) {
         m_device->Release();
         m_device = nullptr;
@@ -580,14 +577,14 @@ void D3DRenderer::SetProjMatrix(const D3DMATRIX& proj) {
 
 
 // ---- Sky (M4) ----
-// Retail (CClouds::RenderSkyPolys @ 00714650) draws the sky as a ring of
-// gradient polys around the camera, colored from timecyc.dat
-// (CTimeCycle::m_CurrentColours SkyTop/SkyBot). Volumetric clouds are
-// billboarded quads textured with "cloud1" from particle.txd
-// (CClouds::VolumetricCloudsRender @ 00716380). We approximate with a
-// vertex-colored gradient dome + additive sun disc, using retail's
-// SUNNY_LA midday colors: SkyTop (30,117,210), SkyBot (53,162,227),
-// SunCore (189,175,0), SunCorona (168,98,14).
+// CClouds::RenderSkyPolys @ 00714650: five flat polys 30 units out along the
+// camera's horizontal heading, 1.4x that wide to each side, coloured from
+// timecyc.dat (SkyTop / SkyBot). Heights are in the same 30-unit steps:
+//   +0.5 .. 0     SkyTop -> SkyBot (the visible gradient)
+//    0 .. -0.1    SkyBot
+//   -0.1 .. -0.3  SkyBot -> below-horizon grey
+//   a SkyTop ceiling at +0.5 and a grey floor at -0.3, front to back.
+// Clouds (CClouds::Render, VolumetricCloudsRender) are not drawn yet.
 
 struct SkyVertex {
     float x, y, z;
@@ -596,82 +593,13 @@ struct SkyVertex {
 };
 #define SKY_FVF (D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1)
 
-static const float SKY_RADIUS = 2500.0f;  // inside far plane (3000)
-static const int SKY_SEGS = 16;
-static const int SKY_RINGS = 6;
+static const float SKY_RADIUS = 2500.0f;  // sun distance, inside far plane (3000)
 
 void D3DRenderer::BuildSkyResources() {
-    if (!m_device)
-        return;
-    if (m_skyVB && !m_skyDirty)
-        return;
-    // Rebuild: drop the old dome. The sun glow texture is colour-independent, keep it.
-    if (m_skyVB) { m_skyVB->Release(); m_skyVB = nullptr; }
-    if (m_skyIB) { m_skyIB->Release(); m_skyIB = nullptr; }
-    m_skyIndexCount = 0;
-    m_skyDirty = false;
-
-    // --- Gradient dome: elevation from just below horizon to zenith ---
-    // Colours come from timecyc.dat (SkyTop / SkyBot) via SetSkyColors().
-    const float zenR = m_skyTop[0]/255.0f, zenG = m_skyTop[1]/255.0f, zenB = m_skyTop[2]/255.0f;
-    const float horR = m_skyBot[0]/255.0f, horG = m_skyBot[1]/255.0f, horB = m_skyBot[2]/255.0f;
-    std::vector<SkyVertex> verts;
-    verts.reserve((SKY_RINGS + 1) * (SKY_SEGS + 1));
-    std::vector<uint16_t> idx;
-    idx.reserve(SKY_RINGS * SKY_SEGS * 6);
-    for (int r = 0; r <= SKY_RINGS; r++) {
-        float t = (float)r / (float)SKY_RINGS;              // 0=horizon .. 1=zenith
-        float elev = -0.14f + t * (1.5707963f + 0.14f);     // -8deg .. 90deg
-        float ce = cosf(elev), se = sinf(elev);
-        float k = powf(t, 0.55f);                          // gradient shaping
-        float cr = horR + (zenR - horR) * k;
-        float cg = horG + (zenG - horG) * k;
-        float cb = horB + (zenB - horB) * k;
-        if (r == 0) { cr *= 0.8f; cg *= 0.8f; cb *= 0.8f; } // below horizon: darker haze
-        DWORD col = D3DCOLOR_COLORVALUE(cr, cg, cb, 1.0f);
-        for (int s = 0; s <= SKY_SEGS; s++) {
-            float a = (float)s / (float)SKY_SEGS * 6.2831853f;
-            SkyVertex v;
-            v.x = cosf(a) * ce * SKY_RADIUS;
-            v.y = sinf(a) * ce * SKY_RADIUS;
-            v.z = se * SKY_RADIUS;
-            v.color = col;
-            v.u = 0.0f; v.v = 0.0f;
-            verts.push_back(v);
-        }
-    }
-    for (int r = 0; r < SKY_RINGS; r++) {
-        for (int s = 0; s < SKY_SEGS; s++) {
-            uint16_t a = (uint16_t)(r * (SKY_SEGS + 1) + s);
-            uint16_t b = (uint16_t)(a + 1);
-            uint16_t c = (uint16_t)(a + (SKY_SEGS + 1));
-            uint16_t d = (uint16_t)(c + 1);
-            idx.push_back(a); idx.push_back(c); idx.push_back(b);
-            idx.push_back(b); idx.push_back(c); idx.push_back(d);
-        }
-    }
-    if (FAILED(m_device->CreateVertexBuffer((UINT)(verts.size() * sizeof(SkyVertex)),
-                                            0, SKY_FVF, D3DPOOL_MANAGED, &m_skyVB, nullptr)))
-        return;
-    void* p = nullptr;
-    if (SUCCEEDED(m_skyVB->Lock(0, 0, &p, 0))) {
-        memcpy(p, verts.data(), verts.size() * sizeof(SkyVertex));
-        m_skyVB->Unlock();
-    }
-    if (FAILED(m_device->CreateIndexBuffer((UINT)(idx.size() * sizeof(uint16_t)),
-                                           0, D3DFMT_INDEX16, D3DPOOL_MANAGED, &m_skyIB, nullptr))) {
-        m_skyVB->Release(); m_skyVB = nullptr;
-        return;
-    }
-    if (SUCCEEDED(m_skyIB->Lock(0, 0, &p, 0))) {
-        memcpy(p, idx.data(), idx.size() * sizeof(uint16_t));
-        m_skyIB->Unlock();
-    }
-    m_skyIndexCount = (uint32_t)idx.size();
-
     // --- Sun glow texture: 64x64 radial falloff, generated in code ---
     const int SS = 64;
-    if (!m_sunTex && SUCCEEDED(m_device->CreateTexture(SS, SS, 1, 0, D3DFMT_A8R8G8B8,
+    if (!m_device || m_sunTex) return;
+    if (SUCCEEDED(m_device->CreateTexture(SS, SS, 1, 0, D3DFMT_A8R8G8B8,
                                           D3DPOOL_MANAGED, &m_sunTex, nullptr))) {
         D3DLOCKED_RECT lr;
         if (SUCCEEDED(m_sunTex->LockRect(0, &lr, nullptr, 0))) {
@@ -695,11 +623,8 @@ void D3DRenderer::RenderSky(float camX, float camY, float camZ) {
     if (!m_device)
         return;
     BuildSkyResources();
-    if (!m_skyVB || !m_skyIB)
-        return;
 
-    // Sky draws first: no depth, no fog, no culling, no alpha test, no lighting
-    // (the dome vertices carry no normals).
+    // Sky draws first: no depth, no fog, no culling, no alpha test, no lighting.
     SetLightState(false);
     m_device->SetRenderState(D3DRS_ZENABLE, FALSE);
     m_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
@@ -709,39 +634,73 @@ void D3DRenderer::RenderSky(float camX, float camY, float camZ) {
     m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     m_device->SetTexture(0, nullptr);
 
-    // Dome centered on the camera.
+    // Camera heading on the ground plane: the view matrix's third column is
+    // the camera's forward axis in world space.
+    float fx = m_view._13, fy = m_view._23;
+    const float fl = sqrtf(fx * fx + fy * fy);
+    if (fl > 1e-4f) { fx /= fl; fy /= fl; } else { fx = 0.0f; fy = 1.0f; }
+    const float sx = fy * 1.4f, sy = -fx * 1.4f;   // sideways, 1.4x
+    auto col = [](const float c[3]) {
+        return D3DCOLOR_XRGB((int)c[0], (int)c[1], (int)c[2]);
+    };
+    const DWORD top = col(m_skyTop), bot = col(m_skyBot), grey = col(m_belowHorizon);
+    // One poly: two front points at height h0 (colour c0), two at h1 (c1);
+    // `back` sends the second edge behind the camera (ceiling / floor).
+    SkyVertex v[5 * 4];
+    uint16_t idx[5 * 6];
+    int nv = 0, ni = 0;
+    auto poly = [&](float h0, DWORD c0, float h1, DWORD c1, bool back) {
+        const uint16_t b = (uint16_t)nv;
+        const float f1 = back ? -1.0f : 1.0f;
+        const float pts[4][3] = {{fx - sx, fy - sy, h0}, {fx + sx, fy + sy, h0},
+                                 {f1 * fx - sx, f1 * fy - sy, h1}, {f1 * fx + sx, f1 * fy + sy, h1}};
+        for (int i = 0; i < 4; i++)
+            v[nv++] = {camX + pts[i][0] * 30.0f, camY + pts[i][1] * 30.0f, camZ + pts[i][2] * 30.0f,
+                       i < 2 ? c0 : c1, 0.0f, 0.0f};
+        const uint16_t tri[6] = {0, 2, 1, 1, 2, 3};   // SetUpOneSkyPoly order
+        for (uint16_t t : tri) idx[ni++] = (uint16_t)(b + t);
+    };
+    poly(0.5f, top, 0.0f, bot, false);
+    poly(0.0f, bot, -0.1f, bot, false);
+    poly(-0.1f, bot, -0.3f, grey, false);
+    poly(0.5f, top, 0.5f, top, true);
+    poly(-0.3f, grey, -0.3f, grey, true);
     D3DMATRIX world = MatrixIdentity();
-    world._41 = camX; world._42 = camY; world._43 = camZ;
     m_device->SetTransform(D3DTS_WORLD, &world);
     m_device->SetFVF(SKY_FVF);
-    m_device->SetStreamSource(0, m_skyVB, 0, sizeof(SkyVertex));
-    m_device->SetIndices(m_skyIB);
-    m_device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0,
-        (SKY_RINGS + 1) * (SKY_SEGS + 1), 0, m_skyIndexCount / 3);
+    m_device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, nv, ni / 3, idx, D3DFMT_INDEX16,
+                                     v, sizeof(SkyVertex));
 
-    // Sun: camera-facing billboard, additive, depth-tested so buildings occlude it.
+    // Sun (CCoronas::DoSunAndMoon): a SunCore sprite while the sun is above
+    // z = -0.1 and a larger SunCorona glow once it is above the horizon, both
+    // camera-facing and additive, depth-tested so buildings occlude them.
     float sunLen = sqrtf(m_sunDir[0]*m_sunDir[0] + m_sunDir[1]*m_sunDir[1] + m_sunDir[2]*m_sunDir[2]);
-    if (m_sunTex && sunLen > 0.0001f && m_sunSize > 0.0f) {
-        // Direction + colour from timecyc.dat (SetSun). SA coords: +Y = north,
-        // so the noon sun sits south (-Y), high up.
-        float sdx = m_sunDir[0]/sunLen, sdy = m_sunDir[1]/sunLen, sdz = m_sunDir[2]/sunLen;
-        float dist = SKY_RADIUS * 0.94f;
-        float spx = camX + sdx*dist, spy = camY + sdy*dist, spz = camZ + sdz*dist;
-        // right/up from cached view matrix (D3D row-major: rows 0 and 1).
-        float rx = m_view._11, ry = m_view._12, rz = m_view._13;
-        float ux = m_view._21, uy = m_view._22, uz = m_view._23;
-        const float half = 150.0f * m_sunSize;
-        SkyVertex q[4];
-        q[0].x = spx - rx*half + ux*half; q[0].y = spy - ry*half + uy*half; q[0].z = spz - rz*half + uz*half;
-        q[1].x = spx + rx*half + ux*half; q[1].y = spy + ry*half + uy*half; q[1].z = spz + rz*half + uz*half;
-        q[2].x = spx - rx*half - ux*half; q[2].y = spy - ry*half - uy*half; q[2].z = spz - rz*half - uz*half;
-        q[3].x = spx + rx*half - ux*half; q[3].y = spy + ry*half - uy*half; q[3].z = spz - rz*half - uz*half;
-        DWORD sunCol = D3DCOLOR_COLORVALUE(m_sunCol[0], m_sunCol[1], m_sunCol[2], 1.0f);
-        for (int i = 0; i < 4; i++) { q[i].color = sunCol; }
-        q[0].u = 0.0f; q[0].v = 0.0f;
-        q[1].u = 1.0f; q[1].v = 0.0f;
-        q[2].u = 0.0f; q[2].v = 1.0f;
-        q[3].u = 1.0f; q[3].v = 1.0f;
+    if (m_sunTex && sunLen > 0.0001f) {
+        const float sdx = m_sunDir[0]/sunLen, sdy = m_sunDir[1]/sunLen, sdz = m_sunDir[2]/sunLen;
+        const float dist = SKY_RADIUS * 0.94f;
+        const float spx = camX + sdx*dist, spy = camY + sdy*dist, spz = camZ + sdz*dist;
+        // Camera right/up in world space = columns of the view matrix.
+        const float rx = m_view._11, ry = m_view._21, rz = m_view._31;
+        const float ux = m_view._12, uy = m_view._22, uz = m_view._32;
+        SkyVertex q[8];
+        int quads = 0;
+        auto sprite = [&](const float c[3], float angle) {
+            const float half = angle * dist;
+            const DWORD col = D3DCOLOR_COLORVALUE(c[0], c[1], c[2], 1.0f);
+            const float corner[4][2] = {{-1, 1}, {1, 1}, {-1, -1}, {1, -1}};
+            for (int i = 0; i < 4; i++) {
+                SkyVertex& v = q[quads * 4 + i];
+                v.x = spx + (rx * corner[i][0] + ux * corner[i][1]) * half;
+                v.y = spy + (ry * corner[i][0] + uy * corner[i][1]) * half;
+                v.z = spz + (rz * corner[i][0] + uz * corner[i][1]) * half;
+                v.color = col;
+                v.u = corner[i][0] > 0 ? 1.0f : 0.0f;
+                v.v = corner[i][1] > 0 ? 0.0f : 1.0f;
+            }
+            quads++;
+        };
+        if (sdz > 0.0f) sprite(m_sunCorona, m_sunCoronaSize);
+        if (sdz > -0.1f) sprite(m_sunCol, m_sunCoreSize);
         m_device->SetRenderState(D3DRS_ZENABLE, TRUE);
         m_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
         m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
@@ -751,7 +710,8 @@ void D3DRenderer::RenderSky(float camX, float camY, float camZ) {
         D3DMATRIX ident = MatrixIdentity();
         m_device->SetTransform(D3DTS_WORLD, &ident);
         m_device->SetFVF(SKY_FVF);
-        m_device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(SkyVertex));
+        for (int i = 0; i < quads; i++)
+            m_device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q + i * 4, sizeof(SkyVertex));
     }
 
     // Restore engine defaults. FOGENABLE stays FALSE here; main.cpp enables
@@ -822,23 +782,109 @@ void D3DRenderer::DrawCoronas(const GlowSprite* s, int count) {
     drawGlowBatch(v.data(), count);
 }
 
+void D3DRenderer::DrawSkySprites(const SkySprite* s, int count, IDirect3DTexture9* tex) {
+    if (!m_device || !s || count <= 0 || !tex) return;
+    const float rx = m_view._11, ry = m_view._21, rz = m_view._31;   // camera right
+    const float ux = m_view._12, uy = m_view._22, uz = m_view._32;   // camera up
+    std::vector<SkyVertex> v;
+    v.reserve((size_t)count * 6);
+    for (int i = 0; i < count; i++) {
+        const SkySprite& p = s[i];
+        auto mk = [&](float sx, float sy, float u, float vv) {
+            SkyVertex q;
+            q.x = p.x + (rx * sx * p.halfW + ux * sy * p.halfH);
+            q.y = p.y + (ry * sx * p.halfW + uy * sy * p.halfH);
+            q.z = p.z + (rz * sx * p.halfW + uz * sy * p.halfH);
+            q.color = p.color; q.u = u; q.v = vv;
+            return q;
+        };
+        const SkyVertex a = mk(-1, 1, 0, 0), b = mk(1, 1, 1, 0), c = mk(-1, -1, 0, 1), d = mk(1, -1, 1, 1);
+        v.push_back(a); v.push_back(b); v.push_back(c);
+        v.push_back(c); v.push_back(b); v.push_back(d);
+    }
+    SetLightState(false);
+    m_device->SetRenderState(D3DRS_ZENABLE, FALSE);
+    m_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    m_device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    m_device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    m_device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+    m_device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+    m_device->SetTexture(0, tex);
+    D3DMATRIX ident = MatrixIdentity();
+    m_device->SetTransform(D3DTS_WORLD, &ident);
+    m_device->SetFVF(SKY_FVF);
+    m_device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)count * 2, v.data(), sizeof(SkyVertex));
+    // Restore world defaults (fog is re-enabled by main.cpp per frame).
+    SetLightState(m_lightingReady && m_lightingAllowed);
+    m_device->SetRenderState(D3DRS_ZENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_CULLMODE, D3DCULL_CW);
+    m_device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    m_device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    m_device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    m_alphaBlend = false;
+    m_device->SetTexture(0, nullptr);
+}
+
+void D3DRenderer::DrawBlendedTriangles(const ColorTexVertex* verts, uint32_t vertexCount,
+                                       const uint16_t* indices, uint32_t indexCount,
+                                       IDirect3DTexture9* tex) {
+    if (!m_device || !verts || !indices || vertexCount < 3 || indexCount < 3) return;
+    SetLightState(false);
+    m_device->SetRenderState(D3DRS_ZENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    m_device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    m_device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    m_device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+    m_device->SetTexture(0, tex);
+    D3DMATRIX ident = MatrixIdentity();
+    m_device->SetTransform(D3DTS_WORLD, &ident);
+    m_device->SetFVF(SKY_FVF);
+    m_device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, vertexCount, indexCount / 3,
+                                     indices, D3DFMT_INDEX16, verts, sizeof(ColorTexVertex));
+    // Restore world defaults.
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    SetLightState(m_lightingReady && m_lightingAllowed);
+    m_device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_CULLMODE, D3DCULL_CW);
+    m_device->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    m_alphaBlend = false;
+    m_device->SetTexture(0, nullptr);
+}
+
 void D3DRenderer::SetSkyColors(float topR, float topG, float topB,
                                float botR, float botG, float botB) {
-    // Only rebuild the dome when something actually changed - this is called
-    // every frame with a timecyc sample.
+    // Called every frame with a timecyc sample; skip the work when unchanged.
     if (m_skyTop[0] == topR && m_skyTop[1] == topG && m_skyTop[2] == topB &&
         m_skyBot[0] == botR && m_skyBot[1] == botG && m_skyBot[2] == botB)
         return;
     m_skyTop[0] = topR; m_skyTop[1] = topG; m_skyTop[2] = topB;
     m_skyBot[0] = botR; m_skyBot[1] = botG; m_skyBot[2] = botB;
-    m_skyDirty = true;
+    // CTimeCycle::m_BelowHorizonGrey is derived from SkyBot; the exact blend
+    // is lost in the decomp (float->int conversions), so this halves the
+    // way from SkyBot to its own grey.
+    const float g = (botR + botG + botB) / 3.0f;
+    for (int i = 0; i < 3; i++) m_belowHorizon[i] = (m_skyBot[i] + g) * 0.5f;
 }
 
-void D3DRenderer::SetSun(float dirX, float dirY, float dirZ,
-                         float r, float g, float b, float sizeScale) {
+void D3DRenderer::SetSun(float dirX, float dirY, float dirZ, const float core[3],
+                         const float corona[3], float coreSize, float coronaSize) {
     m_sunDir[0] = dirX; m_sunDir[1] = dirY; m_sunDir[2] = dirZ;
-    m_sunCol[0] = r / 255.0f; m_sunCol[1] = g / 255.0f; m_sunCol[2] = b / 255.0f;
-    m_sunSize = sizeScale;
+    for (int i = 0; i < 3; i++) {
+        m_sunCol[i] = core[i] / 255.0f;
+        m_sunCorona[i] = corona[i] / 255.0f;
+    }
+    m_sunCoreSize = coreSize;
+    m_sunCoronaSize = coronaSize;
 }
 
 // World lighting: ambient colour -> D3DRS_AMBIENT (multiplied by the white

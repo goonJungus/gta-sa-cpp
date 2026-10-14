@@ -15,7 +15,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [x] 2DFX lights and night lamps (w 1)
 - [x] Traffic lights with retail phase timing (w 1)
 - [x] Custom road signs (CCustomRoadsignMgr port) (w 1)
-- [ ] Water, particles and sky effects (w 2)
+- [~] Water, particles and sky effects (water.dat water, retail sky polys, sun, moon, stars and low clouds; no waves, volumetric clouds or particles yet) (w 2)
 
 ## Physics and player
 - [x] COL2/COL3/COL4 collision: boxes, spheres, triangle walls and floors (w 2)

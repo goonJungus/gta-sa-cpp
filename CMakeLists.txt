@@ -65,6 +65,8 @@ if(WIN32)
         host/engine/SkinnedDff.cpp
         host/engine/IfpLoader.cpp
         host/engine/PlayerPed.cpp
+        host/engine/Water.cpp
+        host/engine/Sky.cpp
     )
     target_include_directories(gta_standalone PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/host/engine)

@@ -16,9 +16,9 @@ original game knows about.
 
 <!-- progress:start -->
 ```
-███████░░░░░░░░░░░░░  34%
+███████░░░░░░░░░░░░░  36%
 ```
-**10 done, 3 in progress, 10 to go** across 23 milestones, weighted by effort (see [ROADMAP.md](ROADMAP.md)).
+**10 done, 4 in progress, 9 to go** across 23 milestones, weighted by effort (see [ROADMAP.md](ROADMAP.md)).
 <!-- progress:end -->
 
 The world is in place and you can explore it on foot. The game parts still to
@@ -33,6 +33,11 @@ come are the people, cars, guns, radio and missions.
   textures across districts.
 - Timecycle lighting: dawn, dusk, night and weather presets interpolate the way
   they did in 2004, and street lamps switch on after dark.
+- Water from `water.dat`, drawn the way `CWaterLevel` does it: two scrolling
+  layers of the game's water texture in the timecycle's water colour, with the
+  open sea running out past the edge of the map.
+- The sky is built like `CClouds`: the timecycle gradient polys, the sun on its
+  retail path, and the moon, stars and low clouds.
 - Traffic lights run on the retail phase timer.
 - Road signs are rebuilt from their 2DFX records with the original sign font, so
   "↑ Glen Park / ↑ Jefferson / ← Los Santos" appears where it should.
