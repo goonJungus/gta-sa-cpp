@@ -137,6 +137,9 @@ public:
                               const uint32_t* nightColors = nullptr);
     void DrawMesh(D3DRenderMesh* mesh);
     void DestroyMesh(D3DRenderMesh* mesh);
+    // Rewrite a mesh's vertices in place (CPU-skinned peds, once per frame).
+    // `count` must not exceed the mesh's vertexCount.
+    bool UpdateMeshVertices(D3DRenderMesh* mesh, const MeshVertex* verts, uint32_t count);
 
     // Transient debug overlay geometry (collision volumes). `verts` is a
     // LINELIST (pairs); drawn unlit, depth-tested and depth-writing so the

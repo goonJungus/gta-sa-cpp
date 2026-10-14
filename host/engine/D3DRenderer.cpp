@@ -236,6 +236,15 @@ void D3DRenderer::EndFrame() {
     m_device->Present(nullptr, nullptr, nullptr, nullptr);
 }
 
+bool D3DRenderer::UpdateMeshVertices(D3DRenderMesh* mesh, const MeshVertex* verts, uint32_t count) {
+    if (!mesh || !mesh->vb || !verts || count > mesh->vertexCount) return false;
+    void* p = nullptr;
+    if (FAILED(mesh->vb->Lock(0, count * sizeof(MeshVertex), &p, 0))) return false;
+    memcpy(p, verts, count * sizeof(MeshVertex));
+    mesh->vb->Unlock();
+    return true;
+}
+
 D3DRenderMesh* D3DRenderer::CreateMesh(const MeshVertex* verts, uint32_t numVerts,
                                        const uint16_t* indices, uint32_t numIndices,
                                        bool prelit, const uint32_t* nightColors) {

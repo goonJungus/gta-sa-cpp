@@ -50,8 +50,11 @@
 #include "AuditCollision.h"
 #include "Profiler.h"
 #include "FeMenu.h"
+#include "PlayerPed.h"
 
 static D3DRenderer g_renderer;
+static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
+static bool g_startThirdPerson = false;   // --third
 
 // Per-frame hitch profiler (shown in the F1 overlay; R resets the worst frame).
 // A frame is logged as a HITCH when it is over kHitchMs and >2x the average.
@@ -76,6 +79,7 @@ static bool g_devPaused    = false;
 static bool g_devLighting  = true;
 static int  g_devShotIdx   = 0;
 static bool g_autoWalk     = false;    // --walk: force-walk forward + log pos (headless collision probe)
+static int  g_autoGait     = 0;        // --gait: 0 run, 1 walk, 2 sprint, 3 run + keep jumping (with --walk)
 static bool g_probeCollision = false;  // --probe-collision: dump a solidity report at --pos after streaming
 static bool g_keyState[256] = { false };
 // Window focus (WM_ACTIVATE). GetAsyncKeyState reads the GLOBAL keyboard, so
@@ -182,6 +186,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_MOUSEACTIVATE:
         return MA_ACTIVATE;               // a click on the game always brings it back
+    case WM_SYSCOMMAND:
+        // Alt is the walk key (as in SA PC): don't let a lone Alt press open
+        // the window menu, which would freeze the game loop until dismissed.
+        if ((wp & 0xFFF0) == SC_KEYMENU) return 0;
+        break;
     case WM_KEYDOWN:
         // Play mode: ESC opens the pause menu (quit is Quit Game in there);
         // the capture modes have no menu, so ESC still exits them.
@@ -619,8 +628,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 startMenuScreen = atoi(n); i++;   // headless: open the pause menu on screen N
             } else if (a == "--debug-collision") {
                 g_devShowCollision = true;  // start with the pink COL view on
+            } else if (a == "--third") {
+                g_startThirdPerson = true;  // headless: start in the third-person camera
             } else if (a == "--walk") {
                 g_autoWalk = true;          // headless: auto-walk forward, log pos (collision probe)
+            } else if (a == "--gait" && i + 1 < argc) {
+                char n[64] = {};
+                WideToUtf8(argv[i + 1], n, sizeof(n));
+                const std::string gait = n;  // headless --walk speed: run (default), walk, sprint, jump
+                g_autoGait = gait == "walk" ? 1 : gait == "sprint" ? 2 : gait == "jump" ? 3 : 0;
+                i++;
             } else if (a == "--audit-collision") {
                 auditCollision = true;      // CPU-only: audit every model vs its COL, write TSV, exit
             } else if (a == "--probe-collision") {
@@ -1027,6 +1044,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (playerMesh) playerMesh->texture = playerTex;
         Log("PLAYER MESH: CJ_HEIGHT=%.4fm orange box (%s)", CJ_HEIGHT, playerMesh ? "OK" : "FAIL");
     }
+    // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
+    const bool cjReady = g_cj.Init(g_renderer, GameDir());
+    Log("PLAYER: CJ model %s", cjReady ? "ready" : "FAILED (using the box)");
 
     // ---- Player state (first-person, real human scale) ----
     float playerX = 2505.0f, playerY = -1710.0f, playerZ = 13.7f; // eye
@@ -1035,12 +1055,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     float pitch = 0.0f;   // radians, positive = look up
     float velZ = 0.0f;    // vertical velocity for jumping
     bool onGround = true;
-    bool thirdPerson = false; // V toggles 1st/3rd person camera
+    bool thirdPerson = g_startThirdPerson; // V toggles 1st/3rd person camera
     bool prevV = false;       // edge-detect for V key
     const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters
     const float GROUND_Z = 9.0f;     // safety-net grass plane; below lowest retail ground (~9.13)
-    const float WALK_SPEED = 5.0f;
-    const float RUN_SPEED = 10.0f;
+    const float WALK_SPEED = 5.0f;       // scripted capture paths
+    const float CJ_WALK_SPEED = 1.56f;   // WALK_player root travel / duration
+    const float CJ_RUN_SPEED = 5.71f;    // run_player
+    const float CJ_SPRINT_SPEED = 9.56f; // sprint_civi
     const float JUMP_VEL = 8.5f;     // ~1.6 m jump apex
     const float GRAVITY = 22.0f;
     const float PLAYER_RADIUS = 0.5f;
@@ -2122,7 +2144,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             while (yaw < -3.14159265f) yaw += 6.28318531f;
 
             // ---- WASD movement (camera-relative, on XY plane) ----
-            float speed = (GameKey(VK_SHIFT) & 0x8000) ? RUN_SPEED : WALK_SPEED;
+            // CJ's own speeds (root travel of WALK_player / run_player /
+            // sprint_civi): run by default, Shift sprints, Alt walks.
+            const float prevPlayerX = playerX, prevPlayerY = playerY;
+            float speed = (GameKey(VK_SHIFT) & 0x8000) ? CJ_SPRINT_SPEED
+                        : (GameKey(VK_MENU) & 0x8000)  ? CJ_WALK_SPEED : CJ_RUN_SPEED;
+            if (g_autoWalk && g_autoGait == 1) speed = CJ_WALK_SPEED;
+            if (g_autoWalk && g_autoGait == 2) speed = CJ_SPRINT_SPEED;
             float fwdX = cosf(yaw), fwdY = sinf(yaw);
             float rightX = -sinf(yaw), rightY = cosf(yaw);
             float mx = 0, my = 0;
@@ -2272,7 +2300,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
 
             // ---- Jump / gravity (feet rest on gz) ----
-            if (onGround && (GameKey(VK_SPACE) & 0x8000)) {
+            if (onGround && ((GameKey(VK_SPACE) & 0x8000) || (g_autoWalk && g_autoGait == 3))) {
                 velZ = JUMP_VEL;
                 onGround = false;
             }
@@ -2283,6 +2311,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     playerZ = gz + EYE_HEIGHT; velZ = 0; onGround = true;
                 }
             }
+            }
+
+            // ---- CJ animation: driven by how far he actually moved ----
+            if (cjReady && dt > 0.0f) {
+                PlayerPed::Input pin;
+                pin.dt = dt;
+                pin.moveX = (playerX - prevPlayerX) / dt;
+                pin.moveY = (playerY - prevPlayerY) / dt;
+                pin.onGround = onGround || g_devNoClip;
+                pin.velZ = velZ;
+                g_cj.Update(pin);
             }
 
             // ---- V toggles 1st/3rd person camera ----
@@ -2342,8 +2381,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // Player box draw (3rd person); used between the opaque and alpha
         // passes so a fence/window in front of CJ occludes him correctly.
         auto drawPlayerBox = [&]() {
-            if (!(playMode && thirdPerson && playerMesh)) return;
+            if (!(playMode && thirdPerson)) return;
             float feetZ = playerZ - EYE_HEIGHT;
+            if (cjReady) { g_cj.Draw(g_renderer, playerX, playerY, feetZ); return; }
+            if (!playerMesh) return;
             float hy = yaw * 0.5f;
             D3DMATRIX pm = QuatToD3DMatrix(0, 0, sinf(hy), cosf(hy), playerX, playerY, feetZ);
             dev->SetTransform(D3DTS_WORLD, &pm);
@@ -2454,7 +2495,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 "DRAW far %.0f m   fog %.0f-%.0f m%s\n"
                 "STREAM models %zu loaded   inst %zu visible   %zu drawn   %zu mesh calls   %zu loading\n"
                 "COLLIDE solid boxes %zu (response ON, view %s)   blocked moves %u\n"
-                "TOGGLES wireframe %s   noclip %s   lighting %s   camera %s   speed %s",
+                "TOGGLES wireframe %s   noclip %s   lighting %s   camera %s   speed %s   anim %s",
                 profLine,
                 fps, (fps > 1.0f ? 1000.0f / fps : 0.0f), frame,
                 playerX, playerY, playerZ, playerZ - EYE_HEIGHT, debugGround, floatWarn,
@@ -2467,7 +2508,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_devWireframe ? "ON" : "off", g_devNoClip ? "ON" : "off",
                 g_devLighting ? "ON" : "OFF (full-bright)",
                 thirdPerson ? "3RD" : "1ST",
-                (GameKey(VK_SHIFT) & 0x8000) ? "run" : "walk");
+                (GameKey(VK_SHIFT) & 0x8000) ? "sprint" : (GameKey(VK_MENU) & 0x8000) ? "walk" : "run",
+                g_cj.ClipName());
             DrawDebugText(dev, dbg, 12.0f, 12.0f, 1.4f, 0xFFFFFF00); // yellow
         }
 

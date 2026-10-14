@@ -16,9 +16,9 @@ original game knows about.
 
 <!-- progress:start -->
 ```
-██████░░░░░░░░░░░░░░  31%
+███████░░░░░░░░░░░░░  34%
 ```
-**10 done, 2 in progress, 11 to go** across 23 milestones, weighted by effort (see [ROADMAP.md](ROADMAP.md)).
+**10 done, 3 in progress, 10 to go** across 23 milestones, weighted by effort (see [ROADMAP.md](ROADMAP.md)).
 <!-- progress:end -->
 
 The world is in place and you can explore it on foot. The game parts still to
@@ -46,6 +46,10 @@ come are the people, cars, guns, radio and missions.
 **Playing**
 - An on-foot controller with running, jumping, step-up and a first or
   third-person camera.
+- CJ himself, assembled from his clothing parts the way the game's clothes
+  builder does it, skinned on the base player skeleton and animated with the
+  original `ped.ifp` clips: idle, walk, run, sprint, jump and fall, blended and
+  played at the rate that matches his speed.
 - A pause menu rebuilt from the game's own screen table at 640×448, drawn with
   the original fonts and backgrounds. The frame limiter (60, 120, 144 or
   unlimited), VSync and draw distance work and are saved between runs.
@@ -122,9 +126,11 @@ Useful flags:
 | `--hour h` / `--weather NAME` | Set the time of day and weather (e.g. `SUNNY_LA`) |
 | `--window WxH` / `--res WxH` | Window size and render resolution |
 | `--frames N --screenshot out.bmp` | Run N frames headless, then save a screenshot |
+| `--third` | Start in the third-person camera |
+| `--walk [--gait walk\|run\|sprint\|jump]` | Headless: keep moving forward (and jumping) |
 | `--probe-collision` | Print a solidity map and the owner of every nearby collision box |
 
-**Controls:** WASD to move, Shift to run, Space to jump, the mouse to look, V to
+**Controls:** WASD to move (CJ runs by default), Shift to sprint, Alt to walk, Space to jump, the mouse to look, V to
 switch camera, and Esc or P for the pause menu, which also lists the F1–F12
 developer keys.
 
