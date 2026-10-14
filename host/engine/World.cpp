@@ -166,9 +166,21 @@ bool IsLampModel(const std::string& n) {
     // lamp lit later, match that specific model, not every "trafficlight".)
 }
 
+// Exactly CTrafficLights::IsMITrafficLight: the MI_TRAFFICLIGHTS* models that
+// MatchAllModelStrings binds by name. MTraffic3 is not a signal in retail.
 bool IsTrafficLightModel(const std::string& n) {
-    return n.find("trafficlight") != std::string::npos    // trafficlight1
-        || n.find("traffic_light") != std::string::npos;  // cj_traffic_light3/4/5
+    static const char* kModels[] = {
+        "trafficlight1",      // MI_TRAFFICLIGHTS
+        "mtraffic4",          // MI_TRAFFICLIGHTS_VERTICAL
+        "mtraffic1",          // MI_TRAFFICLIGHTS_MIAMI (overhead gantry)
+        "vgsstriptlights1",   // MI_TRAFFICLIGHTS_VEGAS
+        "mtraffic2",          // MI_TRAFFICLIGHTS_TWOVERTICAL
+        "cj_traffic_light3", "cj_traffic_light4", "cj_traffic_light5",
+        "gay_traffic_light",  // MI_TRAFFICLIGHTS_GAY
+    };
+    for (const char* m : kModels)
+        if (n == m) return true;
+    return false;
 }
 
 // --- CTrafficLights state machine, verbatim from the decomp (riots/cheats
@@ -1220,7 +1232,9 @@ IDirect3DTexture9* GameWorld::GetTexture(const std::string& txdName,
         // Last resort: scan any resident txd that defines this texture name.
         // Catches cross-txd cases with no txdp link (e.g. nitwin01_la lives in
         // nitelites_lae2, referenced by a model whose txd is nitewin_las).
-        if (!src) {
+        // Not for LOD txds: whether the HD txd happens to be resident would
+        // decide how a distant LOD looks, so they resolve like retail.
+        if (!src && txdName.compare(0, 3, "lod") != 0) {
             const std::string suffix = "/" + want;
             for (auto& kv : m_texInfo) {
                 if (kv.first.size() > suffix.size() &&
@@ -1238,11 +1252,16 @@ IDirect3DTexture9* GameWorld::GetTexture(const std::string& txdName,
             if (s_missLogged.insert(key).second)
                 std::fprintf(stderr, "[World] TEXMISS %s\n", key.c_str());
         }
-        // Still nowhere: 1x1 pink placeholder (visible debugging artifact).
+        // Still nowhere: draw it untextured, like retail. RW's texture find
+        // stops after the txd parent chain and leaves the material without a
+        // texture, so the prelit vertex colours alone shade it. Many LA LOD
+        // models (lod2lae1: comptwall36, adeta, bigblue2, ...) reference HD
+        // texture names their LOD txd lacks; these used to show as pink
+        // until the HD model swapped in. A 1x1 white texel = no texture.
         if (!m_fallbackTex) {
-            static const uint8_t pink[4] = {0xFF, 0x00, 0xE0, 0xFF}; // ARGB
+            static const uint8_t white[4] = {0xFF, 0xFF, 0xFF, 0xFF}; // BGRA
             m_fallbackTex = m_renderer->CreateTexture(1, 1, D3DFMT_A8R8G8B8,
-                                                     pink, 4);
+                                                     white, 4);
         }
         return m_fallbackTex;
     }
@@ -1606,6 +1625,8 @@ void GameWorld::RenderTrafficLights(D3DRenderer& r, float camX, float camY, floa
                                     uint32_t timeMs, float dayNight) {
     if (m_tlEmitters.empty()) return;
     const Frustum fr = MakeFrustum(r.GetViewMatrix(), r.GetProjMatrix());
+    const D3DMATRIX& view = r.GetViewMatrix();   // row-vector view: column 3 = look dir
+    const float camFx = view._13, camFy = view._23, camFz = view._33;
     const float viewR = 130.0f, viewR2 = viewR * viewR;
     const uint32_t uCars = (timeMs >> 1) & 0x3fff;   // CTrafficLights car phase
     // Pedestrian signals. Retail (CTrafficLights::LightForPeds) runs ONE
@@ -1651,9 +1672,17 @@ void GameWorld::RenderTrafficLights(D3DRenderer& r, float camX, float camY, floa
         if (hit != m_cache.end() && !hit->second.tlBulbs.empty()) ce = &hit->second;
         if (!ce) continue;
 
+        // Knocked-over signals stay dark (retail: matrix up.z >= 0.96).
+        float upx, upy, upz;
+        QuatXform(in.qx, in.qy, in.qz, in.qw, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, upx, upy, upz);
+        if (upz < 0.96f) continue;
         // Orientation -> axis type -> current car-signal colour (decomp-exact).
         float fwx, fwy, fwz;
         QuatXform(in.qx, in.qy, in.qz, in.qw, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, fwx, fwy, fwz);
+        // Only the heads facing the camera light up: retail compares the
+        // camera's look direction with the light's forward axis and draws the
+        // bulbs on the opposite local-Y side (DisplayActualLight).
+        const bool camAlong = camFx * fwx + camFy * fwy + camFz * fwz > 0.0f;
         float deg = std::atan2(fwy, fwx) * 57.29578f;
         if (deg < 0.0f) deg += 360.0f;
         int type = TL_TypeFromOrientation(deg);
@@ -1661,6 +1690,7 @@ void GameWorld::RenderTrafficLights(D3DRenderer& r, float camX, float camY, floa
 
         for (auto& bulb : ce->tlBulbs) {
             if (bulb.colorIdx != state) continue;
+            if ((bulb.y > 0.0f) == camAlong) continue;
             float wx, wy, wz;
             QuatXform(in.qx, in.qy, in.qz, in.qw, bulb.x, bulb.y, bulb.z,
                       in.x, in.y, in.z, wx, wy, wz);
