@@ -1,0 +1,328 @@
+#include "TxdLoader.h"
+#include <fstream>
+#include <cstring>
+#include <cctype>
+
+// RenderWare section types
+enum : uint32_t {
+    TXD_RW_STRUCT         = 0x01,
+    TXD_RW_STRING         = 0x02,
+    TXD_RW_EXTENSION      = 0x03,
+    TXD_RW_TEXTURENATIVE  = 0x15,
+    TXD_RW_TEXDICTIONARY  = 0x16,
+};
+
+// D3D8 raster-format flags seen in SA TXDs
+enum : uint32_t {
+    RWF_DXT1 = 0x200,
+    RWF_DXT3 = 0x400,
+    RWF_1555 = 0x1000,
+    RWF_4444 = 0x2000,
+    RWF_8888 = 0x4000,
+};
+
+// Sanity caps
+static const uint32_t kMaxDimension = 2048;
+static const uint32_t kMaxMipBytes  = 16 * 1024 * 1024;
+
+namespace {
+
+struct SectionHeader {
+    uint32_t type;
+    uint32_t size;
+    uint32_t version;
+};
+
+struct Reader {
+    const uint8_t* data;
+    size_t size;
+    size_t pos;
+
+    bool Read(void* out, size_t n) {
+        if (pos + n > size)
+            return false;
+        memcpy(out, data + pos, n);
+        pos += n;
+        return true;
+    }
+    bool Skip(size_t n) {
+        if (pos + n > size)
+            return false;
+        pos += n;
+        return true;
+    }
+    template<typename T> bool ReadT(T& out) { return Read(&out, sizeof(T)); }
+    bool ReadHeader(SectionHeader& h) { return ReadT(h); }
+};
+
+// 88-byte D3D8/D3D9 native-texture header inside the RW_STRUCT
+struct NativeHeader {
+    uint32_t platformId;   // 8 = D3D8, 9 = D3D9
+    uint32_t filterMode;   // u8 filter, u8 wrapU, u8 wrapV, u8 pad
+    char textureName[32];
+    char maskName[32];
+    uint32_t rasterFormat;
+    uint32_t d3dFormat;    // D3DFORMAT value (often 0 in SA TXDs)
+    uint16_t width;
+    uint16_t height;
+    uint8_t depth;
+    uint8_t numMipmaps;
+    uint8_t rasterType;
+    uint8_t compression;   // 1 = DXT1, 2 = DXT2, 3 = DXT3
+};
+static_assert(sizeof(NativeHeader) == 88, "NativeHeader must be 88 bytes");
+
+std::string NameOf(const char* s, size_t n) {
+    size_t len = 0;
+    while (len < n && s[len] != '\0')
+        len++;
+    return std::string(s, len);
+}
+
+// Classify the level-0 alpha so the renderer knows whether a mesh drawn with
+// this texture must blend: DXT1 only carries 1-bit alpha (blocks where
+// color0 <= color1), DXT3 stores explicit 4-bit alphas, A8R8G8B8 is straight
+// B,G,R,A bytes.  hasAlpha = some texel is not opaque, softAlpha = some texel
+// has an intermediate value so an alpha TEST cannot represent it.
+// A surface is treated as truly translucent (alpha-blended) only when at least
+// this fraction of its texels have genuinely intermediate alpha. Below it, the
+// alpha is a cutout mask (foliage/fence/decal) and we alpha-TEST instead, so it
+// writes depth and occludes -- fixing "buildings visible through palm leaves".
+static constexpr double kSoftAlphaFrac = 0.22;
+
+void ClassifyAlpha(TxdTexture& tex) {
+    const std::vector<uint8_t>& d = tex.mip0;
+    tex.hasAlpha = false;
+    tex.softAlpha = false;
+    if (tex.d3dFormat == D3DFMT_DXT1) {
+        for (size_t o = 0; o + 8 <= d.size(); o += 8) {
+            uint32_t c0 = (uint32_t)(d[o] | (d[o + 1] << 8));
+            uint32_t c1 = (uint32_t)(d[o + 2] | (d[o + 3] << 8));
+            if (c0 <= c1) {  // block uses the transparent-colour mode
+                tex.hasAlpha = true;
+                break;
+            }
+        }
+    } else if (tex.d3dFormat == D3DFMT_DXT3) {
+        // Count genuinely-intermediate alphas (not near 0, not near full). Only a
+        // large fraction means the surface is really translucent (glass, soft
+        // decals) and must blend; a thin fraction is just the anti-aliased edge
+        // of a CUTOUT (foliage, fences) which must alpha-TEST so it stays opaque
+        // and occludes what is behind it (otherwise buildings show through leaves).
+        size_t total = 0, mid = 0;
+        for (size_t o = 0; o + 16 <= d.size(); o += 16) {
+            for (int b = 0; b < 8; b++) {
+                uint8_t a = d[o + b];
+                uint8_t lo = a & 0x0F, hi = (uint8_t)(a >> 4);
+                total += 2;
+                if (lo != 0 && lo != 0x0F) mid++;      // intermediate nibble
+                if (hi != 0 && hi != 0x0F) mid++;
+                if (lo != 0x0F || hi != 0x0F) tex.hasAlpha = true;
+            }
+        }
+        if (total && (double)mid / (double)total > kSoftAlphaFrac)
+            tex.softAlpha = true;
+    } else {
+        size_t n = (size_t)tex.width * tex.height;
+        if (n * 4 > d.size())
+            n = d.size() / 4;
+        size_t mid = 0;
+        for (size_t i = 0; i < n; i++) {
+            uint8_t a = d[i * 4 + 3];
+            if (a != 0xFF) tex.hasAlpha = true;
+            if (a > 24 && a < 231) mid++;   // genuinely intermediate
+        }
+        if (n && (double)mid / (double)n > kSoftAlphaFrac)
+            tex.softAlpha = true;
+    }
+}
+
+}  // namespace
+
+std::string TxdLoader::KeyOf(const std::string& name) {
+    std::string k;
+    k.reserve(name.size());
+    for (char c : name)
+        k.push_back((char)tolower((unsigned char)c));
+    return k;
+}
+
+std::vector<TxdTexture> TxdLoader::Load(const std::string& path) {
+    std::vector<TxdTexture> out;
+
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f)
+        return out;
+    size_t fileSize = (size_t)f.tellg();
+    if (fileSize < 12)
+        return out;
+    f.seekg(0);
+    std::vector<uint8_t> buf(fileSize);
+    if (!f.read((char*)buf.data(), fileSize))
+        return out;
+
+    return LoadFromMemory(buf.data(), buf.size());
+}
+
+std::vector<TxdTexture> TxdLoader::LoadFromMemory(const uint8_t* data, size_t size) {
+    std::vector<TxdTexture> out;
+    if (size < 12)
+        return out;
+    Reader r{ data, size, 0 };
+    SectionHeader h;
+    if (!r.ReadHeader(h) || h.type != TXD_RW_TEXDICTIONARY)
+        return out;
+    size_t dictEnd = r.pos + h.size;
+    if (dictEnd > r.size)
+        return out;
+
+    // TexDictionary struct: u16 numTextures (+ u16 pad/device id)
+    if (!r.ReadHeader(h) || h.type != TXD_RW_STRUCT)
+        return out;
+    size_t dictStructEnd = r.pos + h.size;
+    uint16_t numTextures = 0;
+    if (!r.ReadT(numTextures))
+        return out;
+    r.pos = dictStructEnd;
+
+    for (uint16_t i = 0; i < numTextures; i++) {
+        if (r.pos + 12 > dictEnd || r.pos + 12 > r.size)
+            break;
+        if (!r.ReadHeader(h))
+            break;
+        size_t nativeEnd = r.pos + h.size;
+        if (h.type != TXD_RW_TEXTURENATIVE || nativeEnd > r.size) {
+            r.pos = nativeEnd;
+            continue;
+        }
+
+        // RW_STRUCT: native header, then palette (palettized only),
+        // then per-mipmap: u32 dataSize + data.
+        TxdTexture tex;
+        bool haveStruct = false;
+        if (r.ReadHeader(h) && h.type == TXD_RW_STRUCT) {
+            size_t structEnd = r.pos + h.size;
+            if (structEnd <= r.size && h.size >= sizeof(NativeHeader)) {
+                NativeHeader nh;
+                if (r.Read(&nh, sizeof(nh))) {
+                    haveStruct = true;
+                    tex.name = NameOf(nh.textureName, sizeof(nh.textureName));
+                    tex.width = nh.width;
+                    tex.height = nh.height;
+
+                    // Format detection, verified against retail TXDs:
+                    // - d3dFormat FourCC is authoritative: "DXT1"=0x31545844,
+                    //   "DXT3"=0x33545844.
+                    // - rasterFormat: 0x200/0x8200=DXT1, 0x300=DXT3,
+                    //   0x500=A8R8G8B8, 0x600=X8R8G8B8 (32-bit).
+                    // - DXT tests use EXACT matches: the old (rf&0x200) bit
+                    //   test misfires on 0x600 (X8R8G8B8) since 0x600&0x200
+                    //   != 0, decoding 32-bit tree textures as DXT1 and
+                    //   producing rainbow garbage (gta_tree_boak/palm trunks).
+                    bool isDXT3 = (nh.d3dFormat == 0x33545844) || (nh.rasterFormat == 0x300);
+                    bool isDXT1 = !isDXT3 && ((nh.d3dFormat == 0x31545844) ||
+                                              nh.rasterFormat == 0x200 || nh.rasterFormat == 0x8200);
+                    bool is8888 = (nh.rasterFormat & RWF_8888) != 0
+                               || nh.rasterFormat == 0x500 || nh.rasterFormat == 0x600
+                               || nh.d3dFormat == 0x15 || nh.d3dFormat == 0x16;  // D3DFMT_A8R8G8B8/X8R8G8B8
+
+                    uint32_t w = nh.width, hh = nh.height;
+                    if (w == 0 || hh == 0 || w > kMaxDimension || hh > kMaxDimension) {
+                        // bogus dimensions: skip entry
+                    } else if (isDXT1 || isDXT3) {
+                        tex.d3dFormat = isDXT1 ? D3DFMT_DXT1 : D3DFMT_DXT3;
+                        uint32_t blockBytes = isDXT1 ? 8 : 16;
+                        int levels = nh.numMipmaps > 0 ? nh.numMipmaps : 1;
+                        bool ok = false;
+                        for (int m = 0; m < levels && m < 16; m++) {
+                            uint32_t ds = 0;
+                            if (!r.ReadT(ds) || ds > kMaxMipBytes)
+                                break;
+                            uint32_t lw = w >> m;
+                            if (lw == 0)
+                                lw = 1;
+                            uint32_t lh = hh >> m;
+                            if (lh == 0)
+                                lh = 1;
+                            uint32_t expect = ((lw + 3) / 4) * ((lh + 3) / 4) * blockBytes;
+                            if (ds < expect) {  // short level: unusable
+                                if (!r.Skip(ds) || m == 0)
+                                    break;
+                                continue;
+                            }
+                            std::vector<uint8_t> lvl(ds);
+                            if (!r.Read(lvl.data(), ds))
+                                break;
+                            // SA TXDs store exactly the DXT blocks; take them.
+                            if (m == 0) {
+                                tex.mip0.swap(lvl);
+                                ok = true;
+                            } else {
+                                tex.extraMips.push_back(std::move(lvl));
+                            }
+                        }
+                        if (!ok)
+                            tex.mip0.clear();
+                        else
+                            ClassifyAlpha(tex);
+                    } else if (is8888) {
+                        tex.d3dFormat = D3DFMT_A8R8G8B8;
+                        int levels = nh.numMipmaps > 0 ? nh.numMipmaps : 1;
+                        bool ok = false;
+                        for (int m = 0; m < levels && m < 16; m++) {
+                            uint32_t ds = 0;
+                            if (!r.ReadT(ds) || ds > kMaxMipBytes)
+                                break;
+                            uint32_t lw = w >> m;
+                            if (lw == 0)
+                                lw = 1;
+                            uint32_t lh = hh >> m;
+                            if (lh == 0)
+                                lh = 1;
+                            uint32_t expect = lw * lh * 4;
+                            if (ds < expect) {  // short level: unusable
+                                if (!r.Skip(ds) || m == 0)
+                                    break;
+                                continue;
+                            }
+                            std::vector<uint8_t> raw(ds);
+                            if (!r.Read(raw.data(), ds))
+                                break;
+                            // D3D9 native 32-bit textures are stored in
+                            // native D3D byte order (B,G,R,A bytes for
+                            // A8R8G8B8) - direct copy, NO swizzle.
+                            // (The old RGBA->BGRA swizzle turned green
+                            // tree foliage teal; verified by decoding
+                            // newtreeleaves128 both ways.)
+                            if (m == 0) {
+                                tex.mip0.assign(raw.begin(), raw.begin() + expect);
+                                ok = true;
+                            } else {
+                                tex.extraMips.push_back(
+                                    std::vector<uint8_t>(raw.begin(), raw.begin() + expect));
+                            }
+                        }
+                        if (!ok)
+                            tex.mip0.clear();
+                        else
+                            ClassifyAlpha(tex);
+                    }
+                    // else: unsupported raster format (palettized, 1555, 4444...)
+                    // -> tex.mip0 stays empty, entry skipped below.
+                }
+            }
+            r.pos = structEnd;
+        }
+        // RW_EXTENSION (usually empty)
+        if (r.ReadHeader(h) && h.type == TXD_RW_EXTENSION)
+            r.pos += h.size;
+
+        if (haveStruct && !tex.mip0.empty() && tex.d3dFormat != D3DFMT_UNKNOWN)
+            out.push_back(std::move(tex));
+
+        r.pos = nativeEnd;
+        if (r.pos > r.size)
+            break;
+    }
+    return out;
+}

@@ -1,0 +1,35 @@
+# Build output
+build/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Runtime output from gta_standalone
+*.log
+*.bmp
+*.ini
+
+# Game data never belongs in this repo (bring your own copy of the game)
+*.img
+*.dff
+*.txd
+*.col
+*.ipl
+*.ide
+*.scm
+*.ifp
+*.gxt
+*.dat
+*.exe
+*.dll
+
+# Local-only notes
+DIRECTIVE.md
