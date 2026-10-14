@@ -2073,6 +2073,79 @@ bool GameWorld::HitsSolidCircle(float x, float y, float feetZ, float ox, float o
     return false;
 }
 
+namespace {
+// Moller-Trumbore, both faces: the hit fraction along d, or -1.
+float RayTri(const float o[3], const float d[3], const float a[3], const float b[3], const float c[3]) {
+    const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+    const float e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+    const float p[3] = {d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]};
+    const float det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2];
+    if (std::fabs(det) < 1e-9f) return -1.0f;
+    const float inv = 1.0f / det;
+    const float t0[3] = {o[0] - a[0], o[1] - a[1], o[2] - a[2]};
+    const float u = (t0[0] * p[0] + t0[1] * p[1] + t0[2] * p[2]) * inv;
+    if (u < 0.0f || u > 1.0f) return -1.0f;
+    const float q[3] = {t0[1] * e1[2] - t0[2] * e1[1], t0[2] * e1[0] - t0[0] * e1[2], t0[0] * e1[1] - t0[1] * e1[0]};
+    const float v = (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]) * inv;
+    if (v < 0.0f || u + v > 1.0f) return -1.0f;
+    return (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) * inv;
+}
+}  // namespace
+
+float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float bz) const {
+    const float o[3] = {ax, ay, az}, d[3] = {bx - ax, by - ay, bz - az};
+    float best = 1.0f;
+    auto hit = [&](const float a[3], const float b[3], const float c[3]) {
+        const float t = RayTri(o, d, a, b, c);
+        if (t >= 0.0f && t < best) best = t;
+    };
+    const float lo[3] = {std::min(ax, bx), std::min(ay, by), std::min(az, bz)};
+    const float hi[3] = {std::max(ax, bx), std::max(ay, by), std::max(az, bz)};
+    // COL meshes, cell by cell over the segment's bounds
+    const int x0 = (int)std::floor(lo[0] / kCell), x1 = (int)std::floor(hi[0] / kCell);
+    const int y0 = (int)std::floor(lo[1] / kCell), y1 = (int)std::floor(hi[1] / kCell);
+    for (int i = x0; i <= x1; i++)
+        for (int j = y0; j <= y1; j++) {
+            auto it = m_cells.find(CellKey(i, j));
+            if (it == m_cells.end()) continue;
+            for (const ColTriangle& t : it->second.tris) {
+                const float a[3] = {t.ax, t.ay, t.az}, b[3] = {t.bx, t.by, t.bz}, c[3] = {t.cx, t.cy, t.cz};
+                hit(a, b, c);
+            }
+        }
+    // Oriented boxes: the 6 faces (corner bit 0 = top, bits 1/2 the other axes).
+    const size_t n = std::min(m_worldObbs.size(), m_worldBoxes.size());
+    for (size_t k = 0; k < n; k++) {
+        const WorldColBox& ab = m_worldBoxes[k];
+        if (ab.maxX < lo[0] || ab.minX > hi[0] || ab.maxY < lo[1] || ab.minY > hi[1] ||
+            ab.maxZ < lo[2] || ab.minZ > hi[2]) continue;
+        const WorldColObb& ob = m_worldObbs[k];
+        for (int axis : {1, 2, 4})
+            for (int side = 0; side < 2; side++) {
+                const int b1 = axis == 1 ? 2 : 1, b2 = axis == 4 ? 2 : 4;
+                const int base = side ? axis : 0;
+                const int q[4] = {base, base | b1, base | b1 | b2, base | b2};
+                float v[4][3];
+                for (int m = 0; m < 4; m++) { v[m][0] = ob.x[q[m]]; v[m][1] = ob.y[q[m]]; v[m][2] = ob.z[q[m]]; }
+                hit(v[0], v[1], v[2]);
+                hit(v[0], v[2], v[3]);
+            }
+    }
+    // Spheres
+    const float dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if (dd > 1e-12f)
+        for (const WorldColSphere& s : m_worldSpheres) {
+            const float m[3] = {ax - s.x, ay - s.y, az - s.z};
+            const float bq = m[0] * d[0] + m[1] * d[1] + m[2] * d[2];
+            const float cq = m[0] * m[0] + m[1] * m[1] + m[2] * m[2] - s.r * s.r;
+            const float disc = bq * bq - dd * cq;
+            if (disc < 0.0f) continue;
+            const float t = (-bq - std::sqrt(disc)) / dd;
+            if (t >= 0.0f && t < best) best = t;
+        }
+    return best;
+}
+
 // ------------------------------------------------------------------ helpers
 
 std::string GameWorld::ToLower(const std::string& s) {

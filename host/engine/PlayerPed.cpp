@@ -544,8 +544,10 @@ void PlayerPed::ControlOnFoot(const Input& in) {
     // stick asks for a move blend ratio of 2.13 (run). PedWalk caps it at 1.
     float pad = mag * 128.0f / 60.0f;
     if (in.walk && pad > 1.0f) pad = 1.0f;
+    if (in.firstPerson) m_aimHeading = in.camYaw;   // the body faces where you look
     if (pad > 0.0f) {
-        m_aimHeading = std::atan2(sy, sx);
+        m_moveAngle = std::atan2(sy, sx);
+        if (!in.firstPerson) m_aimHeading = m_moveAngle;
         const float step = 0.07f * 50.0f * in.dt;   // 0.07 per 1/50 s timestep
         const float d = pad - m_ratio;
         m_ratio = d > step ? m_ratio + step : d < -step ? m_ratio - step : pad;
@@ -868,7 +870,9 @@ void PlayerPed::Update(const Input& in) {
     if (in.noclip) {
         m_velX = m_velY = 0.0f;
     } else if (in.onGround && dt > 0.0f) {
-        const float a = m_heading - kPi * 0.5f, c = std::cos(a), s = std::sin(a);
+        // First person moves along the stick while the body faces the view.
+        const float a = (in.firstPerson && !m_busy ? m_moveAngle : m_heading) - kPi * 0.5f;
+        const float c = std::cos(a), s = std::sin(a);
         m_velX = (m_rootDX * c - m_rootDY * s) / dt;
         m_velY = (m_rootDX * s + m_rootDY * c) / dt;
     }

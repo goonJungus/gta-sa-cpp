@@ -19,7 +19,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 
 ## Physics and player
 - [x] COL2/COL3/COL4 collision: boxes, spheres, triangle walls and floors (w 2)
-- [x] On-foot player controller and third-person camera (w 1)
+- [x] On-foot player controller and camera (classic ped zooms; rewrite first person and shoulder views with collision) (w 1)
 - [~] Skinned CJ model and IFP animations (default outfit; retail blend system, walk/run/sprint, jumps, falls, landings and get-ups; classic or rewrite handling; no fat/muscle blend or wardrobe yet) (w 3)
 - [ ] Drivable vehicles with handling.cfg dynamics (w 4)
 - [ ] Peds, traffic and path-node AI (w 4)

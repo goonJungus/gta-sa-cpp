@@ -120,6 +120,11 @@ public:
     bool HitsSolidCircle(float x, float y, float feetZ, float ox, float oy,
                          float radius, float stepOver, float playerHeight) const;
 
+    // Segment a -> b against the streamed collision (COL triangles, boxes and
+    // spheres). Returns the fraction of the way to the first hit, 1 if clear
+    // (the camera's CWorld::ProcessLineOfSight).
+    float RayCast(float ax, float ay, float az, float bx, float by, float bz) const;
+
     size_t LoadedModelCount() const { return m_cache.size(); }
     size_t VisibleInstances() const { return m_visInsts; }
     size_t SolidBoxCount() const { return m_worldBoxes.size(); }

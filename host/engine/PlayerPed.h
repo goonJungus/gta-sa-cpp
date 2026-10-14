@@ -47,6 +47,7 @@ public:
         bool blocked = false;                 // collision stopped CJ last frame
         bool rewrite = false;                 // rewrite handling (Movement.h)
         float camYaw = 0.0f;                  // for the rewrite heading / lean
+        bool firstPerson = false;             // face the camera, move along the stick
         // Ground height at (x, y) searching down from z (rewrite foot IK);
         // returns < -1e5 when there is none.
         std::function<float(float, float, float)> groundAt;
@@ -141,6 +142,7 @@ private:
     const AnimClip* m_landClip = nullptr;      // JUMP_land over the run
     float m_bindMinZ = 0.0f;                   // feet in model space
     float m_stickX = 0.0f, m_stickY = 0.0f;    // the stick CJ is obeying (filtered in rewrite)
+    float m_moveAngle = 0.0f;                  // first person: direction of travel
 
     Movement m_move;                           // rewrite handling
 };

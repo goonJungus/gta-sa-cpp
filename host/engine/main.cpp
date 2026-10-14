@@ -51,6 +51,7 @@
 #include "Profiler.h"
 #include "FeMenu.h"
 #include "PlayerPed.h"
+#include "Camera.h"
 #include "Water.h"
 #include "Sky.h"
 
@@ -60,6 +61,9 @@ static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
 static Sky g_sky;        // CClouds: moon, stars, low clouds
 static TimeCycleHour g_tcNow;  // this frame's timecyc sample
 static bool g_startThirdPerson = false;   // --third
+static PlayerCamera g_playerCam;          // on-foot camera views (V)
+static bool g_hideCjHead = false;         // first-person view
+static float g_nearClip = 0.5f;
 static int  g_forceStyle = -1;            // --classic / --rewrite (not saved)
 
 // Per-frame hitch profiler (shown in the F1 overlay; R resets the worst frame).
@@ -1824,7 +1828,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (g_renderer.Resize(rw, rh)) {
                 WIDTH = rw; HEIGHT = rh;
                 D3DMATRIX rproj = MatrixPerspectiveFov(70.0f*3.14159f/180.0f,
-                                    (float)WIDTH/(float)HEIGHT, 0.5f, 3000.0f);
+                                    (float)WIDTH/(float)HEIGHT, g_nearClip, 3000.0f);
                 g_renderer.SetProjMatrix(rproj);
                 Log("RESIZE: backbuffer -> %dx%d", rw, rh);
             }
@@ -2344,6 +2348,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.blocked = cjBlocked;
                 pin.rewrite = g_menu.Settings().movementStyle == 1;
                 pin.camYaw = yaw;
+                pin.firstPerson = g_playerCam.FirstPerson(g_menu.Settings().cameraStyle);
                 g_cj.Update(pin);
                 if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
                 if (getenv("GTA_CJLOG"))   // dev: per-frame animation trace
@@ -2382,18 +2387,41 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
 
 
-            // ---- V toggles 1st/3rd person camera ----
+            // ---- V cycles the camera views (Camera.h) ----
+            const int camStyle = g_menu.Settings().cameraStyle;
             bool vDown = (GameKey('V') & 0x8000) != 0;
             if (vDown && !prevV) {
-                thirdPerson = !thirdPerson;
-                Log("CAMERA: %s", thirdPerson ? "THIRD-PERSON" : "FIRST-PERSON");
+                g_playerCam.Cycle();
+                Log("CAMERA: %s", PlayerCamera::ViewName(camStyle, g_playerCam.View()));
             }
             prevV = vDown;
 
             // ---- Build view matrix from yaw/pitch ----
             float cp = cosf(pitch), sp = sinf(pitch);
             float dirX = cosf(yaw) * cp, dirY = sinf(yaw) * cp, dirZ = sp;
-            if (!thirdPerson) {
+            g_hideCjHead = false;
+            float nearClip = 0.5f;
+            if (cjReady && !scripted && !flyover) {
+                PlayerCamera::Input ci;
+                ci.dt = dt;
+                ci.style = camStyle;
+                ci.yaw = yaw;
+                ci.pitch = pitch;
+                ci.feet[0] = playerX; ci.feet[1] = playerY; ci.feet[2] = playerZ - EYE_HEIGHT;
+                ci.haveSpine = g_cj.BoneWorldPos(3, playerX, playerY, playerZ - EYE_HEIGHT, ci.spine);
+                ci.haveHead = g_cj.BoneWorldPos(5, playerX, playerY, playerZ - EYE_HEIGHT, ci.head);
+                if (worldReady && !g_devNoClip)
+                    ci.ray = [](const float a[3], const float b[3]) {
+                        return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]);
+                    };
+                const PlayerCamera::Output co = g_playerCam.Update(ci);
+                D3DMATRIX view = MatrixLookAt(co.eye[0], co.eye[1], co.eye[2], co.eye[0] + co.dir[0],
+                                              co.eye[1] + co.dir[1], co.eye[2] + co.dir[2], 0, 0, 1);
+                g_renderer.SetViewMatrix(view);
+                camPosX = co.eye[0]; camPosY = co.eye[1]; camPosZ = co.eye[2];
+                g_hideCjHead = co.hideHead;
+                nearClip = co.nearClip;
+            } else if (!thirdPerson) {
                 float tx = playerX + dirX;
                 float ty = playerY + dirY;
                 float tz = playerZ + dirZ;
@@ -2412,6 +2440,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 D3DMATRIX view = MatrixLookAt(cx, cy, cz, tx, ty, tz, 0, 0, 1);
                 g_renderer.SetViewMatrix(view);
                 camPosX = cx; camPosY = cy; camPosZ = cz;
+            }
+            if (nearClip != g_nearClip) {   // first person needs a near plane at the eyes
+                g_nearClip = nearClip;
+                g_renderer.SetProjMatrix(MatrixPerspectiveFov(70.0f * 3.14159f / 180.0f, (float)WIDTH / (float)HEIGHT,
+                                                              g_nearClip, 3000.0f));
             }
         }
 
@@ -2444,9 +2477,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // Player box draw (3rd person); used between the opaque and alpha
         // passes so a fence/window in front of CJ occludes him correctly.
         auto drawPlayerBox = [&]() {
-            if (!(playMode && thirdPerson)) return;
+            if (!playMode) return;
             float feetZ = playerZ - EYE_HEIGHT;
-            if (cjReady) { g_cj.Draw(g_renderer, playerX, playerY, feetZ); return; }
+            if (cjReady && !scripted && !flyover) { g_cj.Draw(g_renderer, playerX, playerY, feetZ, g_hideCjHead); return; }
+            if (!thirdPerson) return;
             if (!playerMesh) return;
             float hy = yaw * 0.5f;
             D3DMATRIX pm = QuatToD3DMatrix(0, 0, sinf(hy), cosf(hy), playerX, playerY, feetZ);
@@ -2567,7 +2601,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 nSolid, g_devShowCollision ? "ON pink" : "off", g_solidBlockCount,
                 g_devWireframe ? "ON" : "off", g_devNoClip ? "ON" : "off",
                 g_devLighting ? "ON" : "OFF (full-bright)",
-                thirdPerson ? "3RD" : "1ST",
+                cjReady ? PlayerCamera::ViewName(g_menu.Settings().cameraStyle, g_playerCam.View())
+                        : thirdPerson ? "3rd" : "1st",
                 (GameKey(VK_SHIFT) & 0x8000) ? "sprint" : (GameKey(VK_MENU) & 0x8000) ? "walk" : "run",
                 g_cj.ClipName());
             DrawDebugText(dev, dbg, 12.0f, 12.0f, 1.4f, 0xFFFFFF00); // yellow
@@ -2594,7 +2629,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 {"N", std::string("Weather (") + wname + ")"},
                 {"U", "Unstick +3m"},
                 {"R", "Reset profiler"},
-                {"V", std::string("Camera (") + (thirdPerson ? "3rd" : "1st") + ")"},
+                {"V", std::string("Camera (") + (cjReady ? PlayerCamera::ViewName(g_menu.Settings().cameraStyle, g_playerCam.View())
+                                                                 : thirdPerson ? "3rd" : "1st") + ")"},
                 {"WASD", "Move, Shift run"},
                 {"Space", "Jump"},
             };
