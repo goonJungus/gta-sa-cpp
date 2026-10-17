@@ -483,7 +483,9 @@ void PlayerPed::BuildPose() {
             float st[3];
             for (int i = 0; i < 3; i++)
                 st[i] = s->hasTranslation ? ka.t[i] + (kb.t[i] - ka.t[i]) * u : m_skeleton[f].local.m[3][i];
-            if (m_skeleton[f].boneId == 0) { st[0] = 0.0f; st[1] = 0.0f; }   // extracted root motion
+            // Root horizontal travel is extracted into velocity. During a climb
+            // the host drives the whole position, so the root is pinned.
+            if (m_skeleton[f].boneId == 0) { st[0] = 0.0f; st[1] = 0.0f; if (m_climbing) st[2] = 0.0f; }
             const float dot = q[0] * sq[0] + q[1] * sq[1] + q[2] * sq[2] + q[3] * sq[3];
             const float sign = (w > 0.0f && dot < 0.0f) ? -1.0f : 1.0f;
             for (int i = 0; i < 4; i++) q[i] += sq[i] * a.blend * sign;
@@ -741,6 +743,36 @@ void PlayerPed::Land(const Input& in) {
     }
 }
 
+// CTaskSimpleClimb::StartAnim @ 0067dbe0: a vault is one CLIMB_jump_B; a full
+// climb chains CLIMB_jump (grab) -> CLIMB_Pull -> CLIMB_Stand ->
+// CLIMB_Stand_finish.
+void PlayerPed::StartClimb(bool vault) {
+    m_climbQueue.clear();
+    const AnimClip* first = nullptr;
+    if (vault) {
+        first = Clip("climb_jump_b");
+    } else {
+        first = Clip("climb_jump");
+        for (const char* n : {"climb_pull", "climb_stand", "climb_stand_finish"})
+            if (const AnimClip* c = Clip(n)) m_climbQueue.push_back(c);
+    }
+    if (!first && !m_climbQueue.empty()) { first = m_climbQueue.front(); m_climbQueue.pop_front(); }
+    if (!first) return;
+    Blend(first, false, false, 8.0f);
+    m_busy = true;
+    m_busySoft = false;
+    m_busyClip = first;
+    m_busyNext = nullptr;
+    m_landClip = nullptr;
+    m_inAir = false;
+    m_jumping = false;
+    m_ratio = 0.0f;
+    m_climbing = true;
+    m_climbDur = first->duration;
+    for (const AnimClip* c : m_climbQueue) m_climbDur += c->duration;
+    m_move.Reset();
+}
+
 // ---- Rewrite pose layers ----
 
 namespace {
@@ -842,8 +874,13 @@ void PlayerPed::Update(const Input& in) {
                     m_busyClip = m_busyNext;
                     m_busyNext = nullptr;
                     Blend(m_busyClip, false, false, 4.0f);
+                } else if (!m_climbQueue.empty()) {   // next clip of a climb
+                    m_busyClip = m_climbQueue.front();
+                    m_climbQueue.pop_front();
+                    Blend(m_busyClip, false, false, 8.0f);
                 } else {
                     m_busy = false;
+                    m_climbing = false;
                     if (b) b->delta = -4.0f;
                 }
             }

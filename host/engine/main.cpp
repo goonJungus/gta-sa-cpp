@@ -2326,6 +2326,32 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             const bool jumpKeyDown = (GameKey(VK_SPACE) & 0x8000) != 0;
             const bool jumpJustDown = (jumpKeyDown && !s_prevJumpKey) || (g_autoWalk && g_autoGait == 3);
             s_prevJumpKey = jumpKeyDown;
+            // ---- Climb: Space facing a ledge (CTaskSimpleClimb / ScanToGrab) ----
+            static struct { bool on = false; float t = 0, dur = 0, x0, y0, z0, x1, y1, z1, x2, y2, z2; bool vault = false; } cl;
+            if (cjReady && onGround && !g_cj.Busy() && jumpJustDown && !g_devNoClip && worldReady) {
+                const float feet = playerZ - EYE_HEIGHT, fx = cosf(g_cj.Heading()), fy = sinf(g_cj.Heading());
+                const float reach = 1.0f;
+                float f1 = g_world.RayCast(playerX, playerY, feet + 0.6f, playerX + fx * reach, playerY + fy * reach, feet + 0.6f);
+                if (f1 < 1.0f) {
+                    const float wd = f1 * reach, wx = playerX + fx * (wd + 0.15f), wy = playerY + fy * (wd + 0.15f);
+                    const float f2 = g_world.RayCast(wx, wy, feet + 2.6f, wx, wy, feet + 0.3f);
+                    const float top = feet + 2.6f - f2 * 2.3f, h = top - feet;
+                    const float lx = wx + fx * 0.2f, ly = wy + fy * 0.2f;   // where CJ ends up
+                    if (f2 < 1.0f && h >= 0.7f && h <= 2.5f &&
+                        g_world.RayCast(playerX, playerY, top + 0.3f, lx, ly, top + 0.3f) >= 1.0f &&   // wall ends at the ledge
+                        g_world.RayCast(lx, ly, top + 0.05f, lx, ly, top + 1.8f) >= 1.0f) {           // room to stand
+                        const float bx = wx + fx * 1.0f, by = wy + fy * 1.0f;
+                        const float bg = g_world.GetGroundHeight(bx, by, top);
+                        cl.vault = h <= 1.3f && bg > ColLoader::kNoGround * 0.5f && bg <= top - 0.8f;
+                        cl.x0 = playerX; cl.y0 = playerY; cl.z0 = feet;
+                        cl.x1 = playerX + fx * (wd - 0.35f); cl.y1 = playerY + fy * (wd - 0.35f); cl.z1 = feet;
+                        cl.x2 = cl.vault ? bx : lx; cl.y2 = cl.vault ? by : ly; cl.z2 = cl.vault ? bg : top;
+                        g_cj.StartClimb(cl.vault);
+                        if (g_cj.Climbing()) { cl.on = true; cl.t = 0; cl.dur = std::max(0.1f, g_cj.ClimbDuration()); }
+                    }
+                }
+            }
+            if (cl.on && !g_cj.Climbing()) cl.on = false;
             if (onGround && !(cjReady && g_cj.Busy()) && jumpJustDown) {
                 velZ = JUMP_VEL;
                 onGround = false;
@@ -2360,6 +2386,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     Log("CJ f%d clip=%s v=%.2f ratio=%.2f ground=%d hag=%.2f z=%.2f", frame, g_cj.ClipName(),
                         sqrtf(vx * vx + vy * vy), g_cj.MoveBlendRatio(), (int)onGround, pin.heightAboveGround, playerZ - EYE_HEIGHT);
             }
+            if (cl.on) vx = vy = 0.0f;
             const float ox = playerX, oy = playerY;
             float nx = playerX + vx * dt;
             float ny = playerY + vy * dt;
@@ -2405,6 +2432,29 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (playerZ <= gz + EYE_HEIGHT) {
                     playerZ = gz + EYE_HEIGHT; velZ = 0; onGround = true;
                 }
+            }
+            if (cl.on) {   // the host paces CJ along the ledge path over the clip time
+                cl.t += dt;
+                const float u = std::min(1.0f, cl.t / cl.dur);
+                float x, y, z;
+                if (cl.vault) {
+                    const float a = std::min(1.0f, u / 0.2f), b = u < 0.2f ? 0.0f : (u - 0.2f) / 0.8f;
+                    x = cl.x0 + (cl.x1 - cl.x0) * a + (cl.x2 - cl.x1) * b * b * (3.0f - 2.0f * b);
+                    y = cl.y0 + (cl.y1 - cl.y0) * a + (cl.y2 - cl.y1) * b * b * (3.0f - 2.0f * b);
+                    z = cl.z1 + (cl.z2 - cl.z1) * b + 4.0f * b * (1.0f - b) * 0.9f;   // arc over the top
+                } else if (u < 0.12f) {   // snap to the wall
+                    const float a = u / 0.12f;
+                    x = cl.x0 + (cl.x1 - cl.x0) * a; y = cl.y0 + (cl.y1 - cl.y0) * a; z = cl.z1;
+                } else if (u < 0.7f) {    // pull up the face
+                    const float a = (u - 0.12f) / 0.58f, e = a * a * (3.0f - 2.0f * a);
+                    x = cl.x1; y = cl.y1; z = cl.z1 + (cl.z2 - cl.z1) * e;
+                } else {                  // stand onto the ledge
+                    const float a = (u - 0.7f) / 0.3f, e = a * a * (3.0f - 2.0f * a);
+                    x = cl.x1 + (cl.x2 - cl.x1) * e; y = cl.y1 + (cl.y2 - cl.y1) * e; z = cl.z2;
+                }
+                playerX = x; playerY = y; playerZ = z + EYE_HEIGHT;
+                velZ = 0.0f; onGround = true;
+                if (u >= 1.0f) cl.on = false;
             }
             }
 

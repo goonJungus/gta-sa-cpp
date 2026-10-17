@@ -64,6 +64,12 @@ public:
 
     float Heading() const { return m_heading; }   // radians, world yaw CJ faces
     void SetHeading(float h) { m_heading = h; m_aimHeading = h; }
+    // Climb (CTaskSimpleClimb): plays the grab/pull/stand sequence, or a single
+    // vault clip. The host drives CJ's world position along the ledge over
+    // ClimbDuration() while Climbing() is true.
+    void StartClimb(bool vault);
+    bool Climbing() const { return m_climbing; }
+    float ClimbDuration() const { return m_climbDur; }
     // Horizontal velocity CJ's animation moves him at this frame (m/s, world).
     float VelX() const { return m_velX; }
     float VelY() const { return m_velY; }
@@ -139,6 +145,9 @@ private:
     bool m_busySoft = false;                   // FALL_land: the stick may cut it short
     const AnimClip* m_busyClip = nullptr;      // landing / collapse / get-up in progress
     const AnimClip* m_busyNext = nullptr;      // get-up after a KO skid
+    std::deque<const AnimClip*> m_climbQueue;  // remaining climb clips to chain
+    bool m_climbing = false;
+    float m_climbDur = 0.0f;                   // total climb clip time
     const AnimClip* m_landClip = nullptr;      // JUMP_land over the run
     float m_bindMinZ = 0.0f;                   // feet in model space
     float m_stickX = 0.0f, m_stickY = 0.0f;    // the stick CJ is obeying (filtered in rewrite)
