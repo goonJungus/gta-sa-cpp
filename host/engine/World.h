@@ -125,6 +125,13 @@ public:
     // (the camera's CWorld::ProcessLineOfSight).
     float RayCast(float ax, float ay, float az, float bx, float by, float bz) const;
 
+    // Sphere vs the world's COL (boxes, spheres, triangles): the deepest-free
+    // way to ask CCollision::ProcessColModels about one probe sphere. Returns
+    // the contact point on the surface and its normal (pointing out of the
+    // surface, towards the sphere).
+    struct ProbeHit { float p[3], n[3]; };
+    bool SphereProbe(float cx, float cy, float cz, float r, ProbeHit& out) const;
+
     size_t LoadedModelCount() const { return m_cache.size(); }
     size_t VisibleInstances() const { return m_visInsts; }
     size_t SolidBoxCount() const { return m_worldBoxes.size(); }

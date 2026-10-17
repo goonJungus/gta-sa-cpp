@@ -68,6 +68,7 @@ if(WIN32)
         host/engine/Movement.cpp
         host/engine/Camera.cpp
         host/engine/Water.cpp
+        host/engine/ClimbScan.cpp
         host/engine/Sky.cpp
     )
     target_include_directories(gta_standalone PRIVATE

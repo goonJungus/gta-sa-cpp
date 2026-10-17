@@ -2146,6 +2146,106 @@ float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float
     return best;
 }
 
+namespace {
+// Closest point on triangle abc to p (Ericson, Real-Time Collision Detection).
+void ClosestOnTri(const float p[3], const float a[3], const float b[3], const float c[3], float o[3]) {
+    auto sub = [](const float* u, const float* v, float* r) { for (int i = 0; i < 3; i++) r[i] = u[i] - v[i]; };
+    auto dot = [](const float* u, const float* v) { return u[0] * v[0] + u[1] * v[1] + u[2] * v[2]; };
+    float ab[3], ac[3], ap[3];
+    sub(b, a, ab); sub(c, a, ac); sub(p, a, ap);
+    const float d1 = dot(ab, ap), d2 = dot(ac, ap);
+    if (d1 <= 0 && d2 <= 0) { for (int i = 0; i < 3; i++) o[i] = a[i]; return; }
+    float bp[3]; sub(p, b, bp);
+    const float d3 = dot(ab, bp), d4 = dot(ac, bp);
+    if (d3 >= 0 && d4 <= d3) { for (int i = 0; i < 3; i++) o[i] = b[i]; return; }
+    const float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0 && d1 >= 0 && d3 <= 0) { const float v = d1 / (d1 - d3); for (int i = 0; i < 3; i++) o[i] = a[i] + v * ab[i]; return; }
+    float cp[3]; sub(p, c, cp);
+    const float d5 = dot(ab, cp), d6 = dot(ac, cp);
+    if (d6 >= 0 && d5 <= d6) { for (int i = 0; i < 3; i++) o[i] = c[i]; return; }
+    const float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0 && d2 >= 0 && d6 <= 0) { const float w = d2 / (d2 - d6); for (int i = 0; i < 3; i++) o[i] = a[i] + w * ac[i]; return; }
+    const float va = d3 * d6 - d5 * d4;
+    if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+        const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        for (int i = 0; i < 3; i++) o[i] = b[i] + w * (c[i] - b[i]);
+        return;
+    }
+    const float den = 1.0f / (va + vb + vc), v = vb * den, w = vc * den;
+    for (int i = 0; i < 3; i++) o[i] = a[i] + ab[i] * v + ac[i] * w;
+}
+}  // namespace
+
+bool GameWorld::SphereProbe(float cx, float cy, float cz, float r, ProbeHit& out) const {
+    const float c[3] = {cx, cy, cz};
+    bool hit = false;
+    auto take = [&](const float q[3], const float n[3]) {
+        out.p[0] = q[0]; out.p[1] = q[1]; out.p[2] = q[2];
+        out.n[0] = n[0]; out.n[1] = n[1]; out.n[2] = n[2];
+        hit = true;
+    };
+    auto outward = [&](const float q[3], float n[3]) {   // from the contact point to the sphere centre
+        float l = 0;
+        for (int i = 0; i < 3; i++) { n[i] = c[i] - q[i]; l += n[i] * n[i]; }
+        l = std::sqrt(l);
+        if (l < 1e-5f) { n[0] = n[1] = 0; n[2] = 1; } else for (int i = 0; i < 3; i++) n[i] /= l;
+    };
+    float best = r * r;
+    // Oriented boxes: clamp the centre onto each of the box's three axes.
+    const size_t nb = std::min(m_worldObbs.size(), m_worldBoxes.size());
+    for (size_t k = 0; k < nb; k++) {
+        const WorldColBox& ab = m_worldBoxes[k];
+        if (cx + r < ab.minX || cx - r > ab.maxX || cy + r < ab.minY || cy - r > ab.maxY ||
+            cz + r < ab.minZ || cz - r > ab.maxZ) continue;
+        const WorldColObb& o = m_worldObbs[k];
+        const float org[3] = {o.x[0], o.y[0], o.z[0]};
+        const int ax[3] = {1, 2, 4};
+        float q[3] = {org[0], org[1], org[2]};
+        for (int a = 0; a < 3; a++) {
+            float e[3] = {o.x[ax[a]] - org[0], o.y[ax[a]] - org[1], o.z[ax[a]] - org[2]};
+            const float len2 = e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
+            if (len2 < 1e-9f) continue;
+            float t = ((cx - org[0]) * e[0] + (cy - org[1]) * e[1] + (cz - org[2]) * e[2]) / len2;
+            t = std::clamp(t, 0.0f, 1.0f);
+            for (int i = 0; i < 3; i++) q[i] += e[i] * t;
+        }
+        const float d2 = (q[0] - cx) * (q[0] - cx) + (q[1] - cy) * (q[1] - cy) + (q[2] - cz) * (q[2] - cz);
+        if (d2 < best) { float n[3]; outward(q, n); best = d2; take(q, n); }
+    }
+    for (const WorldColSphere& s : m_worldSpheres) {
+        const float dx = cx - s.x, dy = cy - s.y, dz = cz - s.z;
+        const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > s.r + r || d < 1e-5f) continue;
+        const float n[3] = {dx / d, dy / d, dz / d};
+        const float q[3] = {s.x + n[0] * s.r, s.y + n[1] * s.r, s.z + n[2] * s.r};
+        const float d2 = (d - s.r) * (d - s.r);
+        if (d2 < best) { best = d2; take(q, n); }
+    }
+    const int gx = (int)std::floor(cx / kCell), gy = (int)std::floor(cy / kCell);
+    for (int i = -1; i <= 1; i++)
+        for (int j = -1; j <= 1; j++) {
+            auto it = m_cells.find(CellKey(gx + i, gy + j));
+            if (it == m_cells.end()) continue;
+            for (const ColTriangle& t : it->second.tris) {
+                if (std::min({t.az, t.bz, t.cz}) > cz + r || std::max({t.az, t.bz, t.cz}) < cz - r) continue;
+                const float a[3] = {t.ax, t.ay, t.az}, b[3] = {t.bx, t.by, t.bz}, cc[3] = {t.cx, t.cy, t.cz};
+                float q[3];
+                ClosestOnTri(c, a, b, cc, q);
+                const float d2 = (q[0] - cx) * (q[0] - cx) + (q[1] - cy) * (q[1] - cy) + (q[2] - cz) * (q[2] - cz);
+                if (d2 >= best) continue;
+                // the triangle's own normal, facing the sphere
+                const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, v[3] = {cc[0] - a[0], cc[1] - a[1], cc[2] - a[2]};
+                float n[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+                const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (l < 1e-9f) continue;
+                for (int m = 0; m < 3; m++) n[m] /= l;
+                if (n[0] * (cx - q[0]) + n[1] * (cy - q[1]) + n[2] * (cz - q[2]) < 0) for (int m = 0; m < 3; m++) n[m] = -n[m];
+                best = d2; take(q, n);
+            }
+        }
+    return hit;
+}
+
 // ------------------------------------------------------------------ helpers
 
 std::string GameWorld::ToLower(const std::string& s) {

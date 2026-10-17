@@ -33,6 +33,9 @@
 #include <unordered_map>
 #include <vector>
 
+// scan(mode, ped origin, rotation, out pos, out rotation); see ClimbScan.h.
+using ClimbScanFn = std::function<bool(int, const float*, float, float*, float*)>;
+
 class PlayerPed {
 public:
     struct Input {
@@ -52,6 +55,10 @@ public:
         // returns < -1e5 when there is none.
         std::function<float(float, float, float)> groundAt;
         float worldX = 0.0f, worldY = 0.0f, feetZ = 0.0f;
+        bool jumpHeld = false;                // CPad::GetJump
+        bool jumpDown = false;                // CPad::JumpJustDown
+        bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
+        ClimbScanFn climbScan;
     };
 
     bool Init(D3DRenderer& r, const std::string& gameDir);
@@ -64,12 +71,15 @@ public:
 
     float Heading() const { return m_heading; }   // radians, world yaw CJ faces
     void SetHeading(float h) { m_heading = h; m_aimHeading = h; }
-    // Climb (CTaskSimpleClimb): plays the grab/pull/stand sequence, or a single
-    // vault clip. The host drives CJ's world position along the ledge over
-    // ClimbDuration() while Climbing() is true.
-    void StartClimb(bool vault);
+    // CTaskSimpleClimb. The ped origin is CJ's pelvis (feet + 1.0).
+    // TestForClimb: a handhold in front of CJ? launch = Shift pressed on the ground.
+    bool TryStartClimb(float x, float y, float feetZ, bool launch, const ClimbScanFn& scan);
     bool Climbing() const { return m_climbing; }
-    float ClimbDuration() const { return m_climbDur; }
+    // The task moved CJ: world x, y and feet z to snap to (valid once, true).
+    bool TakeClimbSnap(float& x, float& y, float& feetZ);
+    float ClimbVelZ() const { return m_cVelZ; }
+    // Set when the task ended with a push (m/s) CJ keeps after letting go.
+    bool TakeClimbRelease(float v[3]);
     // Horizontal velocity CJ's animation moves him at this frame (m/s, world).
     float VelX() const { return m_velX; }
     float VelY() const { return m_velY; }
@@ -145,9 +155,20 @@ private:
     bool m_busySoft = false;                   // FALL_land: the stick may cut it short
     const AnimClip* m_busyClip = nullptr;      // landing / collapse / get-up in progress
     const AnimClip* m_busyNext = nullptr;      // get-up after a KO skid
-    std::deque<const AnimClip*> m_climbQueue;  // remaining climb clips to chain
-    bool m_climbing = false;
-    float m_climbDur = 0.0f;                   // total climb clip time
+    // CTaskSimpleClimb
+    bool m_climbing = false, m_cFinished = false, m_cChangeAnim = false, m_cChangePos = false;
+    int m_cHAnim = 0, m_cHPos = 0;             // eClimbHeights: anim wanted, position state
+    float m_cHold[3] = {0, 0, 0};              // handhold (ledge point)
+    float m_cRot = 0.0f;                       // retail rotation facing the ledge
+    const AnimClip* m_cClip = nullptr;         // m_Anim
+    float m_cCounter = 0.0f;                   // m_GetToPosCounter (ms)
+    bool m_cSnapValid = false, m_cRelValid = false;
+    float m_cSnap[3] = {0, 0, 0}, m_cRel[3] = {0, 0, 0}, m_cVelZ = 0.0f;
+    float m_cPed[3] = {0, 0, 0};               // CJ's origin as the host last reported it
+    ClimbScanFn m_cScan;
+    void ProcessClimb(const Input& in);
+    void ClimbStartAnim();
+    bool ClimbTest(int mode, int how);         // TestForVault / TestForStandUp
     const AnimClip* m_landClip = nullptr;      // JUMP_land over the run
     float m_bindMinZ = 0.0f;                   // feet in model space
     float m_stickX = 0.0f, m_stickY = 0.0f;    // the stick CJ is obeying (filtered in rewrite)

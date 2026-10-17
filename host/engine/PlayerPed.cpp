@@ -483,9 +483,7 @@ void PlayerPed::BuildPose() {
             float st[3];
             for (int i = 0; i < 3; i++)
                 st[i] = s->hasTranslation ? ka.t[i] + (kb.t[i] - ka.t[i]) * u : m_skeleton[f].local.m[3][i];
-            // Root horizontal travel is extracted into velocity. During a climb
-            // the host drives the whole position, so the root is pinned.
-            if (m_skeleton[f].boneId == 0) { st[0] = 0.0f; st[1] = 0.0f; if (m_climbing) st[2] = 0.0f; }
+            if (m_skeleton[f].boneId == 0) { st[0] = 0.0f; st[1] = 0.0f; }   // extracted root motion
             const float dot = q[0] * sq[0] + q[1] * sq[1] + q[2] * sq[2] + q[3] * sq[3];
             const float sign = (w > 0.0f && dot < 0.0f) ? -1.0f : 1.0f;
             for (int i = 0; i < 4; i++) q[i] += sq[i] * a.blend * sign;
@@ -743,34 +741,182 @@ void PlayerPed::Land(const Input& in) {
     }
 }
 
-// CTaskSimpleClimb::StartAnim @ 0067dbe0: a vault is one CLIMB_jump_B; a full
-// climb chains CLIMB_jump (grab) -> CLIMB_Pull -> CLIMB_Stand ->
-// CLIMB_Stand_finish.
-void PlayerPed::StartClimb(bool vault) {
-    m_climbQueue.clear();
-    const AnimClip* first = nullptr;
-    if (vault) {
-        first = Clip("climb_jump_b");
-    } else {
-        first = Clip("climb_jump");
-        for (const char* n : {"climb_pull", "climb_stand", "climb_stand_finish"})
-            if (const AnimClip* c = Clip(n)) m_climbQueue.push_back(c);
+// ---- CTaskSimpleClimb ----
+// eClimbHeights: the clip wanted (m_HeightForAnim) and where CJ is (m_HeightForPos).
+namespace { enum { CNR = 0, CGRAB, CPULL, CSTAND, CFIN, CVAULT, CFINV }; }
+
+// Handhold offsets (008d2f1c..008d2f30, c18f78): horizontal (along the facing,
+// negative = back from the ledge) and vertical (ped origin above the handhold).
+static void ClimbOffsets(int h, float& horz, float& vert) {
+    switch (h) {
+    case CGRAB: case CPULL: horz = -0.4f; vert = -1.1f; break;
+    case CSTAND: case CVAULT: horz = -0.4f; vert = 1.0f; break;
+    case CFIN: horz = 0.15f; vert = 1.0f; break;
+    default: horz = 0.5f; vert = 1.0f; break;   // CFINV
     }
-    if (!first && !m_climbQueue.empty()) { first = m_climbQueue.front(); m_climbQueue.pop_front(); }
-    if (!first) return;
-    Blend(first, false, false, 8.0f);
-    m_busy = true;
-    m_busySoft = false;
-    m_busyClip = first;
-    m_busyNext = nullptr;
-    m_landClip = nullptr;
-    m_inAir = false;
-    m_jumping = false;
-    m_ratio = 0.0f;
+}
+
+bool PlayerPed::TryStartClimb(float x, float y, float feetZ, bool launch, const ClimbScanFn& scan) {
+    if (!m_ready || m_climbing || !scan) return false;
+    const float rot = m_heading - kPi * 0.5f;
+    const float ped[3] = {x, y, feetZ + 1.0f};
+    float hold[3], hrot = rot;
+    if (!scan(launch ? 1 : 0, ped, rot, hold, &hrot)) return false;
+    // TestForClimb: there must be room to stand on the ledge.
+    const float p2[3] = {hold[0] + std::sin(hrot) * 0.4f, hold[1] - std::cos(hrot) * 0.4f, hold[2] + 1.0f};
+    float dummy[3], dr = hrot;
+    if (scan(2, p2, hrot, dummy, &dr)) return false;
+    for (int i = 0; i < 3; i++) { m_cHold[i] = hold[i]; m_cPed[i] = ped[i]; }
+    m_cRot = hrot;
+    m_cScan = scan;
     m_climbing = true;
-    m_climbDur = first->duration;
-    for (const AnimClip* c : m_climbQueue) m_climbDur += c->duration;
+    m_cFinished = m_cChangeAnim = m_cChangePos = false;
+    m_cHAnim = CGRAB;
+    m_cHPos = CNR;
+    m_cClip = nullptr;
+    m_cCounter = 0.0f;
+    m_cSnapValid = m_cRelValid = false;
+    m_cVelZ = 0.0f;
+    m_busy = true; m_busySoft = false; m_busyClip = nullptr; m_busyNext = nullptr;
+    m_landClip = nullptr; m_inAir = false; m_jumping = false; m_ratio = 0.0f;
     m_move.Reset();
+    m_heading = m_aimHeading = m_cRot + kPi * 0.5f;
+    ClimbStartAnim();
+    return true;
+}
+
+bool PlayerPed::TakeClimbSnap(float& x, float& y, float& feetZ) {
+    if (!m_cSnapValid) return false;
+    m_cSnapValid = false;
+    x = m_cSnap[0]; y = m_cSnap[1]; feetZ = m_cSnap[2] - 1.0f;
+    return true;
+}
+
+bool PlayerPed::TakeClimbRelease(float v[3]) {
+    if (!m_cRelValid) return false;
+    m_cRelValid = false;
+    for (int i = 0; i < 3; i++) v[i] = m_cRel[i];
+    return true;
+}
+
+// CTaskSimpleClimb::StartAnim @ 0067dbe0
+void PlayerPed::ClimbStartAnim() {
+    auto go = [&](const char* name, bool loop, float rate) { m_cClip = Clip(name); if (m_cClip) Blend(m_cClip, loop, false, rate); };
+    switch (m_cHAnim) {
+    case CGRAB:
+        if (!m_cClip) go("climb_jump", false, 8.0f);
+        else go("climb_idle", true, 4.0f);   // hang
+        m_cHPos = CGRAB; m_cChangePos = false;
+        break;
+    case CPULL:
+        if (m_cHPos == CNR) { m_cHAnim = m_cHPos = CSTAND; go("climb_stand", false, 4.0f); m_cChangePos = false; }
+        else { go("climb_pull", false, 1000.0f); m_cHPos = CPULL; m_cChangePos = false; }
+        break;
+    case CSTAND:
+        go("climb_stand", false, 1000.0f); m_cChangePos = true;
+        break;
+    case CFIN: case CFINV:
+        m_ratio = 0.0f;
+        go(m_cHAnim == CFINV ? "climb_jump2fall" : "climb_stand_finish", false, 1000.0f);
+        m_cChangePos = true;
+        break;
+    case CVAULT: {
+        const bool fromStand = m_cClip == Clip("climb_stand");
+        go("climb_jump_b", false, fromStand ? 16.0f : 1000.0f);
+        m_cChangePos = true;
+        break;
+    }
+    default: break;
+    }
+    m_cChangeAnim = false;
+}
+
+// TestForVault (how = 3) / TestForStandUp (how = 2): true when the volume is free.
+bool PlayerPed::ClimbTest(int mode, int) {
+    const float p[3] = {m_cHold[0] + std::sin(m_cRot) * 0.4f, m_cHold[1] - std::cos(m_cRot) * 0.4f, m_cHold[2] + 1.0f};
+    float o[3], r = m_cRot;
+    return !m_cScan(mode, p, m_cRot, o, &r);
+}
+
+// CTaskSimpleClimb::ProcessPed @ 00680dc0
+void PlayerPed::ProcessClimb(const Input& in) {
+    const float dt = in.dt;
+    auto abort = [&]() {   // MakeAbortable: let go and fall
+        m_climbing = false; m_busy = false; m_cClip = nullptr;
+        for (Assoc& a : m_assocs) a.delta = -8.0f;
+        m_cRelValid = true; m_cRel[0] = m_cRel[1] = m_cRel[2] = 0.0f;
+        m_inAir = true;
+    };
+    m_cPed[0] = in.worldX; m_cPed[1] = in.worldY; m_cPed[2] = in.feetZ + 1.0f;
+    if (!m_cClip || m_cChangeAnim) ClimbStartAnim();
+
+    bool snapped = false;
+    const Assoc* a = Get(m_cClip);
+    if (m_cChangePos && a && a->blend >= 0.999f) { snapped = true; m_cChangePos = false; m_cHPos = m_cHAnim; }
+
+    if (m_cHPos <= CNR || !snapped) {
+        if (m_cHPos > CNR) {
+            float horz, vert; ClimbOffsets(m_cHPos, horz, vert);
+            const float t[3] = {m_cHold[0] - std::sin(m_cRot) * horz, m_cHold[1] + std::cos(m_cRot) * horz, m_cHold[2] + vert};
+            const float d[3] = {t[0] - m_cPed[0], t[1] - m_cPed[1], t[2] - m_cPed[2]};
+            const float d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+            if (d2 >= 0.1f) {   // ease towards the handhold, at most 0.2 per frame (50 Hz)
+                float v[3] = {d[0] * 0.25f / 0.02f, d[1] * 0.25f / 0.02f, d[2] * 0.25f / 0.02f};
+                const float m = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                if (m > 0.2f / 0.02f) for (float& c : v) c *= (0.2f / 0.02f) / m;
+                m_velX = v[0]; m_velY = v[1]; m_cVelZ = v[2];
+                if (!a || !a->loop || m_cClip == Clip("climb_idle")) {   // can't get there: give up
+                    m_cCounter += dt * 1000.0f;
+                    if (m_cCounter > (m_cClip == Clip("climb_idle") ? 500.0f : 1000.0f)) { abort(); return; }
+                }
+            } else {
+                m_velX = d[0] / std::max(dt, 1e-4f); m_velY = d[1] / std::max(dt, 1e-4f); m_cVelZ = d[2] / std::max(dt, 1e-4f);
+            }
+        }
+    } else {   // arrived with the clip fully blended in: snap to the pose
+        float horz, vert; ClimbOffsets(m_cHPos, horz, vert);
+        m_cSnap[0] = m_cHold[0] - std::sin(m_cRot) * horz;
+        m_cSnap[1] = m_cHold[1] + std::cos(m_cRot) * horz;
+        m_cSnap[2] = m_cHold[2] + vert;
+        m_cSnapValid = true;
+        m_velX = m_velY = m_cVelZ = 0.0f;
+        if (m_cHPos == CFIN || m_cHPos == CFINV) {   // done: back to normal control
+            const float fx = -std::sin(m_cRot), fy = std::cos(m_cRot);
+            m_cRelValid = true;
+            if (m_cHPos == CFINV) { m_cRel[0] = fx * 0.02f * 50.0f; m_cRel[1] = fy * 0.02f * 50.0f; m_cRel[2] = -0.05f * 50.0f; }
+            else { m_cRel[0] = fx * 0.05f * 50.0f; m_cRel[1] = fy * 0.05f * 50.0f; m_cRel[2] = -0.01f * 50.0f; }
+            m_airVelX = m_cRel[0]; m_airVelY = m_cRel[1];
+            m_climbing = false; m_busy = false;
+            if (Assoc* c = Get(m_cClip)) c->delta = -8.0f;
+            m_cClip = nullptr;
+            m_inAir = m_cHPos == CFINV;   // a vault lands through the fall
+            return;
+        }
+    }
+
+    // Which clip is playing decides what comes next.
+    a = Get(m_cClip);
+    if (a && a->blend >= 0.999f) {
+        const bool done = a->finished || a->time >= a->clip->duration;
+        if (m_cClip == Clip("climb_jump")) {
+            if (done) {
+                if (in.jumpHeld) { m_cHAnim += 1; m_cChangeAnim = true; ClimbStartAnim(); }
+                else ClimbStartAnim();   // let go of the button: hang (CLIMB_IDLE)
+            }
+        } else if (m_cClip == Clip("climb_idle")) {
+            if (in.jumpHeld) { m_cHAnim += 1; m_cChangeAnim = true; }   // pull up
+        } else if (done) {   // pull, stand, vault clips: on to the next stage
+            m_cHAnim += 1; m_cChangeAnim = true;
+        }
+    }
+    if (in.exitPressed) { abort(); return; }
+
+    if ((m_cHPos == CSTAND || m_cHPos == CVAULT) && a && a->finished) {
+        if (!ClimbTest(2, 2)) { abort(); return; }          // no room to stand: drop
+    } else if (m_cHAnim == CSTAND && m_cHPos < CSTAND) {
+        if (ClimbTest(3, 3)) m_cHAnim = CVAULT;             // clear volume over the ledge: vault
+    }
+    m_heading = m_aimHeading = m_cRot + kPi * 0.5f;
 }
 
 // ---- Rewrite pose layers ----
@@ -839,6 +985,18 @@ void PlayerPed::Update(const Input& in) {
     m_stickX = in.stickX;
     m_stickY = in.stickY;
 
+    if (m_climbing && !in.noclip) {
+        m_velX = m_velY = 0.0f;
+        ProcessClimb(in);
+        if (m_climbing || m_cSnapValid) {
+            Advance(dt);
+            m_rootDX = m_rootDY = 0.0f;
+            BuildPose(); BuildGlobals(m_pose); ShoulderBoneRotation();
+            if (in.rewrite) ApplyRewritePose();
+            Skin();
+            return;
+        }
+    }
     if (in.noclip) {
         // F4 fly: CJ floats in the skydive pose, accelerating when moving.
         m_inAir = false;
@@ -874,13 +1032,8 @@ void PlayerPed::Update(const Input& in) {
                     m_busyClip = m_busyNext;
                     m_busyNext = nullptr;
                     Blend(m_busyClip, false, false, 4.0f);
-                } else if (!m_climbQueue.empty()) {   // next clip of a climb
-                    m_busyClip = m_climbQueue.front();
-                    m_climbQueue.pop_front();
-                    Blend(m_busyClip, false, false, 8.0f);
                 } else {
                     m_busy = false;
-                    m_climbing = false;
                     if (b) b->delta = -4.0f;
                 }
             }
