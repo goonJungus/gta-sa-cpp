@@ -2319,9 +2319,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             } else {
             // ---- Jump (not while CJ is landing or getting up) ----
+            // Edge-triggered like GTA SA: one press is one jump, holding Space
+            // does not re-jump on landing (CPad::JumpJustDown).
             bool jumped = false;
-            if (onGround && !(cjReady && g_cj.Busy()) &&
-                ((GameKey(VK_SPACE) & 0x8000) || (g_autoWalk && g_autoGait == 3))) {
+            static bool s_prevJumpKey = false;
+            const bool jumpKeyDown = (GameKey(VK_SPACE) & 0x8000) != 0;
+            const bool jumpJustDown = (jumpKeyDown && !s_prevJumpKey) || (g_autoWalk && g_autoGait == 3);
+            s_prevJumpKey = jumpKeyDown;
+            if (onGround && !(cjReady && g_cj.Busy()) && jumpJustDown) {
                 velZ = JUMP_VEL;
                 onGround = false;
                 jumped = true;
@@ -2358,8 +2363,25 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             const float ox = playerX, oy = playerY;
             float nx = playerX + vx * dt;
             float ny = playerY + vy * dt;
-            if (!hitsSolid(playerX, playerY, nx, playerY)) playerX = nx;
-            if (!hitsSolid(playerX, playerY, playerX, ny)) playerY = ny;
+            const bool movedX = !hitsSolid(playerX, playerY, nx, playerY);
+            if (movedX) playerX = nx;
+            const bool movedY = !hitsSolid(playerX, playerY, playerX, ny);
+            if (movedY) playerY = ny;
+            if (!movedX && !movedY && (vx != 0.0f || vy != 0.0f)) {
+                // Angled wall: both axis steps hit it, so CJ would stick. Slide
+                // along the surface instead, like GTA SA: try headings fanned
+                // out from the intended one (smallest turn first), keeping
+                // only the component of speed along each.
+                const float sp = sqrtf(vx * vx + vy * vy), hd = atan2f(vy, vx);
+                for (int k = 1; k <= 6; k++)
+                    for (int sgn = -1; sgn <= 1; sgn += 2) {
+                        const float a = hd + sgn * k * 0.2618f;   // 15 degree steps up to 90
+                        const float len = sp * cosf(k * 0.2618f) * dt;
+                        const float sx = playerX + cosf(a) * len, sy = playerY + sinf(a) * len;
+                        if (!hitsSolid(playerX, playerY, sx, sy)) { playerX = sx; playerY = sy; goto slid; }
+                    }
+                slid:;
+            }
             {   // pushing into a wall (rewrite handling drops its momentum)
                 const float want = sqrtf(vx * vx + vy * vy) * dt;
                 const float got = sqrtf((playerX - ox) * (playerX - ox) + (playerY - oy) * (playerY - oy));

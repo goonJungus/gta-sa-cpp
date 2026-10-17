@@ -18,11 +18,13 @@
 struct MovementParams {
     // [Momentum]
     float inputDeadZone = 0.08f, stopEpsilon = 0.015f;
-    float walkAcceleration = 1.3f, runAcceleration = 1.6f, sprintAcceleration = 1.5f;
-    float braking = 4.1f, reversalBraking = 3.2f;
+    // Thin momentum layer: GTA SA's own move-blend-ratio ramp governs how fast
+    // CJ speeds up, so forward feel stays 1:1 with retail.
+    float walkAcceleration = 5.0f, runAcceleration = 6.0f, sprintAcceleration = 6.0f;
+    float braking = 7.0f, reversalBraking = 6.0f;
     float reversalAngleDegrees = 115.0f, reversalSwitchSpeed = 0.12f;
-    float lowSpeedTurnRate = 540.0f, highSpeedTurnRate = 210.0f, highSpeedTurnStart = 0.60f;
-    float lateralGrip = 0.72f;
+    float lowSpeedTurnRate = 540.0f, highSpeedTurnRate = 300.0f, highSpeedTurnStart = 0.60f;
+    float lateralGrip = 0.93f;
     // [MovementHeading]
     float headingResponse = 6.8f, headingVelocityResponse = 14.0f;
     float maxHeadingSpeed = 245.0f, minimumMovementInput = 0.05f;

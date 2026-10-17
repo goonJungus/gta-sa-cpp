@@ -78,6 +78,10 @@ if(WIN32)
             UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
         # CPed.cpp-style /Zm is not needed here (play engine only); keep /W3.
         target_compile_options(gta_standalone PRIVATE /W3)
+    else()
+        # MinGW cross-build (scripts/build_mingw.sh): same entry point and charset.
+        target_compile_definitions(gta_standalone PRIVATE UNICODE _UNICODE)
+        target_link_options(gta_standalone PRIVATE -municode)
     endif()
 else()
     message(STATUS "gta_standalone host skipped (Windows/D3D9 only); library builds everywhere")

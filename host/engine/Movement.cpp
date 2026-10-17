@@ -88,8 +88,9 @@ void Movement::FilterStick(float dt, float& stickX, float& stickY, bool walk, bo
         }
     }
     if (target <= 0.001f && m_speed <= p.stopEpsilon) m_speed = 0.0f;
-    // Pushing into a wall zeroes the momentum.
-    if (blocked && m_speed > 0.001f) m_speed = m_dirX = m_dirY = 0.0f;
+    // Pushing into a wall keeps the momentum: GTA SA keeps the legs running and
+    // the ped slides along the surface (the host resolves the slide per axis).
+    (void)blocked;
 
     stickX = m_dirX * m_speed;
     stickY = m_dirY * m_speed;
