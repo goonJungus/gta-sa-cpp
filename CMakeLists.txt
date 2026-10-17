@@ -81,7 +81,7 @@ if(WIN32)
     else()
         # MinGW cross-build (scripts/build_mingw.sh): same entry point and charset.
         target_compile_definitions(gta_standalone PRIVATE UNICODE _UNICODE)
-        target_link_options(gta_standalone PRIVATE -municode)
+        target_link_options(gta_standalone PRIVATE -municode -static -static-libgcc -static-libstdc++)
     endif()
 else()
     message(STATUS "gta_standalone host skipped (Windows/D3D9 only); library builds everywhere")
