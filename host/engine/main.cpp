@@ -10,8 +10,8 @@
 // Play controls:
 //   W/A/S/D - move (camera-relative)
 //   Mouse   - look around
-//   Shift   - run (faster)
-//   Space   - jump
+//   Space   - sprint
+//   Shift   - jump
 //   ESC / P - pause menu (Options > Display Setup > Advanced: frame limiter,
 //             VSync, draw distance; Quit Game exits)
 //
@@ -2160,8 +2160,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
             // ---- WASD movement (camera-relative, on XY plane) ----
             // CJ's own speeds (root travel of WALK_player / run_player /
-            // sprint_civi): run by default, Shift sprints, Alt walks.
-            float speed = (GameKey(VK_SHIFT) & 0x8000) ? CJ_SPRINT_SPEED
+            // sprint_civi): run by default, Space sprints, Alt walks.
+            float speed = (GameKey(VK_SPACE) & 0x8000) ? CJ_SPRINT_SPEED
                         : (GameKey(VK_MENU) & 0x8000)  ? CJ_WALK_SPEED : CJ_RUN_SPEED;
             if (g_autoWalk && g_autoGait == 1) speed = CJ_WALK_SPEED;
             if (g_autoWalk && g_autoGait == 2) speed = CJ_SPRINT_SPEED;
@@ -2319,11 +2319,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             } else {
             // ---- Jump (not while CJ is landing or getting up) ----
-            // Edge-triggered like GTA SA: one press is one jump, holding Space
+            // Edge-triggered like GTA SA: one press is one jump, holding Shift
             // does not re-jump on landing (CPad::JumpJustDown).
             bool jumped = false;
             static bool s_prevJumpKey = false;
-            const bool jumpKeyDown = (GameKey(VK_SPACE) & 0x8000) != 0;
+            const bool jumpKeyDown = (GameKey(VK_SHIFT) & 0x8000) != 0;   // PC SA: Shift jumps
             const bool jumpJustDown = (jumpKeyDown && !s_prevJumpKey) || (g_autoWalk && g_autoGait == 3);
             s_prevJumpKey = jumpKeyDown;
             // ---- Climb: Space facing a ledge (CTaskSimpleClimb / ScanToGrab) ----
@@ -2367,7 +2367,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.stickX = mx;
                 pin.stickY = my;
                 pin.walk = (GameKey(VK_MENU) & 0x8000) || (g_autoWalk && g_autoGait == 1);
-                pin.sprint = (GameKey(VK_SHIFT) & 0x8000) || (g_autoWalk && g_autoGait == 2);
+                pin.sprint = (GameKey(VK_SPACE) & 0x8000) || (g_autoWalk && g_autoGait == 2);
                 pin.onGround = onGround;
                 pin.jumped = jumped;
                 pin.velZ = velZ;
@@ -2675,7 +2675,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_devLighting ? "ON" : "OFF (full-bright)",
                 cjReady ? PlayerCamera::ViewName(g_menu.Settings().cameraStyle, g_playerCam.View())
                         : thirdPerson ? "3rd" : "1st",
-                (GameKey(VK_SHIFT) & 0x8000) ? "sprint" : (GameKey(VK_MENU) & 0x8000) ? "walk" : "run",
+                (GameKey(VK_SPACE) & 0x8000) ? "sprint" : (GameKey(VK_MENU) & 0x8000) ? "walk" : "run",
                 g_cj.ClipName());
             DrawDebugText(dev, dbg, 12.0f, 12.0f, 1.4f, 0xFFFFFF00); // yellow
         }
@@ -2703,8 +2703,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 {"R", "Reset profiler"},
                 {"V", std::string("Camera (") + (cjReady ? PlayerCamera::ViewName(g_menu.Settings().cameraStyle, g_playerCam.View())
                                                                  : thirdPerson ? "3rd" : "1st") + ")"},
-                {"WASD", "Move, Shift run"},
-                {"Space", "Jump"},
+                {"WASD", "Move, Alt walk"},
+                {"Space", "Sprint"},
+                {"Shift", "Jump"},
             };
             g_menu.Draw(g_renderer);
         }
