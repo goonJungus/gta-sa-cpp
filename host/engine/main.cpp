@@ -1754,6 +1754,26 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const float FLY_CX = 2500.0f, FLY_CY = -1680.0f, FLY_R = 100.0f, FLY_H = 30.0f;
     if (flyover) Log("FLYOVER MODE: circular path r=100 h=30, 12 shots/loop, 2 loops");
     const float MOUSE_SENS = 0.0035f;
+    // Dev: GTA_CLIMBSWEEP=<radius> lists every ledge the climb scan finds around the start (headless test aid).
+    if (const char* sw = getenv("GTA_CLIMBSWEEP")) {
+        const float rad = (float)atof(sw);
+        g_world.Stream(playerX, playerY, playerZ);
+        for (float x = playerX - rad; x <= playerX + rad; x += 1.0f)
+            for (float y = playerY - rad; y <= playerY + rad; y += 1.0f) {
+                const float gz = g_world.GetGroundHeight(x, y, playerZ + 2.0f);
+                for (int k = 0; k < 16; k++) {
+                    const float rot = k * 0.3927f, ped[3] = {x, y, gz + 1.0f};
+                    float hold[3], hr = rot;
+                    if (!ClimbScan(g_world, 1, ped, rot, hold, &hr)) continue;
+                    const float p2[3] = {hold[0] + sinf(hr) * 0.4f, hold[1] - cosf(hr) * 0.4f, hold[2]};
+                    float d[3], dr = hr;
+                    const bool room = !ClimbScan(g_world, 2, p2, hr, d, &dr);
+                    const bool vault = !ClimbScan(g_world, 3, p2, hr, d, &dr);
+                    Log("SWEEP %.1f %.1f feet=%.2f rot=%.0f hold=%.2f rel=%.2f room=%d vault=%d", x, y, gz, rot * 57.29578f, hold[2], hold[2] - gz, room, vault);
+                }
+            }
+        Log("SWEEP done");
+    }
 
     // Headless verification overrides: place/orient the camera deterministically
     if (playMode) {

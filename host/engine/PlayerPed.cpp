@@ -750,9 +750,9 @@ namespace { enum { CNR = 0, CGRAB, CPULL, CSTAND, CFIN, CVAULT, CFINV }; }
 static void ClimbOffsets(int h, float& horz, float& vert) {
     switch (h) {
     case CGRAB: case CPULL: horz = -0.4f; vert = -1.1f; break;
-    case CSTAND: case CVAULT: horz = -0.4f; vert = 1.0f; break;
+    case CSTAND: case CVAULT: horz = -0.4f; vert = 0.0f; break;
     case CFIN: horz = 0.15f; vert = 1.0f; break;
-    default: horz = 0.5f; vert = 1.0f; break;   // CFINV
+    default: horz = 0.5f; vert = 0.0f; break;   // CFINV
     }
 }
 
@@ -763,7 +763,7 @@ bool PlayerPed::TryStartClimb(float x, float y, float feetZ, bool launch, const 
     float hold[3], hrot = rot;
     if (!scan(launch ? 1 : 0, ped, rot, hold, &hrot)) return false;
     // TestForClimb: there must be room to stand on the ledge.
-    const float p2[3] = {hold[0] + std::sin(hrot) * 0.4f, hold[1] - std::cos(hrot) * 0.4f, hold[2] + 1.0f};
+    const float p2[3] = {hold[0] + std::sin(hrot) * 0.4f, hold[1] - std::cos(hrot) * 0.4f, hold[2]};
     float dummy[3], dr = hrot;
     if (scan(2, p2, hrot, dummy, &dr)) return false;
     for (int i = 0; i < 3; i++) { m_cHold[i] = hold[i]; m_cPed[i] = ped[i]; }
@@ -833,7 +833,7 @@ void PlayerPed::ClimbStartAnim() {
 
 // TestForVault (how = 3) / TestForStandUp (how = 2): true when the volume is free.
 bool PlayerPed::ClimbTest(int mode, int) {
-    const float p[3] = {m_cHold[0] + std::sin(m_cRot) * 0.4f, m_cHold[1] - std::cos(m_cRot) * 0.4f, m_cHold[2] + 1.0f};
+    const float p[3] = {m_cHold[0] + std::sin(m_cRot) * 0.4f, m_cHold[1] - std::cos(m_cRot) * 0.4f, m_cHold[2]};
     float o[3], r = m_cRot;
     return !m_cScan(mode, p, m_cRot, o, &r);
 }

@@ -88,7 +88,7 @@ bool ClimbScan(const GameWorld& w, int mode, const float ped[3], float rot, floa
     if (!Accept(f, h, rot, pos, &r)) return false;
 
     // CTaskSimpleClimb::ms_FindEdgeColModel: slide the handhold to the lip.
-    Frame e(pos, r);
+    Frame e(pos, rot);   // retail keeps the ped's own orientation for the edge scan
     GameWorld::ProbeHit eh;
     if (FirstHit(w, e, g_edge, 16, eh) >= 0) {
         float p2[3], r2 = r;
