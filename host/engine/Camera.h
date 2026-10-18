@@ -32,6 +32,10 @@ public:
         // Collision: fraction of a -> b that is clear (1 = nothing hit).
         std::function<float(const float a[3], const float b[3])> ray;
         bool climbing = false;   // on a ledge: the ledge itself must not pull the camera in
+        // classic MODE_AIMWEAPON (CCam::Process_AimWeapon): aiming a gun on foot
+        bool aimWeapon = false;
+        float aimFov = 70.0f;     // the weapon's FOV (70; AK-47 / M4 50; country rifle 35), retail degrees
+        float pedHeading = 0.0f;  // radians, the direction CJ faces
     };
     struct Output {
         float eye[3] = {0, 0, 0};
@@ -39,6 +43,7 @@ public:
         float nearClip = 0.5f;
         bool hideHead = false;              // first person: CJ's head would fill the screen
         bool firstPerson = false;
+        float fovScale = 1.0f;              // tan(fov / 2) relative to the normal 70 degrees
     };
 
     // V: next view (wraps over three).
@@ -59,6 +64,8 @@ private:
     int m_lastStyle = -1;
     // classic
     float m_zoomSmoothed = 1.5f;
+    float m_aimBlend = 0.0f;                // follow -> aim camera transition, 0..1
+    float m_aimFov = 70.0f;                 // CCam::m_fFOV while aiming, eased 1 degree per 1/50 s
     // rewrite shoulder cameras
     bool m_anchorValid = false;
     float m_anchor[3] = {0, 0, 0};          // lagged anchor

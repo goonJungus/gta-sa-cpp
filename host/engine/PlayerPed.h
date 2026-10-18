@@ -220,6 +220,7 @@ private:
     void LoadGuns(D3DRenderer& r, const std::string& gameDir);
     void ShutdownGuns(D3DRenderer& r);
     void UpdateGun(const Input& in);
+    void DrawGunAt(D3DRenderer& r, const RwMat& hand, const float world[4][4]);
     void DrawGun(D3DRenderer& r, float x, float y, float feetZ);
     struct StanceW { const char* name; float w; bool move, loop; float rate; };
     void StanceBlend(const StanceW* ws, int n, float dt, float expResp, float fadeRate);
@@ -287,6 +288,7 @@ private:
         float barrel[3] = {0, 1, 0};                                         // barrel direction in hand space (long axis of the model, grip to muzzle)
     float accuracy = 1.0f;                                               // weapon.dat accuracy
     float damage = 10.0f, range = 30.0f;                                 // weapon.dat damage and weapon range
+        bool twin = false;                                                   // flag 0x800: a gun in each hand (pro skill)
         bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
         float fireOffset[3] = {0, 0, 0};
         std::vector<D3DRenderMesh*> meshes;

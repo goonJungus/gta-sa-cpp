@@ -184,6 +184,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.accuracy = (float)std::atof((*row)[16].c_str());
         // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
         g.aimWithArm = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x2) != 0;
+        g.twin = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x800) != 0;
         g.reloadTime = 1.0f;
         g.fireOffset[0] = (float)std::atof((*row)[11].c_str());
         g.fireOffset[1] = (float)std::atof((*row)[12].c_str());
@@ -333,7 +334,9 @@ void PlayerPed::UpdateGun(const Input& in) {
     const bool crouch = m_ducking;
     const float loopStart = crouch ? g.loop2Start : g.loopStart, loopEnd = crouch ? g.loop2End : g.loopEnd,
                 fireTime = crouch ? g.fire2Time : g.fireTime;
-    const AnimClip* fireClip = Clip(crouch && sp.crouchFire && Clip(sp.crouchFire) ? sp.crouchFire : g.fireClip);
+    // the pro (twin) groups crouch-fire with 2guns_crouchfire (aColt45proAnimations / aSawnoffproAnimations)
+    const char* crouchFire = g.twin && Clip("2guns_crouchfire") ? "2guns_crouchfire" : sp.crouchFire;
+    const AnimClip* fireClip = Clip(crouch && crouchFire && Clip(crouchFire) ? crouchFire : g.fireClip);
     const AnimClip* relClip = Clip(crouch && sp.crouchReload && Clip(sp.crouchReload) ? sp.crouchReload
                                    : sp.reload ? sp.reload : "");
     if (!fireClip) return;
@@ -468,7 +471,31 @@ void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
     if (!dev) return;
     const float a = m_heading - 1.57079633f, c = std::cos(a), s = std::sin(a);
     const float w[4][4] = {{c, s, 0, 0}, {-s, c, 0, 0}, {0, 0, 1, 0}, {x, y, feetZ - m_bindMinZ, 1}};
-    const RwMat& h = m_globals[f];
+    // CVisibilityPlugins::RenderWeaponPedsForPC: the right hand's matrix; a twin gun is drawn again
+    // from the left hand turned 180 degrees about X then moved (0.04, -0.05, 0), both pre-concatenated.
+    DrawGunAt(r, m_globals[f], w);
+    const int fl = m_frameOfBone[34];
+    if (m_guns[m_gun].twin && fl >= 0 && fl < (int)m_globals.size()) {
+        RwMat local;   // translate, then rotate, in the hand's space
+        local.m[1][1] = -1.0f; local.m[2][2] = -1.0f;
+        local.m[3][0] = 0.04f; local.m[3][1] = 0.05f; local.m[3][2] = 0.0f;   // (0.04, -0.05, 0) * Rx(180)
+        const RwMat lm = local * m_globals[fl];
+        if (std::getenv("GTA_IKDBG")) {
+            static int n = 0;
+            if (++n % 30 == 0) {
+                const float* b = m_guns[m_gun].barrel;
+                float cr[3], cl[3];
+                const RwMat& rm = m_globals[f];
+                for (int k = 0; k < 3; k++) { cr[k] = b[0] * rm.m[0][k] + b[1] * rm.m[1][k] + b[2] * rm.m[2][k]; cl[k] = b[0] * lm.m[0][k] + b[1] * lm.m[1][k] + b[2] * lm.m[2][k]; }
+                std::fprintf(stderr, "[TWIN] barrel %.0f %.0f %.0f R (%.2f %.2f %.2f) L (%.2f %.2f %.2f) Lpos (%.2f %.2f %.2f) Rpos (%.2f %.2f %.2f)\n", b[0], b[1], b[2], cr[0], cr[1], cr[2], cl[0], cl[1], cl[2], lm.m[3][0], lm.m[3][1], lm.m[3][2], rm.m[3][0], rm.m[3][1], rm.m[3][2]);
+            }
+        }
+        DrawGunAt(r, lm, w);
+    }
+}
+
+void PlayerPed::DrawGunAt(D3DRenderer& r, const RwMat& h, const float w[4][4]) {
+    IDirect3DDevice9* dev = r.GetDevice();
     float hm[4][4];
     for (int i = 0; i < 4; i++) { for (int j = 0; j < 3; j++) hm[i][j] = h.m[i][j]; hm[i][3] = i == 3 ? 1.0f : 0.0f; }
     D3DMATRIX out;
