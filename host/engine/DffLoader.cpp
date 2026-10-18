@@ -154,6 +154,11 @@ bool DffLoader::ParseMaterialList(Reader& r, size_t listEnd,
         DffMaterial mat;
         // Material struct (flags, color, surface props) - skip by size
         if (r.ReadHeader(h) && h.type == RW_STRUCT) {
+            if (h.size >= 8) {   // flags, then the colour as R, G, B, A bytes
+                uint32_t rgba = 0;
+                std::memcpy(&rgba, r.data + r.pos + 4, 4);
+                mat.color = SwapRgbaToD3d(rgba);
+            }
             r.pos += h.size;
         }
         // Inner sections: RW_TEXTURE*, RW_EXTENSION
@@ -375,6 +380,7 @@ bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize,
         if (b < materials.size()) {
             mesh.textureName = materials[b].textureName;
             mesh.materialName = materials[b].materialName;
+            mesh.materialColor = materials[b].color;
         }
         outMeshes.push_back(std::move(mesh));
     }

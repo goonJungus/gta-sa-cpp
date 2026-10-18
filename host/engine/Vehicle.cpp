@@ -163,6 +163,32 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             m_handling[h.name] = h;
         }
     }
+    {   // data/carcols.dat: the colour table (col) and the allowed colour pairs per model (car)
+        std::istringstream in(ReadText(gameDir + "/data/carcols.dat"));
+        std::string sect;
+        for (std::string line; std::getline(in, line);) {
+            const size_t hash = line.find('#');
+            if (hash != std::string::npos) line = line.substr(0, hash);
+            line = Trim(line);
+            if (line.empty()) continue;
+            if (line == "col" || line == "car" || line == "car4" || line == "car3") { sect = line; continue; }
+            if (line == "end") { sect.clear(); continue; }
+            std::vector<std::string> f;
+            std::stringstream ss(line);
+            for (std::string t; std::getline(ss, t, ',');) f.push_back(Trim(t));
+            if (sect == "col" && f.size() >= 3)
+                m_colours.push_back({(uint8_t)std::atoi(f[0].c_str()), (uint8_t)std::atoi(f[1].c_str()), (uint8_t)std::atoi(f[2].c_str())});
+            else if ((sect == "car" || sect == "car4") && f.size() >= 3) {
+                const int per = sect == "car" ? 2 : 4;
+                std::vector<std::array<int, 4>>& sets = m_carColours[Lower(f[0])];
+                for (size_t i = 1; i + (size_t)per <= f.size(); i += (size_t)per) {
+                    std::array<int, 4> c = {std::atoi(f[i].c_str()), std::atoi(f[i + 1].c_str()), 0, 0};
+                    if (per == 4) { c[2] = std::atoi(f[i + 2].c_str()); c[3] = std::atoi(f[i + 3].c_str()); }
+                    sets.push_back(c);
+                }
+            }
+        }
+    }
     {
         ImgLoader img;
         if (img.Open(gameDir + "/models/gta3.img")) m_sharedTxd = img.Extract("vehicle.txd");
@@ -259,15 +285,24 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         const std::string name = fr >= 0 && (size_t)fr < w.frames.size() ? w.frames[(size_t)fr].name : std::string();
         const bool wheel = name == "wheel";
         if (!wheel && HiddenPart(name)) continue;
-        // The baked colours of a car are not its paint; paint comes from carcols.dat (not read yet), so
-        // untextured body panels get a plain light grey and textured ones stay white.
-        const uint32_t tint = dm.textureName.empty() ? 0xFFC0C0C0u : 0xFFFFFFFFu;
+        // Paint areas are marked with fixed material colours (green, pink, cyan, magenta); the rest of the car
+        // keeps its material colour, white under a texture.
+        const uint32_t mc = dm.materialColor & 0x00FFFFFFu;
+        int slot = -1;
+        if (mc == 0x003CFF00u) slot = 0; else if (mc == 0x00FF00AFu) slot = 1; else if (mc == 0x0000FFFFu) slot = 2; else if (mc == 0x00FF00FFu) slot = 3;
+        const uint32_t tint = !dm.textureName.empty() ? 0xFFFFFFFFu : (slot >= 0 ? 0xFFFFFFFFu : (0xFF000000u | mc));
         for (DffVertex& v : dm.vertices) v.color = tint;
         D3DRenderMesh* mesh = r.CreateMesh(reinterpret_cast<const MeshVertex*>(dm.vertices.data()), (uint32_t)dm.vertices.size(),
                                            dm.indices.data(), (uint32_t)dm.indices.size());
         if (!mesh) continue;
         mesh->texture = texture(dm.textureName);
         mesh->doubleSided = true;
+        if (slot >= 0) {
+            VehicleModel::PaintPart pp;
+            pp.mesh = mesh; pp.slot = slot;
+            pp.verts.assign(reinterpret_cast<const MeshVertex*>(dm.vertices.data()), reinterpret_cast<const MeshVertex*>(dm.vertices.data()) + dm.vertices.size());
+            vm.paintParts.push_back(std::move(pp));
+        }
         if (wheel) { vm.wheelMesh = mesh; continue; }
         VehiclePart p;
         p.mesh = mesh;
@@ -282,6 +317,12 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
     if (!Model(r, id)) return -1;
     VehicleInstance c;
     c.model = id; c.x = x; c.y = y; c.z = z; c.heading = heading;
+    auto cc = m_carColours.find(Info(id)->dff);
+    if (cc != m_carColours.end() && !cc->second.empty()) {
+        m_rng = m_rng * 1664525u + 1013904223u;
+        const std::array<int, 4>& set = cc->second[(m_rng >> 8) % cc->second.size()];
+        for (int k = 0; k < 4; k++) c.paint[k] = set[(size_t)k];
+    }
     m_cars.push_back(c);
     return (int)m_cars.size() - 1;
 }
@@ -289,6 +330,8 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
 void Vehicles::Draw(D3DRenderer& r) {
     IDirect3DDevice9* dev = r.GetDevice();
     if (!dev) return;
+    // The paint is the vertex colour: let it drive the ambient term too, or the bright ambient washes it out.
+    dev->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_COLOR1);
     for (const VehicleInstance& c : m_cars) {
         auto it = m_models.find(c.model);
         if (it == m_models.end()) continue;
@@ -297,6 +340,14 @@ void Vehicles::Draw(D3DRenderer& r) {
         const float cs = std::cos(c.heading), sn = std::sin(c.heading);
         const float body[16] = {cs, sn, 0, 0, -sn, cs, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
         D3DMATRIX out;
+        for (const VehicleModel::PaintPart& pp : const_cast<VehicleModel&>(vm).paintParts) {   // this car's paint
+            const int idx = c.paint[pp.slot];
+            const std::array<uint8_t, 3> rgb = idx >= 0 && (size_t)idx < m_colours.size() ? m_colours[(size_t)idx] : std::array<uint8_t, 3>{200, 200, 200};
+            const uint32_t col = 0xFF000000u | ((uint32_t)rgb[0] << 16) | ((uint32_t)rgb[1] << 8) | rgb[2];
+            std::vector<MeshVertex>& vv = const_cast<VehicleModel::PaintPart&>(pp).verts;
+            for (MeshVertex& v : vv) v.color = col;
+            r.UpdateMeshVertices(pp.mesh, vv.data(), (uint32_t)vv.size());
+        }
         for (const VehiclePart& p : vm.parts) {
             Mul(p.m, body, &out._11);
             dev->SetTransform(D3DTS_WORLD, &out);
@@ -322,6 +373,7 @@ void Vehicles::Draw(D3DRenderer& r) {
             r.DrawMesh(vm.wheelMesh);
         }
     }
+    dev->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
 }
 
 int Vehicles::Nearest(float x, float y, float range) const {

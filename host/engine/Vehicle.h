@@ -5,6 +5,7 @@
 // gives the dynamics numbers. A model is built from the DFF frame tree: body parts are drawn at their
 // frame, the single wheel atomic is drawn at the four wheel dummies. The car is static for now.
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -46,6 +47,8 @@ struct VehicleModel {
     std::vector<VehiclePart> parts;   // body parts
     D3DRenderMesh* wheelMesh = nullptr;
     std::vector<IDirect3DTexture9*> textures;
+    struct PaintPart { D3DRenderMesh* mesh; std::vector<MeshVertex> verts; int slot; };
+    std::vector<PaintPart> paintParts;   // meshes whose colour follows the car's paint
     float wheelPos[4][3] = {};        // lf, rf, lb, rb in car space
     bool wheelFound[4] = {false, false, false, false};
 };
@@ -54,6 +57,7 @@ struct VehicleInstance {
     int model = 0;
     float x = 0, y = 0, z = 0, heading = 0;
     float wheelSpin = 0.0f;
+    int paint[4] = {0, 0, 0, 0};      // carcols.dat colour indices: primary, secondary, tertiary, quaternary
     float speed = 0.0f;               // m/s along the heading, negative in reverse
     float steer = 0.0f;               // current front wheel angle, radians
 };
@@ -96,4 +100,9 @@ private:
     std::unordered_map<int, VehicleModel> m_models;
     std::vector<VehicleInstance> m_cars;
     std::vector<uint8_t> m_sharedTxd;
+    std::vector<std::array<uint8_t, 3>> m_colours;                  // carcols.dat colour table
+    std::unordered_map<std::string, std::vector<std::array<int, 4>>> m_carColours;   // model name -> allowed paint sets
+    unsigned m_rng = 7;
+    void ApplyPaint(D3DRenderer& r, VehicleModel& vm, const int paint[4]);
+    int m_paintedFor = -1;
 };
