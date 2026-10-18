@@ -1043,6 +1043,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     }
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
+    if (cjReady) {   // [Player] Fat / Muscle in the ini (0..100), GTA_FAT / GTA_MUSCLE override
+        float fat = GetPrivateProfileIntA("Player", "Fat", 0, g_iniPath) / 100.0f;
+        float mus = GetPrivateProfileIntA("Player", "Muscle", 0, g_iniPath) / 100.0f;
+        if (const char* e = getenv("GTA_FAT")) fat = (float)atof(e);
+        if (const char* e = getenv("GTA_MUSCLE")) mus = (float)atof(e);
+        if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
+    }
     Log("PLAYER: CJ model %s", cjReady ? "ready" : "FAILED (using the box)");
 
     // ---- Player state (first-person, real human scale) ----

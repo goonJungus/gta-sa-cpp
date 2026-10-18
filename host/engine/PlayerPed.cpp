@@ -307,6 +307,14 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         // (bones the base lacks, e.g. the "Nub" end bones, map to node 0).
         Part part;
         part.verts = c->vertices;
+        // The Fat and Ripped (muscle) clumps share the Normal one's topology;
+        // CClothesBuilder::BlendGeometry mixes their vertices by ratio.
+        part.shape[0] = c->vertices;
+        for (const SkinnedClump& k : clumps) {
+            const std::string n = Lower(k.rootName);
+            const int s = n == "fat" ? 1 : n == "ripped" ? 2 : 0;
+            if (s && k.valid && k.vertices.size() == c->vertices.size()) part.shape[s] = k.vertices;
+        }
         part.boneFrame.resize(c->nodeIds.size(), 0);
         part.inverseBind.resize(c->nodeIds.size());
         for (size_t n = 0; n < c->nodeIds.size(); n++) {
@@ -1302,5 +1310,29 @@ void PlayerPed::ControlSwim(const Input& in) {
     case SwimState::BackToSurface:
         if (cur && cur->finished) { m_swimState = SwimState::Tread; m_swimClip = nullptr; }
         break;
+    }
+}
+
+// CClothesBuilder::BlendGeometry: positions, normals and UVs are the ratio-
+// weighted sum of the Normal, Fat and Ripped shapes (ratios 1-f-m, f, m).
+void PlayerPed::SetBodyShape(float fat, float muscle) {
+    fat = std::clamp(fat, 0.0f, 1.0f);
+    muscle = std::clamp(muscle, 0.0f, 1.0f);
+    if (fat + muscle > 1.0f) { const float k = 1.0f / (fat + muscle); fat *= k; muscle *= k; }
+    const float r[3] = {1.0f - fat - muscle, fat, muscle};
+    for (Part& p : m_parts) {
+        for (size_t i = 0; i < p.verts.size(); i++) {
+            SkinVertex& v = p.verts[i];
+            for (int k = 0; k < 3; k++) v.pos[k] = v.normal[k] = 0.0f;
+            v.uv[0] = v.uv[1] = 0.0f;
+            for (int s = 0; s < 3; s++) {
+                if (r[s] == 0.0f) continue;
+                const std::vector<SkinVertex>& src = p.shape[p.shape[s].empty() ? 0 : s];
+                for (int k = 0; k < 3; k++) { v.pos[k] += r[s] * src[i].pos[k]; v.normal[k] += r[s] * src[i].normal[k]; }
+                v.uv[0] += r[s] * src[i].uv[0]; v.uv[1] += r[s] * src[i].uv[1];
+            }
+            const float n = std::sqrt(v.normal[0] * v.normal[0] + v.normal[1] * v.normal[1] + v.normal[2] * v.normal[2]);
+            if (n > 1e-6f) for (int k = 0; k < 3; k++) v.normal[k] /= n;
+        }
     }
 }

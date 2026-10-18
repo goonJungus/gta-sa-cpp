@@ -69,6 +69,8 @@ public:
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return m_ready; }
 
+    // CClothes fat / muscle stats, 0..1 each (the sum is capped at 1).
+    void SetBodyShape(float fat, float muscle);
     void Update(const Input& in);
     // feet = world position of the ground contact point.
     void Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHead = false);
@@ -111,6 +113,7 @@ public:
 private:
     struct Part {
         std::vector<SkinVertex> verts;
+        std::vector<SkinVertex> shape[3];   // Normal, Fat, Ripped (empty: use Normal)
         std::vector<int> boneFrame;      // part node index -> skeleton frame
         std::vector<RwMat> inverseBind;  // part node index -> inverse bind
         std::vector<MeshVertex> skinned; // per-frame output
