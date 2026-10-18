@@ -67,6 +67,7 @@ if(WIN32)
         host/engine/PlayerPed.cpp
         host/engine/PlayerFootIK.cpp
         host/engine/PlayerWeapon.cpp
+        host/engine/Vehicle.cpp
         host/engine/Hud.cpp
         host/engine/Audio.cpp
         host/engine/Effects.cpp

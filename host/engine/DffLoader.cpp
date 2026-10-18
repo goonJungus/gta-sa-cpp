@@ -249,10 +249,16 @@ bool DffLoader::ParseGeometry(Reader& r, uint32_t geomSize,
     }
 
     // UV sets
+    // The set count is the low byte of the second geometry word (vehicles carry two sets: the
+    // second is the environment map); only the first set is used.
     std::vector<float> uvs;
-    if (textured) {
+    uint32_t numUvSets = reserved & 0xFF;
+    if (numUvSets == 0 && (textured || (flags & GEO_TEXTURED2))) numUvSets = (flags & GEO_TEXTURED2) ? 2 : 1;
+    if (numUvSets > 0) {
         uvs.resize((size_t)numVerts * 2);
         if (!r.Read(uvs.data(), uvs.size() * sizeof(float)))
+            return false;
+        if (numUvSets > 1 && !r.Skip((size_t)numVerts * 2 * sizeof(float) * (numUvSets - 1)))
             return false;
     }
 
