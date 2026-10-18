@@ -51,6 +51,9 @@ struct VehicleModel {
     std::vector<PaintPart> paintParts;   // meshes whose colour follows the car's paint
     float wheelPos[4][3] = {};        // lf, rf, lb, rb in car space
     bool wheelFound[4] = {false, false, false, false};
+    float wheelRadius = 0.35f;        // from the wheel mesh
+    float rideHeight = 0.7f;          // body origin above the ground when standing on the wheels
+    float wheelBase = 2.8f;           // front to rear axle
 };
 
 struct VehicleInstance {
@@ -60,6 +63,7 @@ struct VehicleInstance {
     int paint[4] = {0, 0, 0, 0};      // carcols.dat colour indices: primary, secondary, tertiary, quaternary
     float speed = 0.0f;               // m/s along the heading, negative in reverse
     float steer = 0.0f;               // current front wheel angle, radians
+    float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
 };
 
 class Vehicles {
