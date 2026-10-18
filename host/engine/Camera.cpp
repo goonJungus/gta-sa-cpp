@@ -83,6 +83,34 @@ PlayerCamera::Output PlayerCamera::Update(const Input& in) {
         const float target[3] = {in.feet[0], in.feet[1], in.feet[2] + kPedCentre + kPedCamHeight};
         float eye[3] = {target[0] - dir[0] * dist, target[1] - dir[1] * dist, target[2] - dir[2] * dist};
         clipToWorld(target, eye, 0.2f);
+        // CCam::Process_AimWeapon (on foot, free aim): the FOV eases to the weapon's 1 degree per
+        // 1/50 s; the look-at point is 0.5 m above the ped centre (+0.1 m zoomed in) and 0.2 m to
+        // his right (0.2 .. 0.3 zoomed in); the camera sits 1.0 + 1.6 cos(pitch) behind it.
+        const float fovTarget = in.aimWeapon ? in.aimFov : 70.0f;
+        const float fstep = 50.0f * in.dt;
+        m_aimFov = m_aimFov < fovTarget ? std::min(fovTarget, m_aimFov + fstep) : std::max(fovTarget, m_aimFov - fstep);
+        m_aimBlend = std::clamp(m_aimBlend + (in.aimWeapon ? 1.0f : -1.0f) * in.dt / 0.25f, 0.0f, 1.0f);
+        if (m_aimBlend > 0.0f) {
+            float side = 0.2f, lift = 0.0f;
+            if (m_aimFov < 70.0f) {
+                lift = std::min(1.0f, (70.0f - m_aimFov) / (70.0f - 50.0f)) * 0.1f;
+                side = std::min(1.0f, (70.0f - m_aimFov) / (70.0f - 35.0f)) * 0.1f + 0.2f;
+            }
+            const float rx = std::sin(in.pedHeading), ry = -std::cos(in.pedHeading);   // ped right
+            const float at[3] = {in.feet[0] + rx * side, in.feet[1] + ry * side, in.feet[2] + kPedCentre + 0.5f + lift};
+            // vertical angle limits for on foot: -89 .. +45 degrees
+            const float v = std::clamp(in.pitch, -1.5533f, 0.7854f);
+            const float d = 1.0f + 1.6f * std::cos(v);
+            const float cv = std::cos(v), sv = std::sin(v);
+            const float ad[3] = {std::cos(in.yaw) * cv, std::sin(in.yaw) * cv, sv};
+            float aimEye[3] = {at[0] - ad[0] * d, at[1] - ad[1] * d, at[2] - ad[2] * d};
+            clipToWorld(at, aimEye, 0.2f);
+            const float t = m_aimBlend * m_aimBlend * (3.0f - 2.0f * m_aimBlend);
+            for (int k = 0; k < 3; k++) { eye[k] += (aimEye[k] - eye[k]) * t; out.dir[k] = dir[k] + (ad[k] - dir[k]) * t; }
+            const float l = std::sqrt(out.dir[0] * out.dir[0] + out.dir[1] * out.dir[1] + out.dir[2] * out.dir[2]);
+            for (int k = 0; k < 3; k++) out.dir[k] /= l;
+        }
+        out.fovScale = std::tan(m_aimFov * 0.5f * 3.14159265f / 180.0f) / std::tan(35.0f * 3.14159265f / 180.0f);
         for (int k = 0; k < 3; k++) out.eye[k] = eye[k];
         out.nearClip = 0.3f;
         m_anchorValid = m_eyeValid = false;

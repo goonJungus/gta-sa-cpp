@@ -1230,6 +1230,16 @@ void PlayerPed::UpdateArmChain(int side, bool want, const float target[3], float
         IkEulerToQuat(e, n.q);
         calcFrom(i);
     }
+    if (std::getenv("GTA_IKDBG")) {
+        static int n[2];
+        if (++n[side] % 30 == 0) {
+            float e[4][3];
+            for (int i = 0; i < count && i < 4; i++) IkQuatToEuler(c.nodes[i].q, e[i]);
+            const float* hp = wld[0].m[3];
+            std::fprintf(stderr, "[IKCH] side %d blend %.2f hand (%.2f %.2f %.2f) tgt (%.1f %.1f %.1f) up (%.0f %.0f %.0f) fore (%.0f %.0f %.0f)\n", side, c.blend,
+                         hp[0], hp[1], hp[2], target[0], target[1], target[2], e[2][0], e[2][1], e[2][2], e[1][0], e[1][1], e[1][2]);
+        }
+    }
     // BoneNode_c::BlendKeyframe: the keyframe slerped toward the chain's orientation, then the
     // chain bones and everything under them rebuilt from the pivot.
     std::vector<RwMat> old = m_globals;
@@ -1298,6 +1308,7 @@ void PlayerPed::ApplyAimIK(const Input& in) {
         }
         if (armAim) RotateTorsoForArm(tgt);
         UpdateArmChain(0, armAim, tgt, in.dt);
+        UpdateArmChain(1, armAim && m_guns[m_gun].twin, tgt, in.dt);   // the left arm points a twin pistol too
     }
     if (armAim && std::getenv("GTA_AIMDBG") && m_frameOfBone[24] >= 0) {
         static int n = 0;

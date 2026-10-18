@@ -237,6 +237,7 @@ static float g_aimEye[3] = {0, 0, 0}, g_aimDir[3] = {0, 1, 0};   // the camera r
 // the screen centre; the rewrite crosshair is centred.
 static float g_chairX = 0.5f, g_chairY = 0.5f;
 static float g_aspect = 16.0f / 9.0f;   // render width / height
+static float g_camFovScale = 1.0f;      // aim camera zoom: tan(fov / 2) scale
 // CCamera::Find3rdPersonCamTargetVector: the ray from the camera through the crosshair.
 static void CrosshairRay(float yaw, float pitch, float out[3]) {
     const float cp = cosf(pitch), sp = sinf(pitch);
@@ -1303,10 +1304,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("PLAYER MESH: CJ_HEIGHT=%.4fm orange box (%s)", CJ_HEIGHT, playerMesh ? "OK" : "FAIL");
     }
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
-    {   // [Player] WeaponSkill: 0 poor (retail new game), 1 standard; GTA_SKILL overrides
+    {   // [Player] WeaponSkill: 0 poor (retail new game), 1 standard, 2 pro (twin pistols); GTA_SKILL overrides
         int skill = GetPrivateProfileIntA("Player", "WeaponSkill", 0, g_iniPath);
         if (const char* e = getenv("GTA_SKILL")) skill = atoi(e);
-        PlayerPed::SetWeaponSkill(skill > 0 ? 1 : 0);
+        PlayerPed::SetWeaponSkill(std::clamp(skill, 0, 2));
     }
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
     g_vehicles.Init(g_renderer, GameDir());
@@ -3206,6 +3207,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 ci.pitch = pitch;
                 ci.feet[0] = playerX; ci.feet[1] = playerY; ci.feet[2] = playerZ - EYE_HEIGHT;
                 ci.climbing = g_cj.Climbing();
+                ci.aimWeapon = camStyle == PlayerCamera::kClassic && g_cj.Aiming() && g_cj.GunIndex() >= 0 &&
+                               !g_playerCam.FirstPerson(camStyle);
+                {   // Process_AimWeapon: AK-47 / M4 zoom to 50, the country rifle to 35
+                    const std::string gid = g_cj.GunId();
+                    ci.aimFov = gid == "AK47" || gid == "M4" ? 50.0f : gid == "COUNTRYRIFLE" ? 35.0f : 70.0f;
+                }
+                ci.pedHeading = g_cj.Heading();
+                if (ci.aimWeapon) { pitch = std::clamp(pitch, -1.5533f, 0.7854f); ci.pitch = pitch; }
                 ci.haveSpine = g_cj.BoneWorldPos(3, playerX, playerY, playerZ - EYE_HEIGHT, ci.spine);
                 ci.haveHead = g_cj.BoneWorldPos(5, playerX, playerY, playerZ - EYE_HEIGHT, ci.head);
                 if (worldReady && !g_devNoClip)
@@ -3213,6 +3222,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]);
                     };
                 PlayerCamera::Output co = g_playerCam.Update(ci);
+                g_camFovScale = co.fovScale;
+                if (getenv("GTA_CAMDBG") && frame % 30 == 0)
+                    Log("CAMDBG aim %d eye %.2f %.2f %.2f feet %.2f %.2f %.2f dist %.2f fovScale %.2f", (int)ci.aimWeapon, co.eye[0], co.eye[1], co.eye[2],
+                        ci.feet[0], ci.feet[1], ci.feet[2], sqrtf((co.eye[0] - ci.feet[0]) * (co.eye[0] - ci.feet[0]) + (co.eye[1] - ci.feet[1]) * (co.eye[1] - ci.feet[1])), co.fovScale);
                 if (camStyle == PlayerCamera::kRewrite) {   // rewrite shake: displaces the camera along its own axes
                     static uint32_t shakeMs = 0;
                     static const char* devShake = getenv("GTA_SHAKE");   // dev: strength fired once at frame 20
@@ -3237,9 +3250,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const float fx = co.dir[0] / hl, fy = co.dir[1] / hl, rx = fy, ry = -fx;
                         const int m = atoi(gc);
                         float e[3] = {hp[0] + rx * 1.3f, hp[1] + ry * 1.3f, hp[2] + 0.1f};
-                        if (m == 2) { e[0] = hp[0] - fx * 0.3f; e[1] = hp[1] - fy * 0.3f; e[2] = hp[2] + 1.4f; }
+                        if (m == 2) { e[0] = hp[0] - fx * 0.01f; e[1] = hp[1] - fy * 0.01f; e[2] = hp[2] + 1.8f; }
                         if (m == 3) { e[0] = hp[0] + fx * 1.5f + rx * 0.3f; e[1] = hp[1] + fy * 1.5f + ry * 0.3f; e[2] = hp[2] + 0.1f; }
-                        view = MatrixLookAt(e[0], e[1], e[2], hp[0], hp[1], hp[2], 0, 0, 1);
+                        view = m == 2 ? MatrixLookAt(e[0], e[1], e[2], hp[0], hp[1], hp[2], fx, fy, 0)   // forward is up on screen
+                                      : MatrixLookAt(e[0], e[1], e[2], hp[0], hp[1], hp[2], 0, 0, 1);
                         co.eye[0] = e[0]; co.eye[1] = e[1]; co.eye[2] = e[2];
                     }
                 }
@@ -3303,7 +3317,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                       ? std::clamp(g_cj.MoveBlendRatio() - 2.0f, 0.0f, 1.0f) * 6.0f : 0.0f;
                 s_fovKick += (tgt - s_fovKick) * std::min(1.0f, dt * 5.0f);
             }
-            const float wantFov = (g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f) + s_fovKick;
+            float wantFov = (g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f) + s_fovKick;
+            if (g_camFovScale != 1.0f)   // the aim camera's weapon zoom
+                wantFov = 2.0f * atanf(tanf(wantFov * 3.14159265f / 360.0f) * g_camFovScale) * 360.0f / 3.14159265f;
             if (nearClip != g_nearClip || wantFov != g_fovDeg) {   // first person needs a near plane at the eyes
                 g_nearClip = nearClip;
                 g_fovDeg = wantFov;
