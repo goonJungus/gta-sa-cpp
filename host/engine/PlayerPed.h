@@ -75,6 +75,8 @@ public:
         ClimbScanFn climbScan;
     };
 
+    // Weapon skill of CJ: 0 poor (a new game), 1 standard. Call before Init; picks the weapon.dat row and fire clips.
+    static void SetWeaponSkill(int skill) { s_weaponSkill = skill; }
     bool Init(D3DRenderer& r, const std::string& gameDir);
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return m_ready; }
@@ -163,6 +165,7 @@ public:
     bool BoneWorldPos(int boneId, float x, float y, float feetZ, float out[3]) const;
 
 private:
+    static inline int s_weaponSkill = 0;
     struct Part {
         std::vector<SkinVertex> verts;
         std::vector<SkinVertex> shape[3];   // Normal, Fat, Ripped (empty: use Normal)
@@ -268,6 +271,7 @@ private:
 
     struct Gun {
         const GunSpec* spec = nullptr;
+        const char* fireClip = nullptr;                                      // standing fire clip (poor skill uses its own)
         std::string name;
         int clipSize = 0, ammo = 0, total = 0;
         IDirect3DTexture9* icon = nullptr;
@@ -287,7 +291,7 @@ private:
     int m_shotEvents = 0, m_reloadEvents = 0, m_dryEvents = 0;
     static constexpr float kBreathMax = 39.0f;   // seconds under water (CStats air in lung, untrained)
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = kBreathMax, m_damageFlash = 0.0f;
-    bool m_reloading = false, m_firing = false, m_shotDone = false;
+    bool m_reloading = false, m_firing = false, m_shotDone = false, m_fireQueued = false;
     float m_flash = 0.0f;                      // muzzle flash time left
     float m_reloadTime = 0.0f;
     const AnimClip* m_gunFireClip = nullptr;

@@ -105,6 +105,48 @@ void Effects::Blood(const float p[3]) {
     }
 }
 
+void Effects::Smoke(const float p[3], float dark) {
+    Puff f = {};
+    for (int k = 0; k < 3; k++) f.p[k] = p[k] + Rnd(-0.15f, 0.15f);
+    f.v[0] = Rnd(-0.3f, 0.3f); f.v[1] = Rnd(-0.3f, 0.3f); f.v[2] = Rnd(1.0f, 1.8f);
+    f.life = Rnd(1.2f, 2.0f);
+    f.size0 = 0.2f; f.size1 = Rnd(0.8f, 1.4f);
+    const uint32_t g = (uint32_t)(150.0f - 120.0f * dark);
+    f.rgb = (g << 16) | (g << 8) | g; f.alpha = 0.45f;
+    m_puffs.push_back(f);
+}
+
+void Effects::Fire(const float p[3]) {
+    Puff f = {};
+    for (int k = 0; k < 3; k++) f.p[k] = p[k] + Rnd(-0.3f, 0.3f);
+    f.v[0] = Rnd(-0.3f, 0.3f); f.v[1] = Rnd(-0.3f, 0.3f); f.v[2] = Rnd(1.5f, 2.5f);
+    f.life = Rnd(0.4f, 0.8f);
+    f.size0 = 0.4f; f.size1 = 0.1f;
+    f.rgb = 0xFF8C1E; f.alpha = 0.8f;
+    m_puffs.push_back(f);
+}
+
+void Effects::Explosion(const float p[3]) {
+    for (int i = 0; i < 26; i++) {
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k] + Rnd(-0.4f, 0.4f);
+        f.v[0] = Rnd(-4.0f, 4.0f); f.v[1] = Rnd(-4.0f, 4.0f); f.v[2] = Rnd(0.5f, 5.0f);
+        f.life = Rnd(0.5f, 1.2f);
+        f.size0 = 0.6f; f.size1 = Rnd(2.0f, 3.5f);
+        f.rgb = i % 3 == 0 ? 0xFFD23C : 0xFF6414; f.alpha = 0.85f;
+        m_puffs.push_back(f);
+    }
+    for (int i = 0; i < 12; i++) {
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k];
+        f.v[0] = Rnd(-6.0f, 6.0f); f.v[1] = Rnd(-6.0f, 6.0f); f.v[2] = Rnd(3.0f, 9.0f);
+        f.life = Rnd(0.6f, 1.3f); f.size0 = 0.08f; f.size1 = 0.05f;
+        f.rgb = 0xFFC850; f.alpha = 1.0f; f.spark = true;
+        m_puffs.push_back(f);
+    }
+    for (int i = 0; i < 10; i++) Smoke(p, 1.0f);
+}
+
 void Effects::Tracer(const float a[3], const float b[3]) {
     Trace t = {};
     for (int k = 0; k < 3; k++) { t.a[k] = a[k]; t.b[k] = b[k]; }

@@ -27,6 +27,7 @@ struct GunSpec {
     const char* reload;
     const char* crouchReload;
     bool continuous;        // keeps firing while the button is held
+    const char* firePoor = nullptr;   // the fire clip of the poor skill group (weapon.dat 'bad' groups)
 };
 
 namespace {
@@ -37,15 +38,15 @@ constexpr int kBoneRHand = 24;           // BONE_R_HAND
 const GunSpec kSpecs[] = {
     {"PISTOL", "Pistol", "colt45_fire", "colt45_crouchfire", "colt45_reload", "colt45_crouchreload", false},
     {"PISTOL_SILENCED", "Silenced pistol", "silence_fire", "silencecrouchfire", "silence_reload", "crouchreload", false},
-    {"DESERT_EAGLE", "Desert Eagle", "python_fire", "python_crouchfire", "python_reload", "python_crouchreload", false},
-    {"SHOTGUN", "Shotgun", "shotgun_fire", "shotgun_crouchfire", nullptr, nullptr, false},
+    {"DESERT_EAGLE", "Desert Eagle", "python_fire", "python_crouchfire", "python_reload", "python_crouchreload", false, "python_fire_poor"},
+    {"SHOTGUN", "Shotgun", "shotgun_fire", "shotgun_crouchfire", nullptr, nullptr, false, "shotgun_fire_poor"},
     {"SAWNOFF", "Sawn-off shotgun", "colt45_fire", "colt45_crouchfire", "sawnoff_reload", "colt45_crouchreload", false},
-    {"SPAS12", "Combat shotgun", "buddy_fire", "buddy_crouchfire", "buddy_reload", "buddy_crouchreload", false},
+    {"SPAS12", "Combat shotgun", "buddy_fire", "buddy_crouchfire", "buddy_reload", "buddy_crouchreload", false, "buddy_fire_poor"},
     {"MICRO_UZI", "Micro SMG", "colt45_fire", "colt45_crouchfire", "colt45_reload", "colt45_crouchreload", true},
     {"TEC9", "Tec-9", "colt45_fire", "colt45_crouchfire", "colt45_reload", "colt45_crouchreload", true},
-    {"MP5", "MP5", "uzi_fire", "uzi_crouchfire", "uzi_reload", "uzi_crouchreload", true},
-    {"AK47", "AK-47", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true},
-    {"M4", "M4", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true},
+    {"MP5", "MP5", "uzi_fire", "uzi_crouchfire", "uzi_reload", "uzi_crouchreload", true, "uzi_fire_poor"},
+    {"AK47", "AK-47", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true, "rifle_fire_poor"},
+    {"M4", "M4", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true, "rifle_fire_poor"},
     {"COUNTRYRIFLE", "Country rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
     {"SNIPERRIFLE", "Sniper rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
 };
@@ -163,11 +164,12 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         const std::vector<std::string>* row = nullptr;
         for (const auto& t : rows) {
             if (t[1] != sp.name) continue;
-            if (!row || t[14] == "1") row = &t;   // skill 1 = STD, else the first
+            if (!row || t[14] == std::to_string(s_weaponSkill)) row = &t;   // the player's skill row (0 poor, 1 std), else the first
         }
         if (!row) continue;
         Gun g;
         g.spec = &sp;
+        g.fireClip = s_weaponSkill == 0 && sp.firePoor ? sp.firePoor : sp.fire;
         g.name = sp.label;
         g.clipSize = std::atoi((*row)[9].c_str());
         g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
@@ -319,7 +321,7 @@ void PlayerPed::UpdateGun(const Input& in) {
     const bool crouch = m_ducking;
     const float loopStart = crouch ? g.loop2Start : g.loopStart, loopEnd = crouch ? g.loop2End : g.loopEnd,
                 fireTime = crouch ? g.fire2Time : g.fireTime;
-    const AnimClip* fireClip = Clip(crouch && sp.crouchFire && Clip(sp.crouchFire) ? sp.crouchFire : sp.fire);
+    const AnimClip* fireClip = Clip(crouch && sp.crouchFire && Clip(sp.crouchFire) ? sp.crouchFire : g.fireClip);
     const AnimClip* relClip = Clip(crouch && sp.crouchReload && Clip(sp.crouchReload) ? sp.crouchReload
                                    : sp.reload ? sp.reload : "");
     if (!fireClip) return;
@@ -392,9 +394,11 @@ void PlayerPed::UpdateGun(const Input& in) {
         if (want && g.ammo > 0 && fa->blend > 0.9f) {
             m_firing = true;
             m_shotDone = false;
+            m_fireQueued = false;
             fa->playing = true;
         }
     }
+    if (in.fireJust && m_firing) m_fireQueued = true;   // a press during the shot is the next command (CTaskSimpleUseGun m_NextCmd)
     if (m_firing) {
         if (!m_shotDone && fa->time >= fireTime) {
             m_shotDone = true;
@@ -404,10 +408,26 @@ void PlayerPed::UpdateGun(const Input& in) {
             std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
         }
         if (fa->time >= loopEnd || fa->finished) {
-            m_firing = false;
+            // retail: the clip wraps from the loop end to the loop start while the next command is fire,
+            // the overshoot carries over so the rate is exactly (end - start) per shot
+            const bool again = (m_fireQueued || (sp.continuous && in.fireHeld)) && g.ammo > 0;
+            m_fireQueued = false;
             fa->finished = false;
-            fa->time = loopStart;
-            fa->playing = false;
+            if (again) {
+                fa->time = loopStart + std::max(0.0f, fa->time - loopEnd);
+                m_shotDone = false;
+                if (fa->time >= fireTime) {
+                    m_shotDone = true;
+                    g.ammo--;
+                    m_shotEvents++;
+                    if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0) m_flash = 0.06f;
+                    std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
+                }
+            } else {
+                m_firing = false;
+                fa->time = loopStart;
+                fa->playing = false;
+            }
         }
     }
 }
