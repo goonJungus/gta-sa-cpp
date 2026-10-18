@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <set>
 
 namespace {
 
@@ -18,6 +19,22 @@ std::string Name(const std::vector<uint8_t>& b, size_t o, size_t n) {
 
 float AsFloat(int32_t v) { float f; std::memcpy(&f, &v, 4); return f; }
 int32_t AsBits(float f) { int32_t v; std::memcpy(&v, &f, 4); return v; }
+
+struct CmdInfo { uint16_t op; uint8_t args, outs, cond; };
+
+// Argument counts of the script commands, settled by scripts/scm_args.py against the compiled script.
+const CmdInfo kCmds[] = {
+#include "ScmArgs.inc"
+};
+
+const CmdInfo* FindCmd(uint16_t op) {
+    size_t lo = 0, hi = sizeof(kCmds) / sizeof(kCmds[0]);
+    while (lo < hi) {
+        const size_t mid = (lo + hi) / 2;
+        if (kCmds[mid].op < op) lo = mid + 1; else hi = mid;
+    }
+    return lo < sizeof(kCmds) / sizeof(kCmds[0]) && kCmds[lo].op == op ? &kCmds[lo] : nullptr;
+}
 
 }  // namespace
 
@@ -78,6 +95,7 @@ float ScmMachine::GlobalFloat(uint32_t offset) const { return AsFloat(Global(off
 bool ScmMachine::ReadArg(ScmThread& t, Arg& a) {
     if (t.pc >= m_space.size()) return false;
     a.type = m_space[t.pc++];
+    a.text = false;
     auto need = [&](uint32_t n) { return t.pc + n <= m_space.size(); };
     switch (a.type) {
     case 1: if (!need(4)) return false; a.i = (int32_t)Rd32(m_space, t.pc); t.pc += 4; break;
@@ -85,7 +103,35 @@ bool ScmMachine::ReadArg(ScmThread& t, Arg& a) {
     case 4: if (!need(1)) return false; a.i = (int8_t)m_space[t.pc]; t.pc += 1; break;
     case 5: if (!need(2)) return false; a.i = (int16_t)Rd16(m_space, t.pc); t.pc += 2; break;
     case 6: if (!need(4)) return false; a.i = (int32_t)Rd32(m_space, t.pc); a.f = AsFloat(a.i); t.pc += 4; break;
-    default: return false;   // strings, arrays: not handled yet
+    case 7: case 8: case 0x0C: case 0x0D: case 0x12: case 0x13: {   // array element: base, index variable, size, flags
+        if (!need(6)) return false;
+        const uint32_t base = Rd16(m_space, t.pc), iv = Rd16(m_space, t.pc + 2);
+        const uint8_t size = m_space[t.pc + 4], flags = m_space[t.pc + 5];
+        t.pc += 6;
+        int32_t idx = 0;
+        if (flags & 0x80) idx = iv < 64 ? t.locals[iv] : 0;
+        else if ((size_t)iv + 4 <= m_space.size()) idx = (int32_t)Rd32(m_space, iv);
+        if (idx < 0 || idx >= size) idx = 0;
+        const bool local = a.type == 8 || a.type == 0x0D || a.type == 0x13;
+        const uint32_t stride = (a.type == 7 || a.type == 8) ? 1 : (a.type == 0x12 || a.type == 0x13) ? 4 : 2;
+        a.text = true;
+        a.type = local ? 3 : 2;
+        a.i = (int32_t)(local ? base + (uint32_t)idx * stride : base + (uint32_t)idx * stride * 4);
+        if (stride == 1) a.text = false;
+        break;
+    }
+    case 9: if (!need(8)) return false; a.text = true; a.i = (int32_t)(t.pc); t.pc += 8; break;
+    case 0x0A: case 0x0B: case 0x10: case 0x11: if (!need(2)) return false; a.text = true; t.pc += 2; break;
+    case 0x0E: {
+        if (!need(1)) return false;
+        const uint32_t n = m_space[t.pc];
+        if (!need(1 + n)) return false;
+        a.text = true;
+        t.pc += 1 + n;
+        break;
+    }
+    case 0x0F: if (!need(16)) return false; a.text = true; a.i = (int32_t)(t.pc); t.pc += 16; break;
+    default: return false;
     }
     return true;
 }
@@ -238,7 +284,73 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
         }
         return true;
     }
-    return fail();   // a game command
+    // A game command: the argument count comes from the table. Commands the host implements run;
+    // the rest are skipped (their outputs read 0, their condition fails) and listed once in the log.
+    const CmdInfo* ci = FindCmd(op);
+    if (!ci && op != 0x0913) return fail();
+    std::vector<Arg> args;
+    if (op == 0x0913) {   // START_NEW_STREAMED_SCRIPT: arguments up to a zero byte
+        while (t.pc < m_space.size() && m_space[t.pc] != 0) {
+            Arg v;
+            if (!ReadArg(t, v)) return fail();
+            args.push_back(v);
+        }
+        if (t.pc < m_space.size()) t.pc++;
+    } else {
+        for (int i = 0; i < ci->args; i++) {
+            Arg v;
+            if (!ReadArg(t, v)) return fail();
+            args.push_back(v);
+        }
+    }
+    bool result = false;
+    if (!Command(t, op, args, result)) {
+        if (m_logged.insert(op).second) std::fprintf(stderr, "[SCM] %s: command 0x%04X not implemented (%zu args)\n", t.name.c_str(), op, args.size());
+        if (ci)
+            for (size_t i = args.size() - ci->outs; i < args.size() && ci->outs; i++)
+                if (args[i].type == 2 || args[i].type == 3) Var(t, args[i]) = 0;
+        result = false;
+    }
+    if (ci && ci->cond) Compare(t, notFlag ? !result : result);
+    return true;
+}
+
+bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool& result) {
+    auto num = [&](size_t i) -> float {
+        if (i >= args.size()) return 0.0f;
+        const Arg& x = args[i];
+        if (x.type == 2 || x.type == 3) return AsFloat(Var(t, x));
+        return x.type == 6 ? x.f : (float)x.i;
+    };
+    auto inum = [&](size_t i) -> int32_t {
+        if (i >= args.size()) return 0;
+        const Arg& x = args[i];
+        return (x.type == 2 || x.type == 3) ? Var(t, x) : x.i;
+    };
+    auto out = [&](size_t i, int32_t v) { if (i < args.size() && (args[i].type == 2 || args[i].type == 3)) Var(t, args[i]) = v; };
+    auto outF = [&](size_t i, float v) { out(i, AsBits(v)); };
+    (void)result;
+    switch (op) {
+    case 0x0053:   // CREATE_PLAYER(id, x, y, z) -> player handle
+        if (host.setPlayerPos) host.setPlayerPos(num(1), num(2), num(3));
+        out(4, 0);
+        return true;
+    case 0x01F5: out(1, 1); return true;   // GET_PLAYER_CHAR: the player's ped is handle 1
+    case 0x0054: case 0x00A0: {            // GET_PLAYER_COORDINATES / GET_CHAR_COORDINATES
+        float x = 0, y = 0, z = 0;
+        if (host.playerPos) host.playerPos(x, y, z);
+        outF(1, x); outF(2, y); outF(3, z);
+        return true;
+    }
+    case 0x00A1:   // SET_CHAR_COORDINATES(char, x, y, z)
+        if (inum(0) == 1 && host.setPlayerPos) host.setPlayerPos(num(1), num(2), num(3));
+        return true;
+    case 0x00C0:   // SET_TIME_OF_DAY(hour, minute)
+        if (host.setTime) host.setTime(inum(0), inum(1));
+        return true;
+    default: break;
+    }
+    return false;
 }
 
 void ScmMachine::Update(int32_t nowMs, int maxInstructions) {

@@ -1280,6 +1280,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     bool onGround = true;
     bool cjBlocked = false;   // CJ pushed into a wall last frame
     bool thirdPerson = g_startThirdPerson; // V toggles 1st/3rd person camera
+    // GTA_SCM=1: run the compiled mission script (main.scm) alongside the game. Skipped commands are listed in the log.
+    static ScmMachine s_scm;
+    bool scmRun = false;
+    double scmClock = 0.0;
+    if (getenv("GTA_SCM") && s_scm.Init(GameDir())) {
+        scmRun = true;
+        s_scm.host.setPlayerPos = [&](float x, float y, float z) {
+            playerX = camPosX = x; playerY = camPosY = y; playerZ = camPosZ = z + 1.75f;
+            Log("SCM: player placed at %.1f %.1f %.1f", x, y, z);
+        };
+        s_scm.host.playerPos = [&](float& x, float& y, float& z) { x = playerX; y = playerY; z = playerZ - 1.75f; };
+        s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
+    }
     bool prevV = false;       // edge-detect for V key
     const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters
     const float GROUND_Z = 9.0f;     // safety-net grass plane; below lowest retail ground (~9.13)
@@ -2122,6 +2135,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                            (double)qpcFreq.QuadPart);
         if (dt > 0.1f) dt = 0.1f; // clamp
         qpcLast = qpcNow;
+        if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 20000); }
         // Headless --walk probe: wall-clock dt is ~0 at uncapped FPS, so the
         // player barely moves. Force a fixed 60Hz step so the walk covers real
         // distance deterministically (collision test, not a timing test).
