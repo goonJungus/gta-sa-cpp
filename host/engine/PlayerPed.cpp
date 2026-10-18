@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -194,7 +195,28 @@ std::vector<uint8_t> Composite(const TxdTexture& base, const TxdTexture* over) {
 
 }  // namespace
 
+// CPlayerPed::ProcessAnimGroups: long guns use the PLAYER2ARMED group (no sprint, no run stop).
+bool PlayerPed::ArmedGroup() const {
+    static const char* const kLong[] = {"SHOTGUN", "SPAS12", "AK47", "M4", "COUNTRYRIFLE", "SNIPERRIFLE"};
+    const char* id = GunId();
+    for (const char* n : kLong)
+        if (!strcmp(id, n)) return true;
+    return false;
+}
+
 const AnimClip* PlayerPed::Clip(const char* name) const {
+    if (ArmedGroup()) {
+        static const struct { const char *from, *to; } kMap[] = {
+            {"idle_stance", "idle_armed"}, {"walk_player", "walk_armed"}, {"run_player", "run_armed"},
+            {"sprint_civi", nullptr}, {"walk_start", "walk_start_armed"}, {"run_stop", nullptr},
+            {"run_stopr", nullptr}};
+        for (const auto& m : kMap)
+            if (!strcmp(name, m.from)) {
+                if (!m.to) return nullptr;
+                name = m.to;
+                break;
+            }
+    }
     auto it = m_clips.find(name);
     return it == m_clips.end() ? nullptr : &it->second;
 }
@@ -1167,6 +1189,15 @@ void PlayerPed::ApplyAimIK(const Input& in) {
             rotateSubtree(fh, cur, dir, pv);
         }
     }
+    if (std::getenv("GTA_AIMDBG")) {
+        static int n = 0;
+        if (++n % 60 == 0) {
+            const RwMat& g0 = m_globals[fs]; const RwMat& g1 = m_globals[fe]; const RwMat& g2 = m_globals[fh];
+            std::fprintf(stderr, "[AIM] pitch %.2f dir (%.2f %.2f %.2f) S (%.2f %.2f %.2f) E (%.2f %.2f %.2f) H (%.2f %.2f %.2f) L1 %.3f L2 %.3f\n",
+                         in.camPitch, dir[0], dir[1], dir[2], g0.m[3][0], g0.m[3][1], g0.m[3][2], g1.m[3][0], g1.m[3][1], g1.m[3][2],
+                         g2.m[3][0], g2.m[3][1], g2.m[3][2], L1, L2);
+        }
+    }
 }
 
 // ---- Frame update ----
@@ -1174,6 +1205,21 @@ void PlayerPed::ApplyAimIK(const Input& in) {
 void PlayerPed::Update(const Input& in) {
     if (!m_ready) return;
     const float dt = in.dt;
+    if (ArmedGroup() != m_armedPrev) {   // CPed::ReApplyMoveAnims: swap the move set in place
+        static const char* const kPairs[][2] = {{"idle_stance", "idle_armed"}, {"walk_player", "walk_armed"},
+                                                {"run_player", "run_armed"}, {"walk_start", "walk_start_armed"}};
+        const bool toArmed = !m_armedPrev;
+        for (const auto& pr : kPairs) {
+            auto a = m_clips.find(pr[toArmed ? 0 : 1]), b = m_clips.find(pr[toArmed ? 1 : 0]);
+            if (a == m_clips.end() || b == m_clips.end()) continue;
+            for (Assoc& as : m_assocs)
+                if (as.clip == &a->second) { as.clip = &b->second; }
+        }
+        if (toArmed)   // no sprint / run stop in this group
+            for (const char* n : {"sprint_civi", "run_stop", "run_stopr"})
+                if (auto it = m_clips.find(n); it != m_clips.end()) Remove(&it->second);
+        m_armedPrev = !m_armedPrev;
+    }
     m_damageFlash = std::max(0.0f, m_damageFlash - dt * 1.5f);
     if (Underwater()) {   // air in the lungs; empty lungs drown CJ
         m_breath = std::max(0.0f, m_breath - dt);

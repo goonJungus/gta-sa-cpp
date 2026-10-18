@@ -160,6 +160,8 @@ static bool PadKey(int vk) {
 static volatile bool g_msgBtn[3] = { false, false, false };   // left, right, middle
 static volatile long g_msgMouseX = 0, g_msgMouseY = 0;        // client coords, last WM_MOUSEMOVE
 static volatile bool g_msgMouseSeen = false;
+static volatile long g_dbgRaw = 0, g_dbgMove = 0;   // MOUSE: log line counters
+static bool g_cursorHidden = false;                  // ShowCursor(FALSE) is in effect
 static SHORT RawGameKey(int vk) {
     if (ScriptedKey(vk)) return (SHORT)0x8000;
     if (g_hasFocus && PadKey(vk)) return (SHORT)0x8000;
@@ -357,6 +359,33 @@ static void Log(const char* fmt, ...) {
     fflush(g_log);
 }
 
+// Mouse look hides the pointer and confines it to the window; menus need it free and visible.
+// MouseMode (ini [Input] / GTA_MOUSEMODE): 0 = hidden + confined pointer (relative motion from the
+// compositor's pointer lock), 1 = free pointer that is warped back to the window centre each frame
+// (works when the compositor never delivers relative motion, e.g. remote or absolute pointers).
+static int MouseMode() {
+    static int mode = -1;
+    if (mode < 0) {
+        mode = (int)GetPrivateProfileIntA("Input", "MouseMode", 1, g_iniPath);
+        if (const char* e = getenv("GTA_MOUSEMODE")) mode = atoi(e);
+        Log("MOUSE: mode %d", mode);
+    }
+    return mode;
+}
+
+static void SetPointerCapture(bool on) {
+    if (on == g_cursorHidden) return;
+    g_cursorHidden = on;
+    if (MouseMode() == 0) {
+        if (on) { ShowCursor(FALSE); }
+        else { ClipCursor(nullptr); while (ShowCursor(TRUE) < 0) {} }
+    } else {
+        ClipCursor(nullptr);   // the cursor image is hidden by WM_SETCURSOR while captured
+        if (!on) SetCursor(LoadCursor(nullptr, IDC_ARROW));
+    }
+    Log("MOUSE: pointer %s", on ? "captured (hidden, confined)" : "released (visible, free)");
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_DESTROY:
@@ -371,6 +400,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         Log("WINDOW: %s (state %u, fg=%p self=%p focus=%p)", g_hasFocus ? "activated" : "deactivated",
             (unsigned)LOWORD(wp), (void*)GetForegroundWindow(), (void*)hwnd, (void*)GetFocus());
         return 0;
+    case WM_SETCURSOR:
+        if (g_cursorHidden && LOWORD(lp) == HTCLIENT) { SetCursor(nullptr); return TRUE; }
+        break;
     case WM_MOUSEACTIVATE:
         return MA_ACTIVATE;               // a click on the game always brings it back
     case WM_SYSCOMMAND:
@@ -394,6 +426,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         if (ri.header.dwType == RIM_TYPEMOUSE) {
             const RAWMOUSE& m = ri.data.mouse;
+            g_dbgRaw = g_dbgRaw + 1;
+            if (g_dbgRaw <= 40) Log("MOUSE raw #%ld flags=0x%x dx=%ld dy=%ld buttons=0x%x", (long)g_dbgRaw, (unsigned)m.usFlags, (long)m.lLastX, (long)m.lLastY, (unsigned)m.usButtonFlags);
             if (m.usFlags & MOUSE_MOVE_ABSOLUTE) {
                 // Precision touchpad / RDP: absolute coords, so diff them.
                 if (g_rawMouseHaveAbs) {
@@ -424,6 +458,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_MOUSEMOVE:
         g_msgMouseX = (short)LOWORD(lp); g_msgMouseY = (short)HIWORD(lp);
         g_msgMouseSeen = true;
+        g_dbgMove = g_dbgMove + 1;
+        if (g_dbgMove <= 40) Log("MOUSE move #%ld client=(%d,%d)", (long)g_dbgMove, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
         return 0;
     case WM_MOUSEWHEEL:
         g_wheelSteps += GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA;
@@ -1955,7 +1991,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("CJ_HEIGHT: %.4f m (measured from player.img part DFF bind-pose verts)", CJ_HEIGHT);
         }  // worldReady ? data-driven world : legacy cul-de-sac scene
         // Hide cursor for mouse look
-        ShowCursor(FALSE);
+        SetPointerCapture(true);
         // Center mouse
         RECT rc; GetClientRect(g_hwnd, &rc);
         POINT c = {(rc.right-rc.left)/2, (rc.bottom-rc.top)/2};
@@ -2135,7 +2171,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                            (double)qpcFreq.QuadPart);
         if (dt > 0.1f) dt = 0.1f; // clamp
         qpcLast = qpcNow;
-        if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 20000); }
+        if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); }
         // Headless --walk probe: wall-clock dt is ~0 at uncapped FPS, so the
         // player barely moves. Force a fixed 60Hz step so the walk covers real
         // distance deterministically (collision test, not a timing test).
@@ -2292,6 +2328,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     // Pointer in backbuffer pixels (the client may differ from
                     // the render size when --res is used borderless).
                     POINT mp; GetCursorPos(&mp); ScreenToClient(g_hwnd, &mp);
+                    if (g_msgMouseSeen) { mp.x = g_msgMouseX; mp.y = g_msgMouseY; }   // the window's own pointer messages beat GetCursorPos under Wayland
                     RECT cr; GetClientRect(g_hwnd, &cr);
                     float sx = cr.right > 0 ? (float)WIDTH / (float)cr.right : 1.0f;
                     float sy = cr.bottom > 0 ? (float)HEIGHT / (float)cr.bottom : 1.0f;
@@ -2364,6 +2401,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     Log("FRONTEND: resumed");
                 }
                 g_devPaused = g_menu.IsOpen();
+                SetPointerCapture(!g_menu.IsOpen() && g_hasFocus);
             }
         }
         // Pause menu = frozen simulation, rendering keeps running.
@@ -2529,6 +2567,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
 
         if (playMode) {
+            {   // MOUSE: one line every 3 s: which input source is alive
+                static double s_t = 0.0; static long s_r = 0, s_m = 0;
+                s_t += dt;
+                if (s_t >= 3.0) {
+                    POINT cp; GetCursorPos(&cp); RECT cl; GetClipCursor(&cl);
+                    Log("MOUSE: yaw=%.3f raw=%ld moves=%ld cursor=(%ld,%ld) msg=(%ld,%ld) clip=(%ld,%ld,%ld,%ld) focus=%d menu=%d hidden=%d",
+                        yaw, g_dbgRaw - s_r, g_dbgMove - s_m, cp.x, cp.y, (long)g_msgMouseX, (long)g_msgMouseY,
+                        cl.left, cl.top, cl.right, cl.bottom, (int)g_hasFocus, (int)(g_escOpensMenu && g_menuReady && g_menu.IsOpen()), (int)g_cursorHidden);
+                    s_r = g_dbgRaw; s_m = g_dbgMove; s_t = 0.0;
+                }
+            }
             // ---- Mouse look ----
             if (mouseLook && !g_devPaused) {
                 int dx = 0, dy = 0;
@@ -2569,7 +2618,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     POINT tl = {cl.left, cl.top}, br = {cl.right, cl.bottom};
                     ClientToScreen(g_hwnd, &tl); ClientToScreen(g_hwnd, &br);
                     RECT clip = {tl.x, tl.y, br.x, br.y};
-                    ClipCursor(&clip);
+                    if (MouseMode() == 0) ClipCursor(&clip);
                 }
                 if (g_wheelOpen) {   // the weapon wheel takes the mouse
                     g_wheelX += (float)dx * 0.012f; g_wheelY += (float)dy * 0.012f;
@@ -3764,7 +3813,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (maxFrames > 0 && frame >= maxFrames) { if (g_audio.Ready()) Log("AUDIO: %d sounds started, last %s", g_audio.Played(), g_audio.LastPlayed().c_str()); break; }
     }
 
-    if (playMode) { ClipCursor(nullptr); ShowCursor(TRUE); }
+    if (playMode) { SetPointerCapture(false); }
 
     if (!shotPath.empty()) {
         // Relative screenshot paths go to shotDir
