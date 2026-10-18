@@ -2151,7 +2151,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const float side = (float)(s_carSlot++ % 3 - 1) * 3.2f;
                 const float sx = playerX + fx * 5.0f + fy * side, sy = playerY + fy * 5.0f - fx * side;
                 const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
-                g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz + 0.1f, std::atan2(fy, fx) - 1.57079633f);
+                g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(fy, fx) - 1.57079633f);
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
             }
             if (DevKeyPressed('K') && g_peds.Ready()) {   // dev: a pedestrian ahead of CJ

@@ -303,20 +303,33 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             pp.verts.assign(reinterpret_cast<const MeshVertex*>(dm.vertices.data()), reinterpret_cast<const MeshVertex*>(dm.vertices.data()) + dm.vertices.size());
             vm.paintParts.push_back(std::move(pp));
         }
-        if (wheel) { vm.wheelMesh = mesh; continue; }
+        if (wheel) {
+            float lo = 1e9f, hi = -1e9f;
+            for (const DffVertex& v : dm.vertices) { lo = std::min(lo, v.z); hi = std::max(hi, v.z); }
+            if (hi > lo) vm.wheelRadius = 0.5f * (hi - lo);
+            vm.wheelMesh = mesh;
+            continue;
+        }
         VehiclePart p;
         p.mesh = mesh;
         if (fr >= 0 && (size_t)fr < glob.size()) std::memcpy(p.m, glob[(size_t)fr].data(), sizeof(p.m));
         else { std::memset(p.m, 0, sizeof(p.m)); p.m[0] = p.m[5] = p.m[10] = p.m[15] = 1.0f; }
         vm.parts.push_back(p);
     }
+    {
+        float sumZ = 0.0f; int cnt = 0;
+        for (int k = 0; k < 4; k++) if (vm.wheelFound[k]) { sumZ += vm.wheelPos[k][2]; cnt++; }
+        if (cnt) vm.rideHeight = vm.wheelRadius - sumZ / (float)cnt - 0.04f;
+        if (vm.wheelFound[0] && vm.wheelFound[2]) vm.wheelBase = std::max(1.5f, std::fabs(vm.wheelPos[0][1] - vm.wheelPos[2][1]));
+    }
     return vm.parts.empty() && !vm.wheelMesh ? nullptr : &vm;
 }
 
 int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading) {
-    if (!Model(r, id)) return -1;
+    const VehicleModel* spawnModel = Model(r, id);
+    if (!spawnModel) return -1;
     VehicleInstance c;
-    c.model = id; c.x = x; c.y = y; c.z = z; c.heading = heading;
+    c.model = id; c.x = x; c.y = y; c.z = z + spawnModel->rideHeight;   // z is the ground under the car c.heading = heading;
     auto cc = m_carColours.find(Info(id)->dff);
     if (cc != m_carColours.end() && !cc->second.empty()) {
         m_rng = m_rng * 1664525u + 1013904223u;
@@ -395,33 +408,58 @@ void Vehicles::Step(size_t i, float dt, float throttle, float brake, float steer
     const HandlingData* h = info ? Handling(info->handling) : nullptr;
     HandlingData def;
     if (!h) h = &def;
-    const float vmax = h->maxVelocity / 3.6f * 0.85f;
-    const float accel = h->engineAccel * 0.55f;
-    // Throttle fades out towards top speed; reverse is slower.
-    if (throttle > 0.0f && c.speed > -0.5f) c.speed += throttle * accel * std::max(0.0f, 1.0f - c.speed / vmax) * dt;
-    if (brake > 0.0f) {
-        if (c.speed > 0.3f) c.speed -= brake * h->brakeDecel * 1.2f * dt;
-        else c.speed -= brake * accel * 0.5f * std::max(0.0f, 1.0f + c.speed / (vmax * 0.3f)) * dt;
+    auto mi = m_models.find(c.model);
+    const float ride = mi != m_models.end() ? mi->second.rideHeight : 0.7f;
+    const float wheelbase = mi != m_models.end() ? mi->second.wheelBase : 2.8f;
+
+    // Velocity split along the nose and across the car; tyres kill the sideways part.
+    const float fx = -std::sin(c.heading), fy = std::cos(c.heading);   // heading 0 faces +y, positive turns left
+    const float rx = fy, ry = -fx;
+    float vf = c.vx * fx + c.vy * fy, vl = c.vx * rx + c.vy * ry;
+
+    const float vmax = h->maxVelocity / 3.6f;
+    const float accel = h->engineAccel * 0.4f + 2.0f;   // m/s^2 at a standstill
+    if (throttle > 0.0f) {
+        if (vf > -0.5f) vf += throttle * accel * std::max(0.0f, 1.0f - std::pow(std::max(vf, 0.0f) / vmax, 1.5f)) * dt;
+        else vf += throttle * h->brakeDecel * dt;   // throttle while rolling backwards brakes first
     }
-    if (handbrake) c.speed -= std::copysign(std::min(std::fabs(c.speed), 12.0f * dt), c.speed);
-    // Rolling and air drag.
-    const float drag = 0.15f + h->dragMult * 0.004f * std::fabs(c.speed);
-    if (throttle <= 0.0f && brake <= 0.0f) c.speed -= std::copysign(std::min(std::fabs(c.speed), drag * 4.0f * dt), c.speed);
+    if (brake > 0.0f) {
+        if (vf > 0.3f) vf = std::max(0.0f, vf - brake * h->brakeDecel * dt);
+        else vf -= brake * accel * 0.5f * std::max(0.0f, 1.0f - std::pow(std::max(-vf, 0.0f) / (vmax * 0.3f), 1.5f)) * dt;
+    }
+    // Rolling resistance always, air drag grows with the square of the speed.
+    const float roll = 0.35f + h->dragMult * 0.0008f * vf * vf;
+    if (throttle <= 0.0f && brake <= 0.0f) vf -= std::copysign(std::min(std::fabs(vf), (roll + 0.6f) * dt), vf);
+    else vf -= std::copysign(std::min(std::fabs(vf), roll * 0.5f * dt), vf);
+
+    // Grip: how fast the tyres remove sideways speed. The handbrake locks the rears; hard throttle
+    // on a rear driven car with the wheel turned also loosens them (tractionLoss).
+    float grip = 14.0f * h->tractionMult;
+    if (handbrake) { grip *= 0.18f; vf -= std::copysign(std::min(std::fabs(vf), 6.0f * dt), vf); }
+    else if (h->driveType != 'F' && throttle > 0.8f && std::fabs(c.steer) > 0.2f && std::fabs(vf) < vmax * 0.6f)
+        grip *= 0.35f + 0.65f * h->tractionLoss;
+    vl *= std::exp(-grip * dt);
+
     // Steering eases towards the target and the lock narrows with speed.
-    const float lock = h->steeringLock * 0.0174533f / (1.0f + std::fabs(c.speed) * 0.045f);
-    c.steer += (steerIn * lock - c.steer) * std::min(1.0f, 8.0f * dt);
-    const float wheelbase = 2.8f;
-    c.heading -= std::tan(c.steer) * c.speed / wheelbase * dt;   // steer > 0 turns right (clockwise)
-    const float nx = c.x - std::sin(c.heading) * c.speed * dt, ny = c.y + std::cos(c.heading) * c.speed * dt;
-    // Heading 0 faces +y; a positive heading turns left, so the nose is (-sin, cos).
+    const float lock = h->steeringLock * 0.0174533f / (1.0f + std::fabs(vf) * 0.03f);
+    c.steer += (steerIn * lock - c.steer) * std::min(1.0f, 7.0f * dt);
+    // Heavier cars turn in slower (turnMass), a loose rear spins up extra.
+    const float yawRate = std::tan(c.steer) * vf / wheelbase * (1.0f + (handbrake ? 0.5f : 0.0f));
+    c.heading -= yawRate * dt;   // steer > 0 turns right (clockwise)
+
+    // Back to world axes with the new heading.
+    const float nfx = -std::sin(c.heading), nfy = std::cos(c.heading);
+    c.vx = nfx * vf + nfy * vl; c.vy = nfy * vf - nfx * vl;
+    const float nx = c.x + c.vx * dt, ny = c.y + c.vy * dt;
     if (blocked && blocked(nx, ny, c.x, c.y, c.z)) {
-        c.speed *= -0.25f;
+        c.vx *= -0.25f; c.vy *= -0.25f;
     } else {
         c.x = nx; c.y = ny;
     }
+    c.speed = c.vx * nfx + c.vy * nfy;
     if (groundAt) {
         const float g = groundAt(c.x, c.y, c.z + 1.0f);
-        if (g > -1e5f) c.z += (g + 0.1f - c.z) * std::min(1.0f, 12.0f * dt);
+        if (g > -1e5f) c.z += (g + ride - c.z) * std::min(1.0f, 12.0f * dt);
     }
-    c.wheelSpin += c.speed * dt / 0.35f;
+    c.wheelSpin += c.speed * dt / std::max(0.2f, mi != m_models.end() ? mi->second.wheelRadius : 0.35f);
 }
