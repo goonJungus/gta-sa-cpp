@@ -2452,6 +2452,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.blocked = cjBlocked;
                 pin.rewrite = g_menu.Settings().movementStyle == 1;
                 pin.camYaw = yaw;
+                pin.camPitch = pitch;
                 pin.firstPerson = g_playerCam.FirstPerson(g_menu.Settings().cameraStyle);
                 pin.worldX = playerX; pin.worldY = playerY; pin.feetZ = playerZ - EYE_HEIGHT;
                 pin.jumpHeld = jumpKeyDown;

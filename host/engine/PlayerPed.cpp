@@ -979,7 +979,7 @@ RwMat AxisRotation(const float axis[3], float radians, const float pivot[3]) {
 void PlayerPed::ApplyRewritePose() {
     const MovementParams& p = m_move.p;
     const float kDeg = kPi / 180.0f;
-    const float lean = m_move.Lean(), pitch = m_move.Pitch();
+    const float lean = m_move.Lean(), pitch = m_move.Pitch() + m_aimPitch;
     if (std::fabs(lean) < p.minimumVisiblePoseDegrees && std::fabs(pitch) < p.minimumVisiblePoseDegrees) return;
     const float fwd[3] = {0, 1, 0}, right[3] = {1, 0, 0}, origin[3] = {0, 0, 0};
     const RwMat body = AxisRotation(fwd, lean * kDeg, origin) * AxisRotation(right, pitch * kDeg, origin);
@@ -1061,7 +1061,7 @@ void PlayerPed::Update(const Input& in) {
         }
         m_move.Reset();
     } else if (!in.onGround) {
-        if (m_aiming || m_ducking) LeaveStance();
+        if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false);
         ControlInAir(in);
     } else {
         if (m_inAir) Land(in);
@@ -1087,8 +1087,8 @@ void PlayerPed::Update(const Input& in) {
         }
         const bool wantStance = !m_busy && (m_ducking || in.aim || in.duckJust);
         if (wantStance) ControlStance(in);
-        else if (!m_busy) { if (m_aiming || m_ducking) LeaveStance(); ControlOnFoot(in); }
-        else { if (m_aiming || m_ducking) LeaveStance(); m_ratio = 0.0f; }
+        else if (!m_busy) { if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false); ControlOnFoot(in); }
+        else { if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false); m_ratio = 0.0f; }
     }
 
     // Dev: GTA_CJPOSE="clip:seconds" freezes CJ in one frame of one clip.
@@ -1125,7 +1125,8 @@ void PlayerPed::Update(const Input& in) {
         while (turn > kPi) turn -= 2 * kPi;
         while (turn < -kPi) turn += 2 * kPi;
         // CTimer::ms_fTimeStep * 0.02, capped at 0.1 s
-        m_move.UpdateBody(std::min(dt, 0.1f), right, mag, m_ratio, turn, speed >= 0.12f);
+        m_move.UpdateBody(std::min(dt, 0.1f), right, mag, m_ratio, turn, speed >= 0.12f || m_aiming,
+                          m_aiming && speed < 0.12f ? 0.70f : 0.0f);   // AimStationaryLeanFactor
     } else if (!in.rewrite) {
         m_move.Reset();
     }
@@ -1134,7 +1135,7 @@ void PlayerPed::Update(const Input& in) {
     BuildGlobals(m_pose);
     ShoulderBoneRotation();
     if (in.rewrite) ApplyRewritePose();
-    if (in.rewrite && !m_ducking) ApplyFootIK(in);
+    if (in.rewrite) ApplyFootIK(in);
     Skin();
 }
 
@@ -1343,14 +1344,34 @@ void PlayerPed::SetBodyShape(float fat, float muscle) {
 
 // ---- CTaskSimpleDuck @ 00691fc0 and the aiming stance ----------------------
 
+// SmoothDampAngle: critically damped approach with a speed cap.
+static float SmoothDampAngle(float cur, float target, float& vel, float smooth, float maxSpeed, float dt) {
+    float d = target - cur;
+    while (d > kPi) d -= 2 * kPi;
+    while (d < -kPi) d += 2 * kPi;
+    target = cur + d;
+    smooth = std::max(0.0001f, smooth);
+    const float omega = 2.0f / smooth, x = omega * dt;
+    const float e = 1.0f / (1.0f + x + 0.48f * x * x + 0.235f * x * x * x);
+    const float maxChange = maxSpeed * smooth;
+    const float change = std::clamp(cur - target, -maxChange, maxChange);
+    const float tgt = cur - change;
+    const float temp = (vel + omega * change) * dt;
+    vel = (vel - omega * temp) * e;
+    float out = tgt + (change + temp) * e;
+    if ((target - cur > 0.0f) == (out > target)) { out = target; vel = dt > 0.0f ? (out - target) / dt : 0.0f; }
+    return out;
+}
+
 // Drive the stance clips to the given weights (they sum to 1); anything else
-// fades out.
-void PlayerPed::StanceBlend(const StanceW* ws, int n, float dt) {
+// fades out. expResp > 0: exponential pose-weight response (rewrite aiming);
+// otherwise each clip's own linear blend rate (units per second).
+void PlayerPed::StanceBlend(const StanceW* ws, int n, float dt, float expResp, float fadeRate) {
     for (Assoc& a : m_assocs) {
         if (a.dead) continue;
         bool listed = false;
         for (int i = 0; i < n; i++) if (a.clip == Clip(ws[i].name)) listed = true;
-        if (!listed && a.delta >= 0.0f) a.delta = -8.0f;
+        if (!listed && a.delta >= 0.0f) a.delta = -fadeRate;
     }
     for (int i = 0; i < n; i++) {
         const AnimClip* c = Clip(ws[i].name);
@@ -1359,39 +1380,64 @@ void PlayerPed::StanceBlend(const StanceW* ws, int n, float dt) {
         if (!a && ws[i].w <= 0.0f) continue;
         if (!a) { a = Add(c, ws[i].loop, ws[i].move); a->blend = 0.0f; }
         a->delta = 0.0f;
-        const float step = 8.0f * dt;
-        a->blend = a->blend < ws[i].w ? std::min(ws[i].w, a->blend + step) : std::max(ws[i].w, a->blend - step);
+        if (expResp > 0.0f) {
+            a->blend += (ws[i].w - a->blend) * (1.0f - std::exp(-expResp * dt));
+            if (std::fabs(ws[i].w - a->blend) < 0.002f) a->blend = ws[i].w;
+        } else {
+            const float step = ws[i].rate * dt;
+            a->blend = a->blend < ws[i].w ? std::min(ws[i].w, a->blend + step) : std::max(ws[i].w, a->blend - step);
+        }
         a->playing = ws[i].w > 0.0f || ws[i].loop == false;
         if (a->blend <= 0.0f && ws[i].w <= 0.0f) a->dead = true;
     }
 }
 
-void PlayerPed::LeaveStance() {
+// exitMoving / exitSprint: PlayerControlDucked starts the walk or run at a
+// move blend ratio of 1.0 / 1.5 when the stick is held past 0.5.
+void PlayerPed::LeaveStance(bool rewrite, bool exitMoving, bool exitSprint) {
     m_ducking = m_aiming = false;
     m_duckX = m_duckY = 0.0f;
-    m_ratio = 0.0f;
-    for (Assoc& a : m_assocs) a.delta = -8.0f;
-    if (const AnimClip* idle = Clip("idle_stance")) {
-        Assoc* i = Blend(idle, true, false, 4.0f);   // MakeAbortable: BlendAnimation IDLE at 4
-        i->delta = 4.0f;
-    }
+    m_aimPitch = m_aimPitchVel = 0.0f;
+    m_ratio = exitMoving ? (exitSprint ? 1.5f : 1.0f) : 0.0f;
+    // rewrite: ExitBlendResponse 4.0, and PreserveMovementOnExit keeps the
+    // crouch walk playing while it fades into standing movement
+    const float rate = rewrite ? 4.0f : 8.0f;
+    for (Assoc& a : m_assocs) a.delta = -rate;
+    if (!exitMoving)
+        if (const AnimClip* idle = Clip("idle_stance")) {
+            Assoc* i = Blend(idle, true, false, 4.0f);   // MakeAbortable: BlendAnimation IDLE at 4
+            i->delta = 4.0f;
+        }
 }
 
 void PlayerPed::ControlStance(const Input& in) {
-    // Duck on / off: DuckJustDown; sprint and jump also stand up. CanPedDuck:
-    // a player running or sprinting cannot start one.
-    if (in.duckJust && !m_ducking && m_ratio <= 1.0f && !in.sprint) {
-        m_ducking = true;
-        m_duckX = m_duckY = 0.0f;
-    } else if (m_ducking && (in.duckJust || in.sprint || in.jumpDown)) {
-        m_ducking = false;
-    }
-    m_aiming = in.aim;
-    if (!m_ducking && !m_aiming) { LeaveStance(); return; }
-    m_ratio = 0.0f;
-
     const float sx = in.stickX, sy = in.stickY;
     const float mag = std::min(1.0f, std::sqrt(sx * sx + sy * sy));
+    if (!in.sprint) m_sprintBeforeDuck = false;
+
+    // Duck on / off: DuckJustDown. CanPedDuck: retail refuses while running or
+    // sprinting; the rewrite (EnableCrouchLocomotion) allows it from a run.
+    if (in.duckJust && !m_ducking && (in.rewrite || (m_ratio <= 1.0f && !in.sprint))) {
+        m_ducking = true;
+        m_duckX = m_duckY = 0.0f;
+        m_sprintBeforeDuck = in.sprint;   // sprint already held is ignored until released
+        m_ratio = 0.0f;
+    } else if (m_ducking) {
+        bool leave = in.duckJust || in.jumpDown;
+        if (in.rewrite) {   // KeepCrouchedWithSprint / ExitToRunWithSprint
+            if (in.sprint && !m_sprintBeforeDuck && mag > 0.1f) leave = true;
+        } else if (in.sprint) {
+            leave = true;
+        }
+        if (leave) {
+            m_ducking = false;
+            if (!m_aiming && !in.aim) { LeaveStance(in.rewrite, mag > 0.5f && !in.jumpDown, in.sprint); return; }
+        }
+    }
+    m_aiming = in.aim;
+    if (!m_ducking && !m_aiming) { LeaveStance(in.rewrite, false, false); return; }
+    m_ratio = 0.0f;
+
     if (m_aiming) m_aimHeading = in.camYaw;       // face where the camera looks
     else if (mag > 0.0f) m_aimHeading = std::atan2(sy, sx);
 
@@ -1414,37 +1460,63 @@ void PlayerPed::ControlStance(const Input& in) {
     int n = 0;
     float moveSum = 0.0f;
     if (m_ducking) {
-        const float f = std::max(0.0f, -m_duckY), b = std::max(0.0f, m_duckY);
+        // retail starts the crouch walk once the crouch is fully in; the
+        // rewrite's MoveStartBlend overlaps them from 35%
+        const Assoc* cr = Get(Clip("weapon_crouch"));
+        const bool moveOk = cr && cr->blend >= (in.rewrite ? 0.35f : 0.99f);
+        const float f = moveOk ? std::max(0.0f, -m_duckY) : 0.0f, b = moveOk ? std::max(0.0f, m_duckY) : 0.0f;
+        const float enter = 4.0f, move = 8.0f;   // EnterBlendResponse / MoveBlendResponse
         if (m_duckX != 0.0f) {
-            ws[n++] = {m_duckX > 0 ? "crouch_roll_r" : "crouch_roll_l", 1.0f, false, false};
+            ws[n++] = {m_duckX > 0 ? "crouch_roll_r" : "crouch_roll_l", 1.0f, false, false, move};
         } else {
-            ws[n++] = {"weapon_crouch", 1.0f - std::min(1.0f, f + b), false, false};
-            ws[n++] = {"guncrouchfwd", f, true, true};
-            ws[n++] = {"guncrouchbwd", b, true, true};
+            ws[n++] = {"weapon_crouch", 1.0f - std::min(1.0f, f + b), false, false, enter};
+            ws[n++] = {"guncrouchfwd", f, true, true, move};
+            ws[n++] = {"guncrouchbwd", b, true, true, move};
             moveSum = f + b;
         }
         if (n == 3 && moveSum > 0.0f) {   // retail: speed max(0.6, |cmd|)
             if (Assoc* a = Get(Clip("guncrouchfwd"))) a->speed = std::max(0.6f, f);
             if (Assoc* a = Get(Clip("guncrouchbwd"))) a->speed = std::max(0.6f, b);
         }
+        StanceBlend(ws, n, in.dt, 0.0f, in.rewrite ? 4.0f : 8.0f);
     } else {
         const float f = std::max(0.0f, ly), b = std::max(0.0f, -ly), r = std::max(0.0f, lx), l = std::max(0.0f, -lx);
         const float tot = f + b + r + l;
         const float k = tot > 1.0f ? 1.0f / tot : 1.0f;
-        ws[n++] = {"gun_stand", 1.0f - std::min(1.0f, tot * k), false, true};
-        ws[n++] = {"gunmove_fwd", f * k, true, true};
-        ws[n++] = {"gunmove_bwd", b * k, true, true};
-        ws[n++] = {"gunmove_r", r * k, true, true};
-        ws[n++] = {"gunmove_l", l * k, true, true};
+        ws[n++] = {"gun_stand", 1.0f - std::min(1.0f, tot * k), false, true, 8.0f};
+        ws[n++] = {"gunmove_fwd", f * k, true, true, 8.0f};
+        ws[n++] = {"gunmove_bwd", b * k, true, true, 8.0f};
+        ws[n++] = {"gunmove_r", r * k, true, true, 8.0f};
+        ws[n++] = {"gunmove_l", l * k, true, true, 8.0f};
+        // rewrite EnableAimStrafeBlend: AimStrafeBlendResponse 12.5
+        StanceBlend(ws, n, in.dt, in.rewrite ? 12.5f : 0.0f, 8.0f);
     }
-    StanceBlend(ws, n, in.dt);
 
-    // turn: aiming snaps to the camera, otherwise the classic rate
-    float d = m_aimHeading - m_heading;
-    while (d > kPi) d -= 2 * kPi;
-    while (d < -kPi) d += 2 * kPi;
-    const float rate = (m_aiming ? 12.0f : 9.0f * (kPi / 180.0f) * 50.0f) * in.dt;
-    m_heading += std::clamp(d, -rate, rate);
+    // turn: rewrite aiming is a damped follow of the camera heading
+    // (AimHeadingSmoothTimeSeconds, first person 0.03235; 720 deg/s cap)
+    if (m_aiming && in.rewrite) {
+        m_heading = SmoothDampAngle(m_heading, m_aimHeading, m_aimHeadVel, in.firstPerson ? 0.03235f : 0.055f,
+                                    720.0f * (kPi / 180.0f), in.dt);
+    } else {
+        m_aimHeadVel = 0.0f;
+        float d = m_aimHeading - m_heading;
+        while (d > kPi) d -= 2 * kPi;
+        while (d < -kPi) d += 2 * kPi;
+        const float rate = (m_aiming ? 12.0f : 9.0f * (kPi / 180.0f) * 50.0f) * in.dt;
+        m_heading += std::clamp(d, -rate, rate);
+    }
     while (m_heading > kPi) m_heading -= 2 * kPi;
     while (m_heading < -kPi) m_heading += 2 * kPi;
+
+    // vertical body follow: AimPitchInfluence 0.65 of the camera pitch, at most
+    // 16 degrees, damped (0.10 s, 540 deg/s); the crosshair stays instant
+    if (m_aiming && in.rewrite) {
+        const float deg = 180.0f / kPi;
+        const float tgt = std::clamp(in.camPitch * deg * 0.65f, -16.0f, 16.0f);
+        float p = m_aimPitch / deg, v = m_aimPitchVel / deg;
+        m_aimPitch = SmoothDampAngle(p, tgt / deg, v, 0.10f, 540.0f / deg, in.dt) * deg;
+        m_aimPitchVel = v * deg;
+    } else {
+        m_aimPitch = m_aimPitchVel = 0.0f;
+    }
 }

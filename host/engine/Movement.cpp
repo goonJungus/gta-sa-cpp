@@ -118,14 +118,14 @@ float Movement::Heading(float dt, float current, float aim, bool active) {
     return m_heading;
 }
 
-void Movement::UpdateBody(float dt, float stickRight, float stickMag, float ratio, float turnError, bool moving) {
+void Movement::UpdateBody(float dt, float stickRight, float stickMag, float ratio, float turnError, bool moving, float minIntensity) {
     const float turnN = std::clamp(turnError / (p.fullTurnAngleDegrees * kDeg), -1.0f, 1.0f);
     const float velN = std::clamp(m_turnRateDeg / p.fullTiltTurnSpeed, -1.0f, 1.0f);
     const float raw = std::clamp(turnN * p.turnContribution + std::clamp(stickRight, -1.0f, 1.0f) * p.inputContribution +
                                      velN * p.angularVelocityContribution, -1.0f, 1.0f);
     // Intensity: how hard CJ is being driven (max of the stick and the
     // move blend ratio), and only while he is actually moving.
-    const float intensity = moving ? std::max(std::min(stickMag, 1.0f), std::clamp(ratio, 0.0f, 1.0f)) : 0.0f;
+    const float intensity = moving ? std::max({std::min(stickMag, 1.0f), std::clamp(ratio, 0.0f, 1.0f), minIntensity}) : 0.0f;
 
     const float leanTarget = -raw * intensity * p.maxLeanDegrees;
     const float leanResp = std::fabs(m_lean) < std::fabs(leanTarget) ? p.leanInResponse : p.leanOutResponse;

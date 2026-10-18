@@ -60,7 +60,7 @@ public:
     // Lean / Pitch targets. stickRight: stick component to CJ's right (-1..1);
     // stickMag: 0..1; ratio: CPlayerPedData::m_fMoveBlendRatio; moving: CJ's
     // ground speed is at least 0.12 m/s.
-    void UpdateBody(float dt, float stickRight, float stickMag, float ratio, float turnError, bool moving);
+    void UpdateBody(float dt, float stickRight, float stickMag, float ratio, float turnError, bool moving, float minIntensity = 0.0f);
 
     float Lean() const { return m_lean; }     // degrees, about CJ's forward axis
     float Pitch() const { return m_pitch; }   // degrees, about CJ's right axis

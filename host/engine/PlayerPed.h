@@ -49,6 +49,7 @@ public:
         bool noclip = false;
         bool blocked = false;                 // collision stopped CJ last frame
         bool rewrite = false;                 // rewrite handling (Movement.h)
+        float camPitch = 0.0f;                // radians, positive = looking up
         float camYaw = 0.0f;                  // for the rewrite heading / lean
         bool firstPerson = false;             // face the camera, move along the stick
         // Ground height at (x, y) searching down from z (rewrite foot IK);
@@ -159,9 +160,9 @@ private:
     void Land(const Input& in);
     void ControlSwim(const Input& in);
     void ControlStance(const Input& in);
-    struct StanceW { const char* name; float w; bool move, loop; };
-    void StanceBlend(const StanceW* ws, int n, float dt);
-    void LeaveStance();
+    struct StanceW { const char* name; float w; bool move, loop; float rate; };
+    void StanceBlend(const StanceW* ws, int n, float dt, float expResp, float fadeRate);
+    void LeaveStance(bool rewrite, bool exitMoving, bool exitSprint);
     void SwimWant(const char* name, float rate, bool movement);
 
     bool m_ready = false;
@@ -214,6 +215,8 @@ private:
     float m_moveAngle = 0.0f;                  // first person: direction of travel
 
     bool m_ducking = false, m_aiming = false;
+    bool m_sprintBeforeDuck = false;
+    float m_aimHeadVel = 0.0f, m_aimPitch = 0.0f, m_aimPitchVel = 0.0f;   // damped aim follow, rad/s, deg
     float m_duckX = 0.0f, m_duckY = 0.0f;      // CTaskSimpleDuck::m_MoveCmd (x strafe, y: -1 forward)
     // CTaskSimpleSwim
     enum class SwimState { Tread, Sprint, Sprinting, Dive, Under, BackToSurface };
