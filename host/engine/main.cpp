@@ -374,6 +374,19 @@ static int MouseMode() {
     return mode;
 }
 
+// A fully transparent cursor: the pointer stays "visible" to the system, so a Wayland compositor does not
+// lock it (a null cursor makes Wine request a pointer lock, which stops all absolute motion).
+static HCURSOR BlankCursor() {
+    static HCURSOR c = nullptr;
+    if (!c) {
+        BYTE andMask[32 * 4], xorMask[32 * 4];
+        memset(andMask, 0xFF, sizeof(andMask));
+        memset(xorMask, 0x00, sizeof(xorMask));
+        c = CreateCursor(GetModuleHandleA(nullptr), 0, 0, 32, 32, andMask, xorMask);
+    }
+    return c;
+}
+
 static void SetPointerCapture(bool on) {
     if (on == g_cursorHidden) return;
     g_cursorHidden = on;
@@ -382,7 +395,7 @@ static void SetPointerCapture(bool on) {
         else { ClipCursor(nullptr); while (ShowCursor(TRUE) < 0) {} }
     } else {
         ClipCursor(nullptr);   // the cursor image is hidden by WM_SETCURSOR while captured
-        if (!on) SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        SetCursor(on ? BlankCursor() : LoadCursor(nullptr, IDC_ARROW));
     }
     Log("MOUSE: pointer %s", on ? "captured (hidden, confined)" : "released (visible, free)");
 }
@@ -402,7 +415,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             (unsigned)LOWORD(wp), (void*)GetForegroundWindow(), (void*)hwnd, (void*)GetFocus());
         return 0;
     case WM_SETCURSOR:
-        if (g_cursorHidden && LOWORD(lp) == HTCLIENT) { SetCursor(nullptr); return TRUE; }
+        if (g_cursorHidden && LOWORD(lp) == HTCLIENT) { SetCursor(MouseMode() == 0 ? nullptr : BlankCursor()); return TRUE; }
         break;
     case WM_MOUSEACTIVATE:
         return MA_ACTIVATE;               // a click on the game always brings it back
