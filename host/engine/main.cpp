@@ -155,9 +155,16 @@ static bool PadKey(int vk) {
     }
     return false;
 }
+// Mouse buttons and pointer position tracked from window messages: under Wine on
+// Wayland GetAsyncKeyState misses some buttons and GetCursorPos can be stale.
+static volatile bool g_msgBtn[3] = { false, false, false };   // left, right, middle
+static volatile long g_msgMouseX = 0, g_msgMouseY = 0;        // client coords, last WM_MOUSEMOVE
+static volatile bool g_msgMouseSeen = false;
 static SHORT RawGameKey(int vk) {
     if (ScriptedKey(vk)) return (SHORT)0x8000;
     if (g_hasFocus && PadKey(vk)) return (SHORT)0x8000;
+    if (g_hasFocus && (vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON) &&
+        g_msgBtn[vk == VK_LBUTTON ? 0 : vk == VK_RBUTTON ? 1 : 2]) return (SHORT)0x8000;
     return g_hasFocus ? GetAsyncKeyState(vk) : 0;
 }
 static int g_driveCar = -1;   // index of the car CJ is driving, -1 on foot
@@ -358,6 +365,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_ACTIVATE:
         g_hasFocus = LOWORD(wp) != WA_INACTIVE;
+        if (!g_hasFocus) for (int i = 0; i < 3; i++) g_msgBtn[i] = false;
         if (!g_hasFocus) ClipCursor(nullptr);
         if (g_hasFocus) SetFocus(hwnd);   // keyboard back to us on click/alt-tab return
         Log("WINDOW: %s (state %u, fg=%p self=%p focus=%p)", g_hasFocus ? "activated" : "deactivated",
@@ -402,6 +410,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
     }
+    case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
+        g_msgBtn[msg == WM_LBUTTONDOWN ? 0 : msg == WM_RBUTTONDOWN ? 1 : 2] = true;
+        SetCapture(hwnd);
+        return 0;
+    case WM_LBUTTONUP: case WM_RBUTTONUP: case WM_MBUTTONUP:
+        g_msgBtn[msg == WM_LBUTTONUP ? 0 : msg == WM_RBUTTONUP ? 1 : 2] = false;
+        if (!g_msgBtn[0] && !g_msgBtn[1] && !g_msgBtn[2]) ReleaseCapture();
+        return 0;
+    case WM_CAPTURECHANGED:
+        for (int i = 0; i < 3; i++) g_msgBtn[i] = false;
+        break;
+    case WM_MOUSEMOVE:
+        g_msgMouseX = (short)LOWORD(lp); g_msgMouseY = (short)HIWORD(lp);
+        g_msgMouseSeen = true;
+        return 0;
     case WM_MOUSEWHEEL:
         g_wheelSteps += GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA;
         return 0;
@@ -2131,7 +2154,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz + 0.1f, std::atan2(fy, fx) - 1.57079633f);
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
             }
-            if (DevKeyPressed('P') && g_peds.Ready()) {   // dev: a pedestrian ahead of CJ
+            if (DevKeyPressed('K') && g_peds.Ready()) {   // dev: a pedestrian ahead of CJ
                 float fx = playerX - camPosX, fy = playerY - camPosY;
                 const float fl = std::sqrt(fx * fx + fy * fy);
                 if (fl < 0.01f) { fx = cosf(yaw); fy = sinf(yaw); } else { fx /= fl; fy /= fl; }
@@ -2242,7 +2265,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (!g_hasFocus && !g_menu.IsOpen()) g_menu.Open();
                 for (int k = 0; k < nk; k++) {
                     if (g_menu.IsOpen()) g_menu.OnKey(keys[k]);
-                    else if (keys[k] == VK_ESCAPE || keys[k] == 'P') g_menu.Open();
+                    else if (keys[k] == VK_ESCAPE) g_menu.Open();
                 }
                 if (g_menu.IsOpen() && g_wheelSteps) g_menu.OnWheel(g_wheelSteps);
                 g_wheelSteps = 0;
@@ -2512,6 +2535,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     static POINT s_lastMp = {0, 0};
                     static bool s_haveLast = false;
                     if (!s_warpOk) {
+                        if (g_msgMouseSeen) { mp.x = g_msgMouseX; mp.y = g_msgMouseY; }   // message position beats a stale GetCursorPos
                         if (dx == 0 && dy == 0 && s_haveLast) { dx = mp.x - s_lastMp.x; dy = mp.y - s_lastMp.y; }
                         s_lastMp = mp; s_haveLast = true;
                     } else s_haveLast = false;

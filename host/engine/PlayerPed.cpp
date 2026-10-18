@@ -728,7 +728,7 @@ void PlayerPed::ControlInAir(const Input& in) {
     }
     {   // nothing left playing (a vault drop fades every clip out): hold the fall pose, never the bind pose
         bool any = false;
-        for (const Assoc& a : m_assocs) if (!a.dead && a.delta >= 0.0f && a.blend > 0.0f) { any = true; break; }
+        for (const Assoc& a : m_assocs) if (!a.dead && a.delta >= 0.0f && (a.blend > 0.0f || a.delta > 0.0f)) { any = true; break; }   // a clip fading in (blend still 0) counts
         if (!any) Blend(fallGlide, true, false, 8.0f);
     }
     // No ground within 4 m and dropping faster than 0.1 per timestep (5 m/s).

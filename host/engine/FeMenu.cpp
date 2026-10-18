@@ -386,7 +386,6 @@ void FeMenu::OnKey(int vk) {
     case VK_RIGHT:  Activate(+1); break;
     case VK_RETURN: Activate(0); break;
     case VK_ESCAPE: case VK_BACK: Back(); break;
-    case 'P':       Close(); break;   // dev habit: P toggles the pause menu
     }
 }
 
