@@ -38,4 +38,4 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 
 ## Scripts and missions
 - [~] SCM virtual machine (main.scm header chunks parsed; one thread runs the core language: variables, arithmetic, comparisons, AND/OR, jumps, subroutines, waits; stops at the first game command, none are wired yet) (w 4)
-- [ ] Missions (w 6)
+- [~] Missions (mission table of main.scm read; the VM launches a mission script as its own thread with its own jump base, and START_NEW_SCRIPT passes locals; mission 1 runs 410 instructions before its first game command; nothing is playable yet) (w 6)

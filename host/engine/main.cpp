@@ -1218,10 +1218,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     if (getenv("GTA_SCMTEST")) {   // dev: run the main script's core language and report where it stops
         ScmMachine scm;
         if (scm.Init(GameDir())) {
+            if (const char* m = getenv("GTA_SCMTEST")) if (atoi(m) > 0) scm.LaunchMission(atoi(m) - 1);
             scm.Update(0);
-            const ScmThread& t = scm.Thread(0);
-            std::fprintf(stderr, "[SCM] thread '%s' ran %llu instructions, pc 0x%X, %s 0x%04X\n", t.name.c_str(),
-                         (unsigned long long)t.executed, t.pc, t.finished ? "finished" : "stopped at opcode", t.stoppedAt);
+            for (size_t i = 0; i < scm.ThreadCount(); i++) {
+                const ScmThread& t = scm.Thread(i);
+                std::fprintf(stderr, "[SCM] thread '%s' ran %llu instructions, pc 0x%X, %s 0x%04X\n", t.name.c_str(),
+                             (unsigned long long)t.executed, t.pc, t.finished ? "finished" : "stopped at opcode", t.stoppedAt);
+            }
         }
     }
     if (cjReady) {   // [Player] Fat / Muscle in the ini (0..100), GTA_FAT / GTA_MUSCLE override
