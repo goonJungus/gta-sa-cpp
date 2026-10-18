@@ -61,6 +61,8 @@ public:
     void Update(int32_t nowMs, int maxInstructions = 200000);
     size_t ThreadCount() const { return m_threads.size(); }
     const ScmThread& Thread(size_t i) const { return m_threads[i]; }
+    // Start mission script number `index` (the mission table of the header) as a new thread.
+    bool LaunchMission(int index);
     int32_t Global(uint32_t offset) const;
     float GlobalFloat(uint32_t offset) const;
 
@@ -76,4 +78,5 @@ private:
     ScmFile m_file;
     std::vector<uint8_t> m_space;        // the whole script image: variables are read and written in place
     std::vector<ScmThread> m_threads;
+    std::vector<ScmThread> m_pending;    // threads started during a step
 };

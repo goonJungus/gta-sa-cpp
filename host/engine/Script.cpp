@@ -163,6 +163,28 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
         return true;
     }
     if (op == 0x004E) { t.finished = true; return false; }                     // TERMINATE_THIS_SCRIPT
+    if (op == 0x004F || op == 0x00D7) {                                         // START_NEW_SCRIPT, LAUNCH_MISSION
+        if (!ReadArg(t, a)) return fail();
+        ScmThread n;
+        n.pc = a.i >= 0 ? (uint32_t)a.i : 0;
+        if (op == 0x00D7) {   // a mission script lives in its own block; its jumps count from the block start
+            if (a.i < 0 || (size_t)a.i >= m_space.size()) return fail();
+            n.base = (uint32_t)a.i;
+            n.name = "mission";
+        } else if (a.i < 0) return fail();
+        if (op == 0x004F) {   // the extra arguments become the new thread's first locals
+            int li = 0;
+            while (t.pc < m_space.size() && m_space[t.pc] != 0) {
+                Arg v;
+                if (!ReadArg(t, v)) return fail();
+                if (li < 64) n.locals[li++] = (v.type == 2 || v.type == 3) ? Var(t, v) : v.i;
+            }
+            if (t.pc < m_space.size()) t.pc++;   // the end-of-arguments byte
+        }
+        n.wakeTime = nowMs;
+        m_pending.push_back(n);
+        return true;
+    }
     if (op == 0x00D6) {                                                         // ANDOR
         if (!ReadArg(t, a)) return fail();
         if (a.i == 0) t.andOrMode = 0;
@@ -220,9 +242,24 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
 }
 
 void ScmMachine::Update(int32_t nowMs, int maxInstructions) {
-    for (ScmThread& t : m_threads) {
-        if (t.finished || t.stoppedAt || t.wakeTime > nowMs) continue;
-        for (int n = 0; n < maxInstructions && !t.finished && !t.stoppedAt && t.wakeTime <= nowMs; n++)
-            if (!Step(t, nowMs)) break;
+    for (size_t i = 0; i < m_threads.size(); i++) {   // new threads started on the way join the same pass
+        ScmThread& t = m_threads[i];
+        if (!t.finished && !t.stoppedAt && t.wakeTime <= nowMs)
+            for (int n = 0; n < maxInstructions && !t.finished && !t.stoppedAt && t.wakeTime <= nowMs; n++)
+                if (!Step(t, nowMs)) break;
+        if (!m_pending.empty()) {
+            for (ScmThread& p : m_pending) m_threads.push_back(p);
+            m_pending.clear();
+        }
     }
+}
+
+bool ScmMachine::LaunchMission(int index) {
+    const ScmHeader& h = m_file.Header();
+    if (index < 0 || index >= (int)h.missionOffsets.size()) return false;
+    ScmThread n;
+    n.pc = n.base = h.missionOffsets[(size_t)index];
+    n.name = "mission";
+    m_threads.push_back(n);
+    return true;
 }
