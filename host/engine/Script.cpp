@@ -357,8 +357,11 @@ void ScmMachine::Update(int32_t nowMs, int maxInstructions) {
     for (size_t i = 0; i < m_threads.size(); i++) {   // new threads started on the way join the same pass
         ScmThread& t = m_threads[i];
         if (!t.finished && !t.stoppedAt && t.wakeTime <= nowMs)
-            for (int n = 0; n < maxInstructions && !t.finished && !t.stoppedAt && t.wakeTime <= nowMs; n++)
+            for (int n = 0; n < maxInstructions && !t.finished && !t.stoppedAt && t.wakeTime <= nowMs; n++) {
                 if (!Step(t, nowMs)) break;
+                // a loop that never waits (its game command is skipped) must not eat the frame
+                if (n == maxInstructions - 1 && !t.finished) t.wakeTime = nowMs + 100;
+            }
         if (!m_pending.empty()) {
             for (ScmThread& p : m_pending) m_threads.push_back(p);
             m_pending.clear();
