@@ -47,6 +47,8 @@ public:
     // Menu cue from FeMenu::TakeUiEvent: 1 highlight, 2 select, 3 back.
     void Ui(int cue);
     void Pain(float vol = 1.0f);
+    // A bullet landing dist units away (hit sound, quieter with distance).
+    void Impact(float dist);
     // Weapon change cue (frontend weapon sound).
     void WeaponSwitch();
     // Background beds, call every frame: city murmur, rain and wind levels 0..1.

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
@@ -136,7 +137,8 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
                     g.textures.push_back(tex);
                     break;
                 }
-                g.meshes.push_back(mesh);
+                const bool flash = TxdLoader::KeyOf(dm.textureName) == TxdLoader::KeyOf("muzzle_texture4");
+                (flash ? g.muzzle : g.meshes).push_back(mesh);
             }
         }
         g.ammo = g.clipSize;
@@ -149,6 +151,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
 void PlayerPed::ShutdownGuns(D3DRenderer& r) {
     for (Gun& g : m_guns) {
         for (D3DRenderMesh* m : g.meshes) r.DestroyMesh(m);
+        for (D3DRenderMesh* m : g.muzzle) r.DestroyMesh(m);
         for (IDirect3DTexture9* t : g.textures) if (t) r.DestroyTexture(t);
         if (g.icon) r.DestroyTexture(g.icon);
     }
@@ -190,6 +193,7 @@ void PlayerPed::UpdateGun(const Input& in) {
     if (m_gun < 0) return;
     Gun& g = m_guns[m_gun];
     const GunSpec& sp = *g.spec;
+    m_flash = std::max(0.0f, m_flash - in.dt);
     const bool crouch = m_ducking;
     const float loopStart = crouch ? g.loop2Start : g.loopStart, loopEnd = crouch ? g.loop2End : g.loopEnd,
                 fireTime = crouch ? g.fire2Time : g.fireTime;
@@ -274,6 +278,7 @@ void PlayerPed::UpdateGun(const Input& in) {
             m_shotDone = true;
             g.ammo--;
             m_shotEvents++;
+            if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0) m_flash = 0.06f;   // the silenced pistol has no flash
             std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
         }
         if (fa->time >= loopEnd || fa->finished) {
@@ -286,6 +291,21 @@ void PlayerPed::UpdateGun(const Input& in) {
 }
 
 // The weapon model sits on the right-hand bone matrix (RenderWeaponPedsForPC).
+bool PlayerPed::MuzzleWorld(float x, float y, float feetZ, float out[3]) const {
+    if (m_gun < 0) return false;
+    const int f = m_frameOfBone[kBoneRHand];
+    if (f < 0 || f >= (int)m_globals.size()) return false;
+    const float* o = m_guns[m_gun].fireOffset;
+    const RwMat& h = m_globals[f];
+    float p[3];
+    for (int j = 0; j < 3; j++) p[j] = o[0] * h.m[0][j] + o[1] * h.m[1][j] + o[2] * h.m[2][j] + h.m[3][j];
+    const float a = m_heading - 1.57079633f, c = std::cos(a), s = std::sin(a);
+    out[0] = x + p[0] * c - p[1] * s;
+    out[1] = y + p[0] * s + p[1] * c;
+    out[2] = feetZ - m_bindMinZ + p[2];
+    return true;
+}
+
 void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
     if (m_gun < 0) return;
     const int f = m_frameOfBone[kBoneRHand];
@@ -306,5 +326,23 @@ void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
             o[i * 4 + j] = v;
         }
     dev->SetTransform(D3DTS_WORLD, &out);
-    for (D3DRenderMesh* m : m_guns[m_gun].meshes) r.DrawMesh(m);
+    Gun& g = m_guns[m_gun];
+    for (D3DRenderMesh* m : g.meshes) r.DrawMesh(m);
+    if (m_flash > 0.0f && !g.muzzle.empty()) {
+        // the flash atomic: additive, no depth write, a little bigger or smaller every shot
+        DWORD ab, sb, db, zw;
+        dev->GetRenderState(D3DRS_ALPHABLENDENABLE, &ab);
+        dev->GetRenderState(D3DRS_SRCBLEND, &sb);
+        dev->GetRenderState(D3DRS_DESTBLEND, &db);
+        dev->GetRenderState(D3DRS_ZWRITEENABLE, &zw);
+        dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+        dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        for (D3DRenderMesh* m : g.muzzle) r.DrawMesh(m);
+        dev->SetRenderState(D3DRS_ALPHABLENDENABLE, ab);
+        dev->SetRenderState(D3DRS_SRCBLEND, sb);
+        dev->SetRenderState(D3DRS_DESTBLEND, db);
+        dev->SetRenderState(D3DRS_ZWRITEENABLE, zw);
+    }
 }

@@ -358,6 +358,14 @@ void Audio::Pain(float vol) {
     if (n > 0) Play(BANK_PAIN_CARL, Rand(n), vol);
 }
 
+void Audio::Impact(float dist) {
+    if (!m_ready) return;
+    const int n = SoundCount(BANK_BULLET_HITS);
+    if (n <= 0) return;
+    const float vol = std::max(0.15f, 1.0f - dist / 90.0f);
+    Play(BANK_BULLET_HITS, Rand(n), vol, 0.0f, 0.95f + 0.1f * (float)Rand(10) / 10.0f);
+}
+
 void Audio::WeaponSwitch() {
     // FRONTEND_GAME weapon (L 0x1B, R 0x1C)
     Play(BANK_FRONTEND_GAME, 0x1B, 0.8f, -0.3f);

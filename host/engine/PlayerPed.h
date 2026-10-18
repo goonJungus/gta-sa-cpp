@@ -126,6 +126,8 @@ public:
     bool Reloading() const { return m_reloading; }
     IDirect3DTexture9* GunIcon() const; // hud icon texture, or null (fists)
     // One-shot events for sound and effects, taken by the host each frame.
+    // Muzzle position in the world (weapon.dat fire offset on the hand), false when unarmed.
+    bool MuzzleWorld(float x, float y, float feetZ, float out[3]) const;
     int TakeShotEvents() { int n = m_shotEvents; m_shotEvents = 0; return n; }
     int TakeReloadEvents() { int n = m_reloadEvents; m_reloadEvents = 0; return n; }
     int TakeDryEvents() { int n = m_dryEvents; m_dryEvents = 0; return n; }
@@ -266,6 +268,7 @@ private:
         bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
         float fireOffset[3] = {0, 0, 0};
         std::vector<D3DRenderMesh*> meshes;
+        std::vector<D3DRenderMesh*> muzzle;     // the muzzle flash atomic, drawn only on a shot
         std::vector<IDirect3DTexture9*> textures;
     };
     std::vector<Gun> m_guns;
@@ -274,6 +277,7 @@ private:
     static constexpr float kBreathMax = 39.0f;   // seconds under water (CStats air in lung, untrained)
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = kBreathMax, m_damageFlash = 0.0f;
     bool m_reloading = false, m_firing = false, m_shotDone = false;
+    float m_flash = 0.0f;                      // muzzle flash time left
     float m_reloadTime = 0.0f;
     const AnimClip* m_gunFireClip = nullptr;
     const AnimClip* m_gunRelClip = nullptr;

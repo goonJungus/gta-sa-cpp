@@ -25,7 +25,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [~] Crouch and aim stance (weapon.dat crouch fire loops, torso aim for body-aimed guns, Gun_2_IDLE on release; CTaskSimpleDuck: unarmed duck on C, crouch walk, rolls; aim on right mouse: camera-facing strafe with the gun move clips; rewrite style adds damped aim heading, strafe blend, pitch follow, stationary aim lean, crouch from a run, crouched foot IK; aim arm swung to the camera pitch) (w 1)
 - [ ] Drivable vehicles with handling.cfg dynamics (w 4)
 - [ ] Peds, traffic and path-node AI (w 4)
-- [~] Weapons and combat (13 firearms from weapon.dat: models in hand, Q cycles, LMB fire with ammo and fire anim, R reload with rewrite crossfade, crouch fire and reload; no projectiles, damage or muzzle flash yet) (w 2)
+- [~] Weapons and combat (13 firearms from weapon.dat: models in hand, Q cycles, LMB fire with ammo and fire anim, R reload with rewrite crossfade, crouch fire and reload; hitscan down the camera ray with tracers, impact dust and sparks, hit sounds, muzzle flash on the shot, weapon move speed; no damage or targets yet) (w 2)
 
 ## Frontend
 - [~] Pause menu and settings in the retail layout (display options work; centred layout for any aspect ratio; rewrite mode toggle, gameplay, HUD and field of view, audio sliders; Map page with pan, zoom and waypoint; Stats and Brief pages; Controls list, mouse sensitivity and invert Y, display mode and window size) (w 2)

@@ -1575,6 +1575,10 @@ void PlayerPed::ControlStance(const Input& in) {
         ws[n++] = {"gunmove_l", l * k, true, true, 8.0f};
         // rewrite EnableAimStrafeBlend: AimStrafeBlendResponse 12.5
         StanceBlend(ws, n, in.dt, in.rewrite ? 12.5f : 0.0f, 8.0f);
+        // weapon.dat move speed scales the aim strafe clips
+        if (m_gun >= 0)
+            for (const char* nm : {"gunmove_fwd", "gunmove_bwd", "gunmove_r", "gunmove_l"})
+                if (Assoc* as = Get(Clip(nm))) as->speed = m_guns[m_gun].moveSpeed;
     }
 
     // turn: rewrite aiming is a damped follow of the camera heading

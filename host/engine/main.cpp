@@ -56,6 +56,7 @@
 #include "Sky.h"
 #include "ClimbScan.h"
 #include "Audio.h"
+#include "Effects.h"
 
 static D3DRenderer g_renderer;
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
@@ -162,6 +163,8 @@ static bool g_running = true;
 static FeMenu g_menu;
 static Hud g_hud;
 static Audio g_audio;
+static Effects g_fx;
+static float g_aimEye[3] = {0, 0, 0}, g_aimDir[3] = {0, 1, 0};   // the camera ray bullets follow
 static bool g_hudReady = false;
 static bool g_menuReady = false;
 static bool g_escOpensMenu = false;      // play mode (not the capture modes)
@@ -905,6 +908,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("FRONTEND: pause menu %s", g_menuReady ? "ready" : "FAILED (fonts.txd / american.gxt?)");
         if (g_menuReady && startMenuScreen >= 0) { g_menu.Open(startMenuScreen); g_devPaused = true; }
         g_hudReady = g_hud.Init(g_renderer, GameDir());
+        g_fx.Init(g_renderer);
         Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
         if (g_audio.Ready() && getenv("GTA_AUDIOTEST"))
             Log("AUDIO: weapons bank %d sounds, menu bank %d, feet %d, pain %d", g_audio.SoundCount(BANK_WEAPONS),
@@ -2708,6 +2712,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                               co.eye[1] + co.dir[1], co.eye[2] + co.dir[2], 0, 0, 1);
                 g_renderer.SetViewMatrix(view);
                 camPosX = co.eye[0]; camPosY = co.eye[1]; camPosZ = co.eye[2];
+                for (int i = 0; i < 3; i++) { g_aimEye[i] = co.eye[i]; g_aimDir[i] = co.dir[i]; }
                 g_hideCjHead = co.hideHead;
                 nearClip = co.nearClip;
             } else if (!thirdPerson) {
@@ -2717,6 +2722,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 D3DMATRIX view = MatrixLookAt(playerX, playerY, playerZ, tx, ty, tz, 0, 0, 1);
                 g_renderer.SetViewMatrix(view);
                 camPosX = playerX; camPosY = playerY; camPosZ = playerZ;
+                g_aimEye[0] = playerX; g_aimEye[1] = playerY; g_aimEye[2] = playerZ;
+                g_aimDir[0] = dirX; g_aimDir[1] = dirY; g_aimDir[2] = dirZ;
             } else {
                 // Over-shoulder: camera pulled back along view dir, lifted a touch.
                 const float CAM_DIST = 4.5f;
@@ -2729,6 +2736,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 D3DMATRIX view = MatrixLookAt(cx, cy, cz, tx, ty, tz, 0, 0, 1);
                 g_renderer.SetViewMatrix(view);
                 camPosX = cx; camPosY = cy; camPosZ = cz;
+                g_aimEye[0] = cx; g_aimEye[1] = cy; g_aimEye[2] = cz;
+                g_aimDir[0] = dirX; g_aimDir[1] = dirY; g_aimDir[2] = dirZ;
             }
             const float wantFov = g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f;
             if (nearClip != g_nearClip || wantFov != g_fovDeg) {   // first person needs a near plane at the eyes
@@ -2811,6 +2820,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             uint32_t tlMs = GetTickCount();
             if (const char* e = getenv("GTA_TLMS")) tlMs = (uint32_t)strtoul(e, nullptr, 10);
             g_world.RenderTrafficLights(g_renderer, camPosX, camPosY, camPosZ, tlMs, lampI);
+            g_fx.Render(g_renderer);
             g_prof.End(FrameProfiler::P_RENDER);
         } else {
             for (auto& obj : mapObjects) {
@@ -2910,6 +2920,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (!g_menu.IsOpen() && !g_devPaused) {
                 evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
                 st.shots += evShots; st.reloads += evReload;
+                g_fx.Update(dt);
+                // Each shot is a hitscan down the camera ray: a tracer from the muzzle,
+                // dust and sparks and a hit sound where it lands.
+                for (int n = 0; n < evShots && worldReady; n++) {
+                    const float range = 120.0f;
+                    float farEnd[3], hit[3], hnz = 0.0f;
+                    for (int i = 0; i < 3; i++) farEnd[i] = g_aimEye[i] + g_aimDir[i] * range;
+                    int kind = 0;
+                    const float t = g_world.RayCast(g_aimEye[0], g_aimEye[1], g_aimEye[2], farEnd[0], farEnd[1], farEnd[2], &kind, &hnz);
+                    for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * range * t;
+                    float mz[3];
+                    if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, mz)) g_fx.Tracer(mz, hit);
+                    if (t < 1.0f) {
+                        g_fx.Impact(hit, hnz);
+                        const float dx = hit[0] - g_aimEye[0], dy = hit[1] - g_aimEye[1], dz = hit[2] - g_aimEye[2];
+                        g_audio.Impact(std::sqrt(dx * dx + dy * dy + dz * dz));
+                    }
+                }
                 st.playSec += dt;
                 const bool air = g_cj.InAir();
                 if (st.havePrev && !air && !g_cj.Swimming()) st.dist += hypotf(playerX - st.px, playerY - st.py);
