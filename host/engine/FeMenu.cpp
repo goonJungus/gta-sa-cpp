@@ -163,6 +163,7 @@ void FeMenu::BuildScreens() {
         // Display page: brightness, radar mode and HUD mode; mip mapping on the advanced page.
         for (Entry& e : m_screens[4].items) {
             if (e.action == 27) { e.action = A_SLIDER; e.f = &m_set.brightness; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
+            else if (e.action == 33) { e.action = A_TOGGLE; e.b = &m_set.mapLegend; }
             else if (e.action == 34) { e.action = A_CHOICE; e.i = &m_set.radarMode; e.choices = {"ON", "OFF"}; }
             else if (e.action == 35) { e.action = A_TOGGLE; e.b = &m_set.showHud; }
             else if (e.action == A_GOTO && (e.target == 23 || e.target == 24)) { e.action = A_DEFAULTS; e.target = 1; }
@@ -340,7 +341,7 @@ void FeMenu::Activate(int dir) {
     case A_DEFAULTS:
         if (dir != 0) break;
         if (e.target == 0) { m_set.masterVol = 0.8f; m_set.sfxVol = 1.0f; m_set.musicVol = 0.7f; }
-        else { m_set.antiAlias = 0; m_set.brightness = 0.5f; m_set.radarMode = 0; m_set.showHud = true; m_set.hudScale = 1.0f; m_set.fov = 70.0f; m_set.mipmaps = true; }
+        else { m_set.antiAlias = 0; m_set.brightness = 0.5f; m_set.radarMode = 0; m_set.showHud = true; m_set.hudScale = 1.0f; m_set.fov = 70.0f; m_set.mipmaps = true; m_set.mapLegend = false; }
         m_changed = true;
         break;
     case A_LANG:
@@ -841,6 +842,27 @@ void FeMenu::DrawMap(Fe2d& g) {
         toScreen(m_info.x, m_info.y, px, py);
         m_hud->RotatedSprite(g, m_hud->Sprite("radar_centre"), px + 2, py + 2, bs * 1.25f, bs * 1.25f, 1.5707963f - m_info.heading, 0xE0000000);
         m_hud->RotatedSprite(g, m_hud->Sprite("radar_centre"), px, py, bs, bs, 1.5707963f - m_info.heading, 0xFFFFFFFF);
+    }
+    // Legend: one row per blip kind on the map (retail DrawLegend, LG_xx text by sprite).
+    if (m_set.mapLegend && m_hud) {
+        const float rowH = Sy(26), pad = Sx(10);
+        const float x1 = r - Sx(24), y0 = t + Sy(90);
+        const int rows = 1 + (m_wpSet ? 1 : 0);
+        m_font.SetStyle(FeFont::SUBTITLES);
+        m_font.SetScale(Sx(0.4f), Sy(0.9f));
+        m_font.SetEdge(2);
+        m_font.SetAlign(FeFont::LEFT);
+        m_font.SetColor(0xFFE1E1E1);
+        const float w = Sx(190);
+        g.DrawRect(x1 - w, y0, x1, y0 + rowH * rows + pad, 0xB0000000);
+        float ry = y0 + pad * 0.5f + rowH * 0.5f;
+        if (m_wpSet) {
+            m_hud->RotatedSprite(g, m_hud->Sprite("radar_waypoint"), x1 - w + Sx(22), ry, Sy(24), Sy(24), 0.0f, 0xFFFFFFFF);
+            m_font.Print(g, x1 - w + Sx(42), ry - m_font.LineHeight() * 0.5f, m_text.Get("LG_64"));
+            ry += rowH;
+        }
+        m_hud->RotatedSprite(g, m_hud->Sprite("radar_centre"), x1 - w + Sx(22), ry, Sy(24), Sy(24), 0.0f, 0xFFFFFFFF);
+        m_font.Print(g, x1 - w + Sx(42), ry - m_font.LineHeight() * 0.5f, "CJ");
     }
     // Centre reticle (where Enter drops the waypoint).
     {

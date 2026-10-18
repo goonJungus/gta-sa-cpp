@@ -254,6 +254,7 @@ static void LoadSettings(FeSettings& s) {
     s.windowSize = (int)GetPrivateProfileIntA("Display", "WindowSize", 1, g_iniPath);
     s.language = (int)GetPrivateProfileIntA("Display", "Language", 0, g_iniPath);
     s.mipmaps = GetPrivateProfileIntA("Display", "MipMaps", 1, g_iniPath) != 0;
+    s.mapLegend = GetPrivateProfileIntA("Display", "MapLegend", 0, g_iniPath) != 0;
     s.antiAlias = std::clamp((int)GetPrivateProfileIntA("Display", "AntiAlias", 0, g_iniPath), 0, 2);
     {
         char bb[32];
@@ -298,6 +299,7 @@ static void SaveSettings(const FeSettings& s) {
     snprintf(buf, sizeof(buf), "%d", s.language);
     WritePrivateProfileStringA("Display", "Language", buf, g_iniPath);
     WritePrivateProfileStringA("Display", "MipMaps", s.mipmaps ? "1" : "0", g_iniPath);
+    WritePrivateProfileStringA("Display", "MapLegend", s.mapLegend ? "1" : "0", g_iniPath);
     snprintf(buf, sizeof(buf), "%d", s.antiAlias);
     WritePrivateProfileStringA("Display", "AntiAlias", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%.4f", s.brightness);

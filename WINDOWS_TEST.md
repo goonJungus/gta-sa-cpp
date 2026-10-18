@@ -11,3 +11,8 @@ Build with MSVC (`cmake --build build/gta_sa --config Release --parallel 16`). `
 - [ ] Controller: menu navigation, weapon wheel on LB, analog movement, tap A to sprint.
 - [ ] Effects: water splashes, landing dust, sprint FOV kick (rewrite only).
 - [ ] Guns: backtick freecam, check every gun for finger clipping and tilt. Report which ones.
+- [ ] Vault drop pose: vault a fence or canal edge and drop. CJ should fall upright, never in the bind pose.
+- [ ] Sounds: splash on entering water, landing thud after a fall (rewrite and classic).
+- [ ] Gun barrels point along the aim line in third person (silenced pistol, sawn-off, rifles).
+- [ ] Map legend: Options > Display > Map Legend ON, open the map, set a waypoint. A panel lists the waypoint and CJ.
+- [ ] Wayland: window size and resize behaviour with `scripts/run_wine.sh` notes (Linux/Wine only).
