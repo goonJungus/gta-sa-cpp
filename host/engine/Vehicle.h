@@ -6,6 +6,7 @@
 // frame, the single wheel atomic is drawn at the four wheel dummies. The car is static for now.
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -53,6 +54,8 @@ struct VehicleInstance {
     int model = 0;
     float x = 0, y = 0, z = 0, heading = 0;
     float wheelSpin = 0.0f;
+    float speed = 0.0f;               // m/s along the heading, negative in reverse
+    float steer = 0.0f;               // current front wheel angle, radians
 };
 
 class Vehicles {
@@ -72,6 +75,15 @@ public:
     size_t Count() const { return m_cars.size(); }
     VehicleInstance& Car(size_t i) { return m_cars[i]; }
     void Draw(D3DRenderer& r);
+
+    // Arcade driving from the handling line: throttle and brake 0..1, steer -1 (left) .. 1 (right).
+    // groundAt(x, y, z) gives the road height or a value below -1e5 when unknown; blocked(newX, newY, oldX, oldY, z)
+    // says the car body would run into a solid moving from the old spot to the new one.
+    void Step(size_t i, float dt, float throttle, float brake, float steer, bool handbrake,
+              const std::function<float(float, float, float)>& groundAt,
+              const std::function<bool(float, float, float, float, float)>& blocked);
+    // The nearest car within `range` metres of a point, or -1.
+    int Nearest(float x, float y, float range) const;
 
 private:
     VehicleModel* Model(D3DRenderer& r, int id);

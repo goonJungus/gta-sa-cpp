@@ -9,6 +9,7 @@
 // silent and everything else keeps working.
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -59,6 +60,13 @@ public:
     // Background beds, call every frame: city murmur, rain and wind levels 0..1.
     void Ambient(float city, float rain, float wind);
 
+    // A streamed music source (the radio): `pull` fills interleaved stereo frames at `rate` Hz and
+    // returns how many it wrote, 0 when the track is over. It runs on the mixer thread.
+    void SetMusic(std::function<size_t(int16_t*, size_t)> pull, int rate, float vol);
+    void StopMusic();
+    void SetMusicVolume(float vol) { m_musVol = vol; }
+    bool MusicEnded() const { return m_musEnded; }
+
     // Counters for tests: sounds started so far.
     int Played() const { return m_played; }
     const std::string& LastPlayed() const { return m_last; }
@@ -87,6 +95,12 @@ private:
     float m_master = 0.8f, m_sfx = 1.0f;
     int m_played = 0;
     unsigned m_rng = 12345;
+    std::function<size_t(int16_t*, size_t)> m_musPull;
+    int m_musRate = 32000;
+    float m_musVol = 0.0f;
+    bool m_musEnded = false;
+    std::vector<int16_t> m_musBuf;   // decoded stereo frames not yet played
+    double m_musPos = 0.0;
     int m_ambCity = 0, m_ambRain = 0, m_ambWindL = 0, m_ambWindR = 0;
     int Rand(int n) { m_rng = m_rng * 1664525u + 1013904223u; return (int)((m_rng >> 8) % (unsigned)n); }
     std::string m_last;

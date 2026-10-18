@@ -23,7 +23,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [~] Skinned CJ model and IFP animations (default outfit; retail blend system, walk/run/sprint, jumps, falls, landings and get-ups; classic or rewrite handling; ledge climbs, hangs and vaults (CTaskSimpleClimb port); fat/muscle body blend (ini Fat/Muscle, no stat changes yet); no wardrobe yet) (w 3)
 - [~] Swimming (CTaskSimpleSwim: water level query, tread, breaststroke, crawl, dive and underwater, climb out; breath meter, splash effects and sounds; no body pitch yet) (w 2)
 - [~] Crouch and aim stance (weapon.dat crouch fire loops, torso aim for body-aimed guns, Gun_2_IDLE on release; CTaskSimpleDuck: unarmed duck on C, crouch walk, rolls; aim on right mouse: camera-facing strafe with the gun move clips; rewrite style adds damped aim heading, strafe blend, pitch follow, stationary aim lean, crouch from a run, crouched foot IK; aim arm swung to the camera pitch) (w 1)
-- [~] Drivable vehicles with handling.cfg dynamics (vehicles.ide and handling.cfg parsed; car models load from the DFF frame tree with body parts and wheels, dev key B spawns the next car ahead; no paint colours, driving or physics yet) (w 4)
+- [~] Drivable vehicles with handling.cfg dynamics (vehicles.ide and handling.cfg parsed; car models load from the DFF frame tree with body parts and wheels; dev key B spawns the next car ahead, F gets in and out, W S A D drive with arcade dynamics from the handling line, wall blocking, steering wheels; no paint colours, suspension or collisions between cars yet) (w 4)
 - [ ] Peds, traffic and path-node AI (w 4)
 - [~] Weapons and combat (13 firearms from weapon.dat: models in hand, Q cycles, LMB fire with ammo and fire anim, R reload with rewrite crossfade, crouch fire and reload; hitscan down the camera ray with tracers, impact dust and sparks, hit sounds, muzzle flash on the shot, weapon move speed; two-bone arm IK for one-handed aim, weapon model frame transforms (sawn-off barrel, flash), sniper clip; trackpad look and click (cursor-delta fallback when the system ignores cursor warps, as on Wayland and VNC); --aimtest shooting range with dummy peds, damage and scoreboard; hold Q or LB for the weapon wheel; fist boxing stance; XInput gamepad; dev free camera on the backtick key; rewrite sprint field-of-view kick; no damage to real targets yet) (w 2)
 
@@ -34,8 +34,8 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 
 ## Audio
 - [~] Sound effects (retail SFX bank loader and software mixer on waveOut; gun shots, dry fire and reloads per weapon, footsteps, jumps, pain, menu cues; water splash and landing sounds from the retail swimming and feet banks; volume sliders; no vehicles, ambient, speech or radio yet) (w 2)
-- [ ] Radio station playback (w 1)
+- [~] Radio station playback (11 retail stations from the scrambled Ogg Vorbis stream packs, decoded by our own Vorbis decoder and streamed through the mixer; Q and E change station while driving; no DJ chatter, adverts or station-specific track order yet) (w 1)
 
 ## Scripts and missions
-- [ ] SCM virtual machine (opcode dispatch, threads) (w 4)
+- [~] SCM virtual machine (main.scm header chunks parsed; one thread runs the core language: variables, arithmetic, comparisons, AND/OR, jumps, subroutines, waits; stops at the first game command, none are wired yet) (w 4)
 - [ ] Missions (w 6)

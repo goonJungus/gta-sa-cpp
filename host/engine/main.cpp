@@ -50,6 +50,8 @@
 #include "FeMenu.h"
 #include "Hud.h"
 #include "Vehicle.h"
+#include "Script.h"
+#include "Radio.h"
 #include "PlayerPed.h"
 #include "Camera.h"
 #include "CameraShake.h"
@@ -152,10 +154,17 @@ static bool PadKey(int vk) {
     }
     return false;
 }
-static SHORT GameKey(int vk) {
+static SHORT RawGameKey(int vk) {
     if (ScriptedKey(vk)) return (SHORT)0x8000;
     if (g_hasFocus && PadKey(vk)) return (SHORT)0x8000;
     return g_hasFocus ? GetAsyncKeyState(vk) : 0;
+}
+static int g_driveCar = -1;   // index of the car CJ is driving, -1 on foot
+static SHORT GameKey(int vk) {
+    // While driving the pedestrian controls are muted; the car reads the raw keys.
+    if (g_driveCar >= 0 && (vk == 'W' || vk == 'A' || vk == 'S' || vk == 'D' || vk == VK_SPACE || vk == VK_SHIFT ||
+                            vk == 'C' || vk == 'F' || vk == 'Q' || vk == 'E' || vk == VK_LBUTTON || vk == VK_RETURN)) return 0;
+    return RawGameKey(vk);
 }
 // Edge-triggered key read: true only on the frame the key goes down.
 static bool DevKeyPressed(int vk) {
@@ -206,6 +215,8 @@ static bool g_running = true;
 static FeMenu g_menu;
 static Hud g_hud;
 static Audio g_audio;
+static Radio g_radio;
+static int g_radioStation = 0;   // the station that plays while driving
 static Effects g_fx;
 static bool g_aimTest = false;      // --aimtest: the shooting range
 static AimTest g_aim;
@@ -983,6 +994,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_menu.Settings().antiAlias > 0) g_renderer.SetAntiAlias(g_menu.Settings().antiAlias);
         g_fx.Init(g_renderer);
         Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
+        if (g_audio.Ready()) g_radio.Init(GameDir(), &g_audio);
+        if (const char* rt = getenv("GTA_RADIOTEST")) {   // dev: decode a few seconds of a station and log the level
+            if (g_radio.Ready()) {
+                g_radio.Tune(atoi(rt));
+                std::vector<int16_t> pcm(32000 * 2 * 5);
+                const size_t got = g_radio.Pull(pcm.data(), 32000 * 5);
+                double sum = 0;
+                for (size_t i = 0; i < got * 2; i++) sum += (double)pcm[i] * pcm[i];
+                Log("RADIO: station %d decoded %zu frames, rms %.0f", atoi(rt), got, got ? std::sqrt(sum / (got * 2)) : 0.0);
+            } else Log("RADIO: not ready");
+        }
         if (g_audio.Ready() && getenv("GTA_AUDIOTEST"))
         {
             Log("AUDIO: weapons bank %d sounds, menu bank %d, feet %d, pain %d, swimming %d", g_audio.SoundCount(BANK_WEAPONS),
@@ -1190,6 +1212,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
     g_vehicles.Init(g_renderer, GameDir());
+    if (getenv("GTA_SCMTEST")) {   // dev: run the main script's core language and report where it stops
+        ScmMachine scm;
+        if (scm.Init(GameDir())) {
+            scm.Update(0);
+            const ScmThread& t = scm.Thread(0);
+            std::fprintf(stderr, "[SCM] thread '%s' ran %llu instructions, pc 0x%X, %s 0x%04X\n", t.name.c_str(),
+                         (unsigned long long)t.executed, t.pc, t.finished ? "finished" : "stopped at opcode", t.stoppedAt);
+        }
+    }
     if (cjReady) {   // [Player] Fat / Muscle in the ini (0..100), GTA_FAT / GTA_MUSCLE override
         float fat = GetPrivateProfileIntA("Player", "Fat", 0, g_iniPath) / 100.0f;
         float mus = GetPrivateProfileIntA("Player", "Muscle", 0, g_iniPath) / 100.0f;
@@ -2085,7 +2116,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 float fx = playerX - camPosX, fy = playerY - camPosY;   // away from the camera, along the view
                 const float fl = std::sqrt(fx * fx + fy * fy);
                 if (fl < 0.01f) { fx = cosf(yaw); fy = sinf(yaw); } else { fx /= fl; fy /= fl; }
-                const float sx = playerX + fx * 6.0f, sy = playerY + fy * 6.0f;
+                const float sx = playerX + fx * 4.0f, sy = playerY + fy * 4.0f;
                 const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
                 g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz + 0.1f, std::atan2(fy, fx) - 1.57079633f);
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
@@ -2915,6 +2946,46 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     playerZ = gz + EYE_HEIGHT; velZ = 0; onGround = true;
                 }
             }
+
+            // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
+            {
+                static bool s_prevF = false;
+                const bool fDown = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen();
+                const bool fJust = fDown && !s_prevF;
+                s_prevF = fDown;
+                if (fJust && g_driveCar < 0) {
+                    const int n = g_vehicles.Nearest(playerX, playerY, 4.5f);
+                    if (n >= 0) { g_driveCar = n; Log("DRIVE: got in car %d", n); g_radio.Tune(g_radioStation); }
+                } else if (fJust && g_driveCar >= 0) {
+                    VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
+                    playerX = c.x + std::cos(c.heading) * 2.4f; playerY = c.y + std::sin(c.heading) * 2.4f;
+                    playerZ = c.z + EYE_HEIGHT; velZ = 0.0f; onGround = true;
+                    c.speed = 0.0f;
+                    g_driveCar = -1;
+                    g_radio.Tune(-1);
+                    Log("DRIVE: got out");
+                }
+                if (g_driveCar >= 0 && !g_menu.IsOpen()) {
+                    static bool s_prevQ = false, s_prevE = false;   // Q and E change the radio station
+                    const bool qd = (RawGameKey('Q') & 0x8000) != 0, ed = (RawGameKey('E') & 0x8000) != 0;
+                    if ((qd && !s_prevQ) || (ed && !s_prevE)) {
+                        g_radio.Step(ed && !s_prevE ? 1 : -1);
+                        g_radioStation = g_radio.Station();
+                        if (g_hudReady) g_hud.ShowMessage(g_radio.StationName(g_radioStation), 2.5f);
+                    }
+                    s_prevQ = qd; s_prevE = ed;
+                    const float th = (RawGameKey('W') & 0x8000) ? 1.0f : 0.0f;
+                    const float br = (RawGameKey('S') & 0x8000) ? 1.0f : 0.0f;
+                    const float st = ((RawGameKey('D') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('A') & 0x8000) ? 1.0f : 0.0f);
+                    const bool hb = (RawGameKey(VK_SPACE) & 0x8000) != 0;
+                    g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,
+                                    [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
+                                    [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f); });
+                    const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
+                    playerX = c.x; playerY = c.y; playerZ = c.z + EYE_HEIGHT + 0.7f;   // the camera rides above the roof
+                    velZ = 0.0f; onGround = true; vx = vy = 0.0f;
+                }
+            }
             }
 
 
@@ -3075,6 +3146,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // passes so a fence/window in front of CJ occludes him correctly.
         auto drawPlayerBox = [&]() {
             if (!playMode) return;
+            if (g_driveCar >= 0) return;   // CJ is inside the car
             float feetZ = playerZ - EYE_HEIGHT;
             if (g_aimTest && g_dummy.Ready()) {
                 for (const AimDummy& d : g_aim.Dummies()) {
@@ -3323,6 +3395,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_audio.Ready()) {
             const FeSettings& as = g_menu.Settings();
             g_audio.SetVolumes(as.masterVol, as.sfxVol);
+            g_radio.SetVolume(as.musicVol);
+            g_radio.Update();
             if (int ui = g_menu.TakeUiEvent()) g_audio.Ui(ui);
             struct Pending { float t; const char* gun; int kind; };
             static std::vector<Pending> s_pending;
