@@ -771,7 +771,8 @@ bool PlayerPed::TryStartClimb(float x, float y, float feetZ, bool launch, const 
     m_cScan = scan;
     m_climbing = true;
     m_cFinished = m_cChangeAnim = m_cChangePos = false;
-    m_cHAnim = CGRAB;
+    // CTaskComplexJump / CTaskComplexInAirAndLand: a ledge close enough to reach skips the hang.
+    m_cHAnim = hold[2] - ped[2] < (launch ? 1.4f : 1.1f) ? CPULL : CGRAB;
     m_cHPos = CNR;
     m_cClip = nullptr;
     m_cCounter = 0.0f;
@@ -809,7 +810,10 @@ void PlayerPed::ClimbStartAnim() {
         m_cHPos = CGRAB; m_cChangePos = false;
         break;
     case CPULL:
-        if (m_cHPos == CNR) { m_cHAnim = m_cHPos = CSTAND; go("climb_stand", false, 4.0f); m_cChangePos = false; }
+        if (m_cHPos == CNR) {   // reached straight to the pull-up: hold the stand clip until the vault test decides
+            m_cHAnim = m_cHPos = CSTAND; go("climb_stand", false, 4.0f); m_cChangePos = false;
+            if (Assoc* c = Get(m_cClip)) c->playing = false;
+        }
         else { go("climb_pull", false, 1000.0f); m_cHPos = CPULL; m_cChangePos = false; }
         break;
     case CSTAND:
@@ -871,6 +875,11 @@ void PlayerPed::ProcessClimb(const Input& in) {
                 }
             } else {
                 m_velX = d[0] / std::max(dt, 1e-4f); m_velY = d[1] / std::max(dt, 1e-4f); m_cVelZ = d[2] / std::max(dt, 1e-4f);
+                Assoc* p = Get(m_cClip);   // at the ledge with the stand clip held: vault if the way over is clear
+                if (p && !p->playing && m_cHAnim == CSTAND) {
+                    if (ClimbTest(3, 3)) { m_cHAnim = CVAULT; m_cChangeAnim = true; }
+                    else p->playing = true;
+                }
             }
         }
     } else {   // arrived with the clip fully blended in: snap to the pose
@@ -911,11 +920,10 @@ void PlayerPed::ProcessClimb(const Input& in) {
     }
     if (in.exitPressed) { abort(); return; }
 
-    if ((m_cHPos == CSTAND || m_cHPos == CVAULT) && a && a->finished) {
-        if (!ClimbTest(2, 2)) { abort(); return; }          // no room to stand: drop
-    } else if (m_cHAnim == CSTAND && m_cHPos < CSTAND) {
-        if (ClimbTest(3, 3)) m_cHAnim = CVAULT;             // clear volume over the ledge: vault
-    }
+    a = Get(m_cClip);
+    if ((m_cHPos != CSTAND && m_cHPos != CVAULT) || !a || !a->playing) {
+        if (m_cHAnim == CSTAND && m_cHPos < CSTAND && ClimbTest(3, 3)) m_cHAnim = CVAULT;   // clear volume over the ledge: vault
+    } else if (!ClimbTest(2, 2)) { abort(); return; }       // no room to stand: drop
     m_heading = m_aimHeading = m_cRot + kPi * 0.5f;
 }
 
