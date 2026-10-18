@@ -3005,7 +3005,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const bool fJust = fDown && !s_prevF;
                 s_prevF = fDown;
                 if (fJust && g_driveCar < 0) {
-                    const int n = g_vehicles.Nearest(playerX, playerY, 4.5f);
+                    const int n = g_vehicles.Nearest(playerX, playerY, 6.5f);
                     if (n >= 0) { g_driveCar = n; Log("DRIVE: got in car %d", n); g_radio.Tune(g_radioStation); }
                 } else if (fJust && g_driveCar >= 0) {
                     VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
