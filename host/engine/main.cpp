@@ -49,6 +49,7 @@
 #include "Profiler.h"
 #include "FeMenu.h"
 #include "Hud.h"
+#include "Vehicle.h"
 #include "PlayerPed.h"
 #include "Camera.h"
 #include "CameraShake.h"
@@ -409,6 +410,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // The user's own GTA:SA install (PC 1.0). Resolved once at startup by
 // ResolveGameDir; nothing machine-specific is compiled in.
 static std::string g_gameDir;
+static Vehicles g_vehicles;
+static int g_vehSpawnIdx = 0;
 
 static bool IsGameDir(const std::string& d) {
     if (d.empty()) return false;
@@ -1186,6 +1189,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     }
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
+    g_vehicles.Init(g_renderer, GameDir());
     if (cjReady) {   // [Player] Fat / Muscle in the ini (0..100), GTA_FAT / GTA_MUSCLE override
         float fat = GetPrivateProfileIntA("Player", "Fat", 0, g_iniPath) / 100.0f;
         float mus = GetPrivateProfileIntA("Player", "Muscle", 0, g_iniPath) / 100.0f;
@@ -2075,6 +2079,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (DevKeyPressed(VK_F3)) {
                 g_devShowCollision = !g_devShowCollision;
                 Log("DEV: collision view %s", g_devShowCollision ? "ON (pink wireframe)" : "OFF");
+            }
+            if (DevKeyPressed('B') && g_vehicles.Ready() && g_vehicles.ModelCount() > 0) {   // dev: spawn the next car ahead of CJ
+                const int id = g_vehicles.IdAt(g_vehSpawnIdx++ % g_vehicles.ModelCount());
+                float fx = playerX - camPosX, fy = playerY - camPosY;   // away from the camera, along the view
+                const float fl = std::sqrt(fx * fx + fy * fy);
+                if (fl < 0.01f) { fx = cosf(yaw); fy = sinf(yaw); } else { fx /= fl; fy /= fl; }
+                const float sx = playerX + fx * 6.0f, sy = playerY + fy * 6.0f;
+                const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
+                g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz + 0.1f, std::atan2(fy, fx) - 1.57079633f);
+                Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
             }
             if (DevKeyPressed(VK_F4)) {
                 g_devNoClip = !g_devNoClip;
@@ -3093,6 +3107,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // transparent pass, so glass/fences in front of it depth-test
             // against it instead of the old "player drawn over everything".
             drawPlayerBox();
+            g_vehicles.Draw(g_renderer);
             // Water (translucent) before the world's alpha meshes: it's a far,
             // low surface, so nearer glass/foliage blends over it.
             // Wavyness = WindClipped + 0.3 in CWeather::Update; there is no wind yet.

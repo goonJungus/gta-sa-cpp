@@ -16,3 +16,4 @@ Build with MSVC (`cmake --build build/gta_sa --config Release --parallel 16`). `
 - [ ] Gun barrels point along the aim line in third person (silenced pistol, sawn-off, rifles).
 - [ ] Map legend: Options > Display > Map Legend ON, open the map, set a waypoint. A panel lists the waypoint and CJ.
 - [ ] Wayland: window size and resize behaviour with `scripts/run_wine.sh` notes (Linux/Wine only).
+- [ ] Vehicles: press B in game to spawn a car ahead of CJ. Each press spawns the next model. Check body, doors, plates and wheels look right and nothing is missing or inside out.
