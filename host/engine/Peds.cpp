@@ -271,6 +271,49 @@ void Peds::Pose(Model& m, const AnimClip* clip, float time) {
     }
 }
 
+int Peds::Trace(const float* eye, const float* dir, float reach, float* t, bool* head) const {
+    int best = -1;
+    float bt = reach;
+    for (size_t i = 0; i < m_actors.size(); i++) {
+        const Actor& a = m_actors[i];
+        if (a.dead) continue;
+        // vertical capsule approximated by its axis: closest approach of the ray to the segment
+        const float r = 0.38f, h = 1.8f;
+        const float ox = eye[0] - a.x, oy = eye[1] - a.y;
+        const float qa = dir[0] * dir[0] + dir[1] * dir[1];
+        if (qa < 1e-8f) continue;
+        const float qb = ox * dir[0] + oy * dir[1], qc = ox * ox + oy * oy - r * r;
+        const float disc = qb * qb - qa * qc;
+        if (disc < 0.0f) continue;
+        const float tt = (-qb - std::sqrt(disc)) / qa;
+        if (tt < 0.0f || tt > bt) continue;
+        const float z = eye[2] + dir[2] * tt - a.z;
+        if (z < 0.0f || z > h) continue;
+        bt = tt; best = (int)i;
+        if (head) *head = z > 1.55f;
+    }
+    if (best >= 0 && t) *t = bt;
+    return best;
+}
+
+bool Peds::Damage(int actor, float damage, bool head) {
+    if (actor < 0 || (size_t)actor >= m_actors.size()) return false;
+    Actor& a = m_actors[(size_t)actor];
+    if (a.dead) return false;
+    a.health -= head ? 1000.0f : damage * 1.5f;
+    a.fleeTimer = 8.0f;
+    if (a.health > 0.0f) return false;
+    a.dead = true; a.deadTime = 0.0f; a.animTime = 0.0f; a.walking = false;
+    auto it = m_models.find(a.model);
+    if (it != m_models.end()) {
+        for (const char* n : {"ko_shot_front", "ko_shot_face", "ko_skid_front", "fall_collapse", "fall_fall"}) {
+            auto c = m_clips.find(n);
+            if (c != m_clips.end()) { a.deathClip = &c->second; break; }
+        }
+    }
+    return true;
+}
+
 void Peds::Update(float dt, const std::function<float(float, float, float)>& groundAt,
                   const std::function<bool(float, float, float, float, float)>& blocked, const Player& player) {
     for (size_t ai = 0; ai < m_actors.size(); ai++) {
@@ -278,6 +321,12 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
         auto it = m_models.find(a.model);
         if (it == m_models.end()) continue;
         const Model& m = it->second;
+        if (a.dead) {   // lies where it fell, then goes away
+            a.deadTime += dt;
+            a.animTime += dt;
+            if (groundAt) { const float g = groundAt(a.x, a.y, a.z + 1.0f); if (g > -1e5f) a.z += (g - a.z) * std::min(1.0f, 10.0f * dt); }
+            continue;
+        }
         const float pdx = player.x - a.x, pdy = player.y - a.y, pd = std::sqrt(pdx * pdx + pdy * pdy);
         // Gunfire or an aimed weapon close by: run away from CJ for a while.
         if (player.threat && pd < 25.0f) a.fleeTimer = 6.0f;
@@ -355,8 +404,8 @@ void Peds::Draw(D3DRenderer& r) {
         auto it = m_models.find(a.model);
         if (it == m_models.end() || !it->second.valid) continue;
         Model& m = it->second;
-        const AnimClip* clip = a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
-        Pose(m, clip, a.animTime);
+        const AnimClip* clip = a.dead ? a.deathClip : a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
+        Pose(m, clip, a.dead && clip ? std::min(a.animTime, clip->duration * 0.999f) : a.animTime);
         // Stand the posed feet on the ground: the animation sets the pelvis height, the bind pose does not.
         float footZ = 1e9f;
         for (const MeshVertex& v : m.skinned) footZ = std::min(footZ, v.z);
@@ -376,12 +425,13 @@ void Peds::Populate(D3DRenderer& r, float px, float py, float pz, int target,
     // Despawn: far away, or the whole crowd when the target is zero (only crowd members, not dev spawns).
     for (size_t i = m_actors.size(); i-- > 0;) {
         Actor& a = m_actors[i];
+        if (a.dead && a.deadTime > 25.0f) { m_actors.erase(m_actors.begin() + (long)i); continue; }
         if (!a.crowd) continue;
         const float dx = a.x - px, dy = a.y - py;
         if (target <= 0 || dx * dx + dy * dy > 90.0f * 90.0f) m_actors.erase(m_actors.begin() + (long)i);
     }
     int have = 0;
-    for (const Actor& a : m_actors) have += a.crowd ? 1 : 0;
+    for (const Actor& a : m_actors) have += a.crowd && !a.dead ? 1 : 0;
     // At most one spawn per call so a big gap fills over a few frames.
     if (have < target) {
         const float ang = (float)Rand(628) * 0.01f, dist = 12.0f + (float)Rand(250) * 0.1f;

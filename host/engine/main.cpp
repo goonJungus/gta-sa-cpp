@@ -3416,6 +3416,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_audio.Impact(dt2);
                         }
                     }
+                    if (dummyHit < 0 && g_peds.Ready()) {   // real pedestrians
+                        float pt = 0.0f; bool ph = false;
+                        const float reach = std::min(range * t, std::max(10.0f, g_cj.GunRange()));
+                        const int pi2 = g_peds.Trace(g_aimEye, g_aimDir, reach, &pt, &ph);
+                        if (getenv("GTA_PEDDBG")) Log("PED SHOT eye %.1f %.1f %.1f dir %.2f %.2f %.2f reach %.1f -> %d; ped0 %.1f %.1f %.1f", g_aimEye[0], g_aimEye[1], g_aimEye[2], g_aimDir[0], g_aimDir[1], g_aimDir[2], reach, pi2, g_peds.Count() ? g_peds.X(0) : 0.f, g_peds.Count() ? g_peds.Y(0) : 0.f, g_peds.Count() ? g_peds.Z(0) : 0.f);
+                        if (pi2 >= 0) {
+                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * pt;
+                            const bool kill = g_peds.Damage(pi2, g_cj.GunDamage(), ph);
+                            Log("PED HIT %d head %d kill %d at %.1f", pi2, (int)ph, (int)kill, pt);
+                            if (g_hudReady) g_hud.Hit(kill);
+                            g_fx.Blood(hit);
+                            g_audio.Impact(pt);
+                            dummyHit = 0;
+                        }
+                    }
                     if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, mz)) g_fx.Tracer(mz, hit);
                     if (dummyHit >= 0) continue;
                     if (t < 1.0f) {

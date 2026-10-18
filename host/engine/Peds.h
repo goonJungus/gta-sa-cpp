@@ -27,6 +27,9 @@ public:
 
     // Spawn a civilian (model id from the pool, -1 picks one at random). Returns the actor index or -1.
     int Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading);
+    float X(size_t i) const { return m_actors[i].x; }
+    float Y(size_t i) const { return m_actors[i].y; }
+    float Z(size_t i) const { return m_actors[i].z; }
     size_t Count() const { return m_actors.size(); }
     void Clear() { m_actors.clear(); }
     // Advance animation and wandering. groundAt gives the ground height or a value below -1e5.
@@ -36,6 +39,10 @@ public:
     void Update(float dt, const std::function<float(float, float, float)>& groundAt,
                 const std::function<bool(float, float, float, float, float)>& blocked, const Player& player);
     void Draw(D3DRenderer& r);
+    // Shots: ray against the standing pedestrians. Returns the actor index (or -1), distance in *t and
+    // whether the head was hit. Damage returns true when the shot killed.
+    int Trace(const float* eye, const float* dir, float reach, float* t, bool* head) const;
+    bool Damage(int actor, float damage, bool head);
     // Keep about `target` civilians around (px, py): spawn on the ground in a ring in front of and around
     // the player, remove the ones that fell far behind. target 0 clears the crowd.
     void Populate(D3DRenderer& r, float px, float py, float pz, int target,
@@ -63,6 +70,10 @@ private:
         float animTime = 0.0f, turnTimer = 0.0f, walkTimer = 0.0f;
         bool walking = false;
         float fleeTimer = 0.0f;           // running away from the player while above zero
+        float health = 100.0f;
+        bool dead = false;
+        const AnimClip* deathClip = nullptr;
+        float deadTime = 0.0f;            // seconds since death, the body is removed after a while
         bool crowd = false;               // spawned by Populate, removed again when far away
     };
 
