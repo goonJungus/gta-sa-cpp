@@ -66,6 +66,7 @@ if(WIN32)
         host/engine/IfpLoader.cpp
         host/engine/PlayerPed.cpp
         host/engine/PlayerFootIK.cpp
+        host/engine/PlayerWeapon.cpp
         host/engine/Movement.cpp
         host/engine/Camera.cpp
         host/engine/CameraShake.cpp

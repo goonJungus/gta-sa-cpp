@@ -22,10 +22,10 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [x] On-foot player controller and camera (classic ped zooms; rewrite first person and shoulder views with collision; rewrite camera shake, no producers yet; rewrite foot IK) (w 1)
 - [~] Skinned CJ model and IFP animations (default outfit; retail blend system, walk/run/sprint, jumps, falls, landings and get-ups; classic or rewrite handling; ledge climbs, hangs and vaults (CTaskSimpleClimb port); fat/muscle body blend (ini Fat/Muscle, no stat changes yet); no wardrobe yet) (w 3)
 - [~] Swimming (CTaskSimpleSwim: water level query, tread, breaststroke, crawl, dive and underwater, climb out; no breath, splash effects or body pitch yet) (w 2)
-- [~] Crouch and aim stance (CTaskSimpleDuck: unarmed duck on C, crouch walk, rolls; aim on right mouse: camera-facing strafe with the gun move clips; rewrite style adds damped aim heading, strafe blend, pitch follow, stationary aim lean, crouch from a run, crouched foot IK; no weapons, so no firing, reload blend or weapon anim groups) (w 1)
+- [~] Crouch and aim stance (CTaskSimpleDuck: unarmed duck on C, crouch walk, rolls; aim on right mouse: camera-facing strafe with the gun move clips; rewrite style adds damped aim heading, strafe blend, pitch follow, stationary aim lean, crouch from a run, crouched foot IK; aim arm swung to the camera pitch) (w 1)
 - [ ] Drivable vehicles with handling.cfg dynamics (w 4)
 - [ ] Peds, traffic and path-node AI (w 4)
-- [ ] Weapons and combat (w 2)
+- [~] Weapons and combat (13 firearms from weapon.dat: models in hand, Q cycles, LMB fire with ammo and fire anim, R reload with rewrite crossfade, crouch fire and reload; no projectiles, damage or muzzle flash yet) (w 2)
 
 ## Frontend
 - [~] Pause menu and settings in the retail layout (display options work) (w 2)

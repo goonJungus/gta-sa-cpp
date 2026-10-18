@@ -33,8 +33,12 @@
 #include <unordered_map>
 #include <vector>
 
+struct GunSpec;
+
 // scan(mode, ped origin, rotation, out pos, out rotation); see ClimbScan.h.
 using ClimbScanFn = std::function<bool(int, const float*, float, float*, float*)>;
+
+struct GunSpec;
 
 class PlayerPed {
 public:
@@ -62,6 +66,8 @@ public:
         float waterZ = -1e9f;                 // water surface here (< -1e8: none)
         bool diveDown = false, diveUp = false; // swimming: descend / ascend held
         bool diveJust = false;                // swimming: dive pressed this frame
+        bool fireJust = false, fireHeld = false;   // CPad::GetPedFire (fire button)
+        bool reloadJust = false;              // CPad::ReloadJustDown
         bool duckJust = false;                // CPad::DuckJustDown
         bool aim = false;                     // CPad::GetTarget (aim button held)
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
@@ -104,6 +110,14 @@ public:
     float SwimVelZ() const { return m_swimVelZ; }
     // CTaskSimpleDuck (secondary task) and the aiming stance (the movement part
     // of CTaskSimpleUseGun::ControlGunMove, without a weapon).
+    // Firearms (PlayerWeapon.cpp): weapon.dat pistols, shotguns, SMGs and rifles
+    // in the right hand, with the aim / fire / reload clips while aiming.
+    void SelectGun(int index);          // -1 = fists
+    void NextGun();                     // cycles through the list, then fists
+    int GunIndex() const { return m_gun; }
+    const char* GunName() const;
+    int GunAmmo() const;
+    int GunClipSize() const;
     bool Ducking() const { return m_ducking; }
     bool Aiming() const { return m_aiming; }
     // Horizontal velocity CJ's animation moves him at this frame (m/s, world).
@@ -136,6 +150,7 @@ private:
         bool loop = true, movement = false, playing = true, finished = false;
         bool keepRoot = false;           // climb clips: root XY stays in the pose, not extracted
         bool dead = false;               // removed; erased at the next Advance
+        bool partial = false;            // upper-body overlay: scales the other clips down, no root motion
     };
 
     const AnimClip* Clip(const char* name) const;
@@ -150,6 +165,7 @@ private:
     void BuildGlobals(const std::vector<Pose>& pose);
     void ShoulderBoneRotation();
     void ApplyRewritePose();
+    void ApplyAimIK(const Input& in);
     void ApplyFootIK(const Input& in);
     void FootRestHeights();
     void Skin();
@@ -160,6 +176,10 @@ private:
     void Land(const Input& in);
     void ControlSwim(const Input& in);
     void ControlStance(const Input& in);
+    void LoadGuns(D3DRenderer& r, const std::string& gameDir);
+    void ShutdownGuns(D3DRenderer& r);
+    void UpdateGun(const Input& in);
+    void DrawGun(D3DRenderer& r, float x, float y, float feetZ);
     struct StanceW { const char* name; float w; bool move, loop; float rate; };
     void StanceBlend(const StanceW* ws, int n, float dt, float expResp, float fadeRate);
     void LeaveStance(bool rewrite, bool exitMoving, bool exitSprint);
@@ -214,6 +234,21 @@ private:
     float m_stickX = 0.0f, m_stickY = 0.0f;    // the stick CJ is obeying (filtered in rewrite)
     float m_moveAngle = 0.0f;                  // first person: direction of travel
 
+    struct Gun {
+        const GunSpec* spec = nullptr;
+        std::string name;
+        int clipSize = 0, ammo = 0;
+        float loopStart = 0, loopEnd = 0, fireTime = 0, reloadTime = 1.0f;   // seconds
+        float fireOffset[3] = {0, 0, 0};
+        std::vector<D3DRenderMesh*> meshes;
+        std::vector<IDirect3DTexture9*> textures;
+    };
+    std::vector<Gun> m_guns;
+    int m_gun = -1;
+    bool m_reloading = false, m_firing = false, m_shotDone = false;
+    float m_reloadTime = 0.0f;
+    const AnimClip* m_gunFireClip = nullptr;
+    const AnimClip* m_gunRelClip = nullptr;
     bool m_ducking = false, m_aiming = false;
     bool m_sprintBeforeDuck = false;
     float m_aimHeadVel = 0.0f, m_aimPitch = 0.0f, m_aimPitchVel = 0.0f;   // damped aim follow, rad/s, deg

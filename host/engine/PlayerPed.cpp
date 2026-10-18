@@ -221,6 +221,8 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         if (anims.Open(gameDir + "\\anim\\anim.img")) {
             IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), m_clips, true);
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
+            for (const char* g : {"colt45", "silenced", "python", "shotgun", "buddy", "uzi", "rifle"})   // weapon groups
+                IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
         }
     }
     auto txd = [&](const char* name) {
@@ -343,10 +345,12 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
                  m_skeleton.size() > 1 ? m_skeleton[1].name.c_str() : "-", m_bindMinZ);
     m_ready = m_parts.size() == 5 && Clip("idle_stance");
     if (m_ready) Add(Clip("idle_stance"), true, false);
+    if (m_ready) LoadGuns(r, gameDir);
     return m_ready;
 }
 
 void PlayerPed::Shutdown(D3DRenderer& r) {
+    ShutdownGuns(r);
     for (Part& p : m_parts) if (p.mesh) r.DestroyMesh(p.mesh);
     for (IDirect3DTexture9* t : m_textures) if (t) r.DestroyTexture(t);
     m_parts.clear();
@@ -425,7 +429,7 @@ float PlayerPed::RootY(const AnimClip* clip, float time, float* x) const {
 void PlayerPed::Advance(float dt) {
     float totalLen = 0.0f, totalMoveBlend = 0.0f, totalBlend = 0.0f;
     for (const Assoc& a : m_assocs) {
-        if (a.dead) continue;
+        if (a.dead || a.partial) continue;
         totalBlend += a.blend;
         if (a.movement && a.blend > 0.0f) {
             totalLen += a.clip->duration * a.blend;
@@ -450,7 +454,7 @@ void PlayerPed::Advance(float dt) {
                 a.finished = true;
             }
             a.time = t;
-            if (totalBlend > 0.0f && a.blend > 0.0f && !a.keepRoot) {
+            if (totalBlend > 0.0f && a.blend > 0.0f && !a.keepRoot && !a.partial) {
                 float x0, x1, xe, xs;
                 const float y0 = RootY(a.clip, a.prevTime, &x0), y1 = RootY(a.clip, t, &x1);
                 float dy = y1 - y0, dx = x1 - x0;
@@ -478,10 +482,24 @@ void PlayerPed::BuildPose() {
     for (size_t f = 0; f < n; f++) {
         Pose& out = m_pose[f];
         float q[4] = {0, 0, 0, 0}, t[3] = {0, 0, 0}, w = 0.0f;
+        // Partial overlays (weapon aim / reload) take their share of this bone;
+        // the full-body clips share what is left.
+        float wPart = 0.0f, wFull = 0.0f;
+        if (m_skeleton[f].boneId >= 0)
+            for (const Assoc& a : m_assocs) {
+                if (a.dead || a.blend <= 0.0f) continue;
+                const AnimSequence* s = a.clip->FindBone(m_skeleton[f].boneId);
+                if (!s || s->keys.empty()) continue;
+                (a.partial ? wPart : wFull) += a.blend;
+            }
+        const float partScale = wPart > 1.0f ? 1.0f / wPart : 1.0f;
+        const float fullScale = wFull > 0.0f ? std::max(0.0f, 1.0f - std::min(1.0f, wPart)) / wFull : 0.0f;
         for (const Assoc& a : m_assocs) {
             if (a.dead || a.blend <= 0.0f || m_skeleton[f].boneId < 0) continue;
             const AnimSequence* s = a.clip->FindBone(m_skeleton[f].boneId);
             if (!s || s->keys.empty()) continue;
+            const float bw = a.blend * (a.partial ? partScale : (wPart > 0.0f ? fullScale : 1.0f));
+            if (bw <= 0.0f) continue;
             const std::vector<AnimKey>& keys = s->keys;
             size_t k = 0;
             while (k + 1 < keys.size() && keys[k + 1].time <= a.time) k++;
@@ -497,9 +515,9 @@ void PlayerPed::BuildPose() {
             if (m_skeleton[f].boneId == 0 && !a.keepRoot) { st[0] = 0.0f; st[1] = 0.0f; }   // extracted root motion
             const float dot = q[0] * sq[0] + q[1] * sq[1] + q[2] * sq[2] + q[3] * sq[3];
             const float sign = (w > 0.0f && dot < 0.0f) ? -1.0f : 1.0f;
-            for (int i = 0; i < 4; i++) q[i] += sq[i] * a.blend * sign;
-            for (int i = 0; i < 3; i++) t[i] += st[i] * a.blend;
-            w += a.blend;
+            for (int i = 0; i < 4; i++) q[i] += sq[i] * bw * sign;
+            for (int i = 0; i < 3; i++) t[i] += st[i] * bw;
+            w += bw;
         }
         if (w <= 0.0f) {   // no clip drives this bone: bind pose
             RowsToQuat(m_skeleton[f].local, out.q);
@@ -1008,6 +1026,33 @@ void PlayerPed::ApplyRewritePose() {
     }
 }
 
+// Aim IK (stands in for CPedIK::PointGunInDirection): the gun arm is swung
+// about the shoulder until shoulder-to-hand points along the aim direction
+// (forward, tipped by the camera pitch).
+void PlayerPed::ApplyAimIK(const Input& in) {
+    if (!m_aiming || m_gun < 0) return;
+    const int fs = m_frameOfBone[22], fh = m_frameOfBone[24];
+    if (fs < 0 || fh < 0) return;
+    const float* s = m_globals[fs].m[3];
+    const float* h = m_globals[fh].m[3];
+    float d[3] = {h[0] - s[0], h[1] - s[1], h[2] - s[2]};
+    const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (dl < 1e-4f) return;
+    for (float& v : d) v /= dl;
+    const float a = std::clamp(in.camPitch, -1.2f, 1.2f);
+    const float t[3] = {0.0f, std::cos(a), std::sin(a)};
+    float ax[3] = {d[1] * t[2] - d[2] * t[1], d[2] * t[0] - d[0] * t[2], d[0] * t[1] - d[1] * t[0]};
+    const float al = std::sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+    if (al < 1e-5f) return;
+    for (float& v : ax) v /= al;
+    const float dot = std::clamp(d[0] * t[0] + d[1] * t[1] + d[2] * t[2], -1.0f, 1.0f);
+    const float pv[3] = {s[0], s[1], s[2]};
+    const RwMat rot = AxisRotation(ax, std::acos(dot), pv);
+    for (size_t f = 0; f < m_skeleton.size(); f++)
+        for (int p = (int)f; p >= 0; p = m_skeleton[p].parent)
+            if (p == fs) { m_globals[f] = m_globals[f] * rot; break; }
+}
+
 // ---- Frame update ----
 
 void PlayerPed::Update(const Input& in) {
@@ -1135,6 +1180,7 @@ void PlayerPed::Update(const Input& in) {
     BuildGlobals(m_pose);
     ShoulderBoneRotation();
     if (in.rewrite) ApplyRewritePose();
+    ApplyAimIK(in);
     if (in.rewrite) ApplyFootIK(in);
     Skin();
 }
@@ -1191,6 +1237,7 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
         r.UpdateMeshVertices(p.mesh, p.skinned.data(), (uint32_t)p.skinned.size());
         r.DrawMesh(p.mesh);
     }
+    DrawGun(r, x, y, feetZ);
 }
 
 // ---- CTaskSimpleSwim @ 00688930 -------------------------------------------
@@ -1368,7 +1415,7 @@ static float SmoothDampAngle(float cur, float target, float& vel, float smooth, 
 // otherwise each clip's own linear blend rate (units per second).
 void PlayerPed::StanceBlend(const StanceW* ws, int n, float dt, float expResp, float fadeRate) {
     for (Assoc& a : m_assocs) {
-        if (a.dead) continue;
+        if (a.dead || a.partial) continue;
         bool listed = false;
         for (int i = 0; i < n; i++) if (a.clip == Clip(ws[i].name)) listed = true;
         if (!listed && a.delta >= 0.0f) a.delta = -fadeRate;
@@ -1398,6 +1445,8 @@ void PlayerPed::LeaveStance(bool rewrite, bool exitMoving, bool exitSprint) {
     m_ducking = m_aiming = false;
     m_duckX = m_duckY = 0.0f;
     m_aimPitch = m_aimPitchVel = 0.0f;
+    m_reloading = m_firing = false;
+    m_gunFireClip = m_gunRelClip = nullptr;
     m_ratio = exitMoving ? (exitSprint ? 1.5f : 1.0f) : 0.0f;
     // rewrite: ExitBlendResponse 4.0, and PreserveMovementOnExit keeps the
     // crouch walk playing while it fades into standing movement
@@ -1519,4 +1568,5 @@ void PlayerPed::ControlStance(const Input& in) {
     } else {
         m_aimPitch = m_aimPitchVel = 0.0f;
     }
+    if (m_aiming) UpdateGun(in);
 }

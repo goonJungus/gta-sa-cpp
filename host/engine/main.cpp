@@ -113,7 +113,7 @@ static bool ScriptedKey(int vk) {
         while (*p && *p != ';') p++;
         if (g_scriptFrame >= a && g_scriptFrame <= b)
             for (const char* k = keys; k < p; k++) {
-                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '~' ? VK_RBUTTON
+                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON
                                : toupper((unsigned char)*k);
                 if (want == vk) return true;
             }
@@ -1048,6 +1048,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         float mus = GetPrivateProfileIntA("Player", "Muscle", 0, g_iniPath) / 100.0f;
         if (const char* e = getenv("GTA_FAT")) fat = (float)atof(e);
         if (const char* e = getenv("GTA_MUSCLE")) mus = (float)atof(e);
+        if (const char* e = getenv("GTA_GUN")) g_cj.SelectGun(atoi(e));   // dev: weapon index
         if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
     }
     Log("PLAYER: CJ model %s", cjReady ? "ready" : "FAILED (using the box)");
@@ -2463,6 +2464,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     pin.duckJust = duckKey && !s_prevDuck;
                     s_prevDuck = duckKey;
                     pin.aim = (GameKey(VK_RBUTTON) & 0x8000) != 0;
+                }
+                {
+                    static bool s_prevFire = false, s_prevReload = false, s_prevNext = false;
+                    const bool fireKey = (GameKey(VK_LBUTTON) & 0x8000) != 0 && !g_menu.IsOpen();
+                    const bool relKey = (GameKey('R') & 0x8000) != 0, nextKey = (GameKey('Q') & 0x8000) != 0;
+                    pin.fireHeld = fireKey;
+                    pin.fireJust = fireKey && !s_prevFire;
+                    pin.reloadJust = relKey && !s_prevReload;
+                    if (nextKey && !s_prevNext) g_cj.NextGun();
+                    s_prevFire = fireKey; s_prevReload = relKey; s_prevNext = nextKey;
                 }
                 pin.waterZ = waterZ;
                 {
