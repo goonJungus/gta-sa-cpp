@@ -106,10 +106,12 @@ bool ParseGeometry(const Cursor& c, size_t at, size_t end, SkinnedClump& out) {
     p += (size_t)numTex * numVerts * 8;
     out.indices.reserve((size_t)numTris * 3);
     for (int32_t t = 0; t < numTris; t++) {
-        uint16_t v2 = 0, v1 = 0, v3 = 0;   // stored (v2, v1, materialId, v3)
+        uint16_t v2 = 0, v1 = 0, v3 = 0, mat = 0;   // stored (v2, v1, materialId, v3)
         c.Get(p + t * 8, v2);
         c.Get(p + t * 8 + 2, v1);
+        c.Get(p + t * 8 + 4, mat);
         c.Get(p + t * 8 + 6, v3);
+        out.triMaterial.push_back(mat);
         out.indices.push_back(v1);
         out.indices.push_back(v2);
         out.indices.push_back(v3);
@@ -134,6 +136,39 @@ bool ParseGeometry(const Cursor& c, size_t at, size_t end, SkinnedClump& out) {
     size_t q = at + 12 + len;
     while (q + 12 <= end) {
         if (!c.Header(q, type, len)) break;
+        if (type == 0x08) {   // material list: one texture name per material
+            size_t m = q + 12;
+            const size_t mEnd = q + 12 + len;
+            uint32_t st, sl;
+            if (c.Header(m, st, sl) && st == kStruct) {
+                m += 12 + sl;
+                while (m + 12 <= mEnd) {
+                    uint32_t mt, ml;
+                    if (!c.Header(m, mt, ml)) break;
+                    if (mt == 0x07) {
+                        std::string name;
+                        size_t k = m + 12;
+                        const size_t kEnd = m + 12 + ml;
+                        while (k + 12 <= kEnd) {
+                            uint32_t kt, kl;
+                            if (!c.Header(k, kt, kl)) break;
+                            if (kt == 0x06) {   // texture: struct, name string, mask string
+                                size_t t = k + 12;
+                                uint32_t tt, tl;
+                                if (c.Header(t, tt, tl)) t += 12 + tl;
+                                if (c.Header(t, tt, tl) && tt == 0x02) {
+                                    name.assign((const char*)c.d + t + 12, tl);
+                                    name.erase(name.find('\0') == std::string::npos ? name.size() : name.find('\0'));
+                                }
+                            }
+                            k += 12 + kl;
+                        }
+                        out.materialTexture.push_back(name);
+                    }
+                    m += 12 + ml;
+                }
+            }
+        }
         if (type == kExtension) {
             size_t e = q + 12, eEnd = e + len;
             while (e + 12 <= eEnd) {

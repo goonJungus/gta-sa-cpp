@@ -2997,7 +2997,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); });
             if (g_crowdTarget && (frame % 60) == 0) Log("PEDS: %zu actors", g_peds.Count());
             g_peds.Update(dt, [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
-                          [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z, ox, oy, 0.4f, 0.3f, 1.8f); });
+                          [](float x, float y, float ox, float oy, float z) {
+                              if (g_vehicles.Nearest(x, y, 2.4f) >= 0) return true;   // keep clear of cars
+                              return g_world.HitsSolidCircle(x, y, z, ox, oy, 0.4f, 0.3f, 1.8f); },
+                          [&] { Peds::Player pl; pl.x = playerX; pl.y = playerY; pl.threat = cjReady && g_cj.GunIndex() >= 0 && g_cj.Aiming(); return pl; }());
             // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
             {
                 static bool s_prevF = false;
