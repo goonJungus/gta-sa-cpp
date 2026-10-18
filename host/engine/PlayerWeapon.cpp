@@ -199,9 +199,8 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
             }
             DffModel m = dffData.empty() ? DffModel() : DffLoader::LoadFromMemory(dffData.data(), dffData.size());
             const std::vector<GeomXf> gx = dffData.empty() ? std::vector<GeomXf>() : GeometryFrames(dffData);
-            size_t geomIndex = 0;
             for (DffMesh& dm : m.meshes) {
-                const size_t gi = geomIndex++;
+                const size_t gi = (size_t)dm.geometry;
                 if (dm.vertices.empty() || dm.indices.empty()) continue;
                 if (gi < gx.size() && gx[gi].valid) {   // move the geometry onto its frame
                     const float* f = gx[gi].m;

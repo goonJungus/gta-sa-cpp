@@ -29,6 +29,7 @@ struct DffMesh {
     // SA night prelit set (RW plugin 0x253F2F9 inside the geometry extension),
     // one D3DCOLOR per vertex, parallel to `vertices`. Empty when absent.
     std::vector<uint32_t> nightColors;
+    int geometry = 0;          // index of the RW geometry this mesh came from (one geometry may give several meshes, one per material)
     std::string textureName;   // from RW_TEXTURE (empty if material is untextured)
     std::string materialName;  // DFF materials carry no name string; kept for API symmetry
 };

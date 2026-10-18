@@ -109,8 +109,10 @@ DffModel DffLoader::LoadFromMemory(const uint8_t* data, size_t size) {
                         break;
                     size_t geoEnd = r.pos + gh.size;
                     if (gh.type == RW_GEOMETRY) {
+                        const size_t firstMesh = model.meshes.size();
                         if (!ParseGeometry(r, gh.size, model.meshes, model.lights, model.roadsigns))
                             r.pos = geoEnd;  // keep going on a bad geometry
+                        for (size_t mi = firstMesh; mi < model.meshes.size(); mi++) model.meshes[mi].geometry = (int)i;
                     } else {
                         r.pos = geoEnd;
                     }
