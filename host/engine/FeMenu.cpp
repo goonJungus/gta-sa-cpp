@@ -386,12 +386,25 @@ void FeMenu::OnMouse(float x, float y, bool click, bool held) {
     }
     if (hover >= 0 && (m_mouseMoved || click)) { if (m_sel != hover) m_uiEvent = 1; m_sel = hover; }
     // Draw distance: dragging on the slider sets it directly.
-    bool onSlider = x >= Sx(500) && x <= Sx(600) + Sx(3) && y >= Sy(120) && y <= Sy(150);
+    if (m_rwList && held && m_sel >= 0 && m_sel < (int)it.size() && it[m_sel].sx1 > it[m_sel].sx0 &&
+        y >= it[m_sel].hy0 && y <= it[m_sel].hy1) {
+        Entry& se = it[m_sel];
+        const float v = std::min(1.0f, std::max(0.0f, (x - se.sx0) / (se.sx1 - se.sx0)));
+        if (se.action == A_DRAW_DIST) {
+            const float dd = kDrawDistMin + v * (kDrawDistMax - kDrawDistMin);
+            if (dd != m_set.drawDist) { m_set.drawDist = dd; m_changed = true; }
+        } else if (se.f) {
+            const float nv = se.lo + v * (se.hi - se.lo);
+            if (nv != *se.f) { *se.f = nv; m_changed = true; }
+        }
+        if (x >= se.sx0 - Sx(4) && x <= se.sx1 + Sx(4)) return;
+    }
+    bool onSlider = !m_rwList && x >= Sx(500) && x <= Sx(600) + Sx(3) && y >= Sy(120) && y <= Sy(150);
     if (held && onSlider && m_sel >= 0 && m_sel < (int)it.size() && it[m_sel].action == A_DRAW_DIST) {
         float v = std::min(1.0f, std::max(0.0f, (x - Sx(500)) / Sx(100)));
         float dd = kDrawDistMin + v * (kDrawDistMax - kDrawDistMin);
         if (dd != m_set.drawDist) { m_set.drawDist = dd; m_changed = true; }
-    } else if (held && m_sel >= 0 && m_sel < (int)it.size() && it[m_sel].action == A_SLIDER && it[m_sel].f &&
+    } else if (!m_rwList && held && m_sel >= 0 && m_sel < (int)it.size() && it[m_sel].action == A_SLIDER && it[m_sel].f &&
                x >= Sx(500) && x <= Sx(603) && y >= it[m_sel].hy0 - Sy(6) && y <= it[m_sel].hy1 + Sy(6)) {
         Entry& se = it[m_sel];
         float v = std::min(1.0f, std::max(0.0f, (x - Sx(500)) / Sx(100)));
@@ -457,6 +470,107 @@ void FeMenu::DrawDevPanel(Fe2d& g) {
     }
 }
 
+// Rewrite-mode list layout: dark veil, big title, one entries panel with a white selection bar,
+// values right aligned, sliders as thin bars. Hit boxes are stored relative to the centred origin.
+void FeMenu::DrawRewriteList(Fe2d& g, float sw, float sh) {
+    Screen& sc = m_screens[m_screen];
+    const float ref = sh / 1080.0f;
+    auto font = [&](FeFont::Style st, float sx, float sy, uint32_t col, FeFont::Align al) {
+        m_font.SetStyle(st);
+        m_font.SetScale(Sx(sx), Sy(sy));
+        m_font.SetAlign(al);
+        m_font.SetWrapWidth(0);
+        m_font.SetEdge(0);
+        m_font.SetColor(col);
+        m_font.SetDropColor(0x00000000);
+    };
+    g.SetOrigin(0, 0);
+    g.DrawRect(0, 0, sw, sh, 0xFF000000);
+    // soft vertical gradient veil
+    {
+        const Fe2d::Vert q[6] = {{0, 0, 0, 0, 0xFF0A1118}, {sw, 0, 0, 0, 0xFF0A1118}, {0, sh, 0, 0, 0xFF1B2B3C},
+                                 {sw, 0, 0, 0, 0xFF0A1118}, {sw, sh, 0, 0, 0xFF1B2B3C}, {0, sh, 0, 0, 0xFF1B2B3C}};
+        g.DrawTris(nullptr, q, 6);
+    }
+    const float left = std::max(96.0f * ref, (sw - 1920.0f * ref) * 0.5f + 96.0f * ref);
+    // title and description
+    if (!sc.title.empty()) {
+        font(FeFont::PRICEDOWN, 1.0f, 1.9f, 0xFFFFFFFF, FeFont::LEFT);
+        m_font.Print(g, left, 72.0f * ref, m_text.Get(sc.title.c_str()));
+    }
+    std::string desc;
+    if (!sc.items.empty() && sc.items[0].action == A_TEXT && !sc.items[0].name.empty())
+        desc = m_text.Get(sc.items[0].name.c_str());
+    if (!desc.empty()) {
+        font(FeFont::SUBTITLES, 0.5f, 1.1f, 0xFFB8C4D0, FeFont::LEFT);
+        m_font.SetWrapWidth(760.0f * ref);
+        m_font.Print(g, left, 150.0f * ref, desc);
+        m_font.SetWrapWidth(0);
+    }
+    // entries panel
+    const float rowH = 56.0f * ref, gap = 3.0f * ref, pw = 760.0f * ref;
+    const float top = 230.0f * ref, bottom = sh - 110.0f * ref;
+    int visibleRows = std::max(1, (int)((bottom - top) / (rowH + gap)));
+    std::vector<int> rows;
+    for (size_t i = 0; i < sc.items.size(); i++) {
+        sc.items[i].hx0 = sc.items[i].hy0 = sc.items[i].hx1 = sc.items[i].hy1 = 0;
+        sc.items[i].sx0 = sc.items[i].sx1 = 0;
+        if (Visible(sc.items[i])) rows.push_back((int)i);
+    }
+    int selRow = 0;
+    for (size_t k = 0; k < rows.size(); k++) if (rows[k] == m_sel) selRow = (int)k;
+    static int s_off = 0;
+    s_off = std::max(0, std::min(s_off, std::max(0, (int)rows.size() - visibleRows)));
+    if (selRow < s_off) s_off = selRow;
+    if (selRow >= s_off + visibleRows) s_off = selRow - visibleRows + 1;
+    const int shown = std::min((int)rows.size() - s_off, visibleRows);
+    g.DrawRect(left, top, left + pw, top + shown * (rowH + gap) - gap, 0xB4000000);
+    for (int k = 0; k < shown; k++) {
+        const int idx = rows[s_off + k];
+        Entry& e = sc.items[idx];
+        const bool sel = idx == m_sel;
+        const bool live = Live(e);
+        const float ry = top + k * (rowH + gap);
+        const float shift = sel ? 16.0f * ref : 0.0f;
+        if (sel) g.DrawRect(left, ry, left + pw, ry + rowH, 0xFFFFFFFF);
+        else if (m_mouseMoved && m_mx >= 0 && live &&
+                 m_mx + m_ox >= left && m_mx + m_ox <= left + pw && m_my + m_oy >= ry && m_my + m_oy <= ry + rowH)
+            g.DrawRect(left, ry, left + pw, ry + rowH, 0xB4646464);
+        const uint32_t tc = !live ? 0xFF4A5A6B : (sel ? 0xFF000000 : 0xFFFFFFFF);
+        font(FeFont::SUBTITLES, 0.6f, 1.2f, tc, FeFont::LEFT);
+        const float ty = ry + (rowH - m_font.LineHeight()) * 0.5f;
+        m_font.Print(g, left + 14.0f * ref + shift, ty, m_text.Get(e.name.c_str()));
+        std::string value = live && e.live ? ValueText(e) : std::string();
+        if (!value.empty()) {
+            font(FeFont::SUBTITLES, 0.6f, 1.2f, tc, FeFont::RIGHT);
+            m_font.Print(g, left + pw - 14.0f * ref, ty, value);
+        }
+        if (live && e.action == A_SLIDER && e.f) {
+            const float tw = 260.0f * ref, th = 8.0f * ref, tx1 = left + pw - 14.0f * ref, tx0 = tx1 - tw;
+            const float cy = ry + rowH * 0.5f, v = std::max(0.0f, std::min(1.0f, (*e.f - e.lo) / (e.hi - e.lo)));
+            g.DrawRect(tx0, cy - th * 0.5f, tx1, cy + th * 0.5f, sel ? 0x50000000 : 0x50FFFFFF);
+            g.DrawRect(tx0, cy - th * 0.5f, tx0 + tw * v, cy + th * 0.5f, sel ? 0xFF000000 : 0xFFFFFFFF);
+            e.sx0 = tx0 - m_ox; e.sx1 = tx1 - m_ox;
+        }
+        if (live && e.action == A_DRAW_DIST) {
+            const float tw = 260.0f * ref, th = 8.0f * ref, tx1 = left + pw - 14.0f * ref, tx0 = tx1 - tw;
+            const float cy = ry + rowH * 0.5f, v = std::max(0.0f, std::min(1.0f, (m_set.drawDist - kDrawDistMin) / (kDrawDistMax - kDrawDistMin)));
+            g.DrawRect(tx0, cy - th * 0.5f, tx1, cy + th * 0.5f, sel ? 0x50000000 : 0x50FFFFFF);
+            g.DrawRect(tx0, cy - th * 0.5f, tx0 + tw * v, cy + th * 0.5f, sel ? 0xFF000000 : 0xFFFFFFFF);
+            e.sx0 = tx0 - m_ox; e.sx1 = tx1 - m_ox;
+        }
+        e.hx0 = left - m_ox; e.hx1 = left + pw - m_ox; e.hy0 = ry - m_oy; e.hy1 = ry + rowH - m_oy;
+    }
+    // scroll hint
+    if ((int)rows.size() > visibleRows) {
+        font(FeFont::SUBTITLES, 0.4f, 0.9f, 0xFF8090A0, FeFont::LEFT);
+        char b[32]; std::snprintf(b, sizeof(b), "%d / %d", selRow + 1, (int)rows.size());
+        m_font.Print(g, left, top + shown * (rowH + gap) + 6.0f * ref, b);
+    }
+    g.SetOrigin(m_ox, m_oy);
+    m_font.SetEdge(0);
+}
+
 void FeMenu::Draw(D3DRenderer& r) {
     if (!m_open || !r.GetDevice()) return;
     // The 640x448 layout keeps its proportions and sits centred: any
@@ -471,6 +585,18 @@ void FeMenu::Draw(D3DRenderer& r) {
     m_font.SetScreen(m_w, m_h);
     Fe2d& g = m_2d;
     g.Begin(r.GetDevice());
+
+    m_rwList = m_set.movementStyle == 1 && m_screen != 0 && m_screen != 2 && m_screen != 5 && m_screen != 37;
+    if (m_rwList && m_font.Ready()) {
+        DrawRewriteList(g, sw, sh);
+        if (m_screen == kPauseScreen) DrawDevPanel(g);
+        if (m_mouse && m_mx >= 0 && m_my >= 0) {
+            g.DrawTex(m_mouse, m_mx + Sx(6), m_my + Sy(3), m_mx + Sx(24), m_my + Sy(21), 0x32646464);
+            g.DrawTex(m_mouse, m_mx, m_my, m_mx + Sx(18), m_my + Sy(18), 0xFFFFFFFF);
+        }
+        g.End();
+        return;
+    }
 
     // ---- CMenuManager::DrawBackground ----
     g.DrawRect(0, 0, sw, sh, kBlack);

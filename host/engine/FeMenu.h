@@ -117,6 +117,7 @@ private:
         float lo = 0, hi = 1, step = 0.05f;
         std::vector<std::string> choices;
         float hx0 = 0, hy0 = 0, hx1 = 0, hy1 = 0;   // last drawn hit box
+        float sx0 = 0, sx1 = 0;                      // rewrite list: slider track
     };
     struct Screen {
         std::string title;
@@ -139,6 +140,8 @@ private:
     std::string ValueText(const Entry& e) const;
     void DrawSlider(Fe2d& g, float value, float y125);
     void DrawDevPanel(Fe2d& g);
+    void DrawRewriteList(Fe2d& g, float sw, float sh);   // rewrite-mode list layout
+    bool m_rwList = false;               // the last frame used the rewrite list layout
     void DrawMap(Fe2d& g);
     void DrawStats(Fe2d& g);
     void DrawBrief(Fe2d& g);
