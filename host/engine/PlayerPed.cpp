@@ -803,7 +803,13 @@ bool PlayerPed::TakeClimbRelease(float v[3]) {
 
 // CTaskSimpleClimb::StartAnim @ 0067dbe0
 void PlayerPed::ClimbStartAnim() {
-    auto go = [&](const char* name, bool loop, float rate) { m_cClip = Clip(name); if (m_cClip) { Assoc* b = Blend(m_cClip, loop, false, rate); if (b) b->keepRoot = true; } };
+    auto go = [&](const char* name, bool loop, float rate) { m_cClip = Clip(name); if (m_cClip) { Assoc* b = Blend(m_cClip, loop, false, rate); if (b) {
+            b->keepRoot = true;
+            if (rate >= 1000.0f) {   // instant switch: the hold position snaps on this same frame, not a frame after the clip starts
+                b->blend = 1.0f;
+                for (Assoc& o : m_assocs) if (&o != b && !o.dead) o.blend = 0.0f;
+            }
+        } } };
     switch (m_cHAnim) {
     case CGRAB:
         if (!m_cClip) go("climb_jump", false, 8.0f);
