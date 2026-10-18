@@ -75,6 +75,7 @@ public:
     // TestForClimb: a handhold in front of CJ? launch = Shift pressed on the ground.
     bool TryStartClimb(float x, float y, float feetZ, bool launch, const ClimbScanFn& scan);
     bool Climbing() const { return m_climbing; }
+    void ClimbDebug(char* out, size_t n);   // dev trace: clip time/blend and climb state
     // The task moved CJ: world x, y and feet z to snap to (valid once, true).
     bool TakeClimbSnap(float& x, float& y, float& feetZ);
     float ClimbVelZ() const { return m_cVelZ; }

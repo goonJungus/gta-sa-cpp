@@ -843,6 +843,12 @@ bool PlayerPed::ClimbTest(int mode, int) {
     return !m_cScan(mode, p, m_cRot, o, &r);
 }
 
+void PlayerPed::ClimbDebug(char* out, size_t n) {
+    Assoc* a = Get(m_cClip);
+    std::snprintf(out, n, "anim=%d pos=%d chg=%d/%d t=%.2f/%.2f bl=%.2f play=%d fin=%d", m_cHAnim, m_cHPos, (int)m_cChangeAnim, (int)m_cChangePos,
+                  a ? a->time : -1.0f, a ? a->clip->duration : -1.0f, a ? a->blend : -1.0f, a ? (int)a->playing : -1, a ? (int)a->finished : -1);
+}
+
 // CTaskSimpleClimb::ProcessPed @ 00680dc0
 void PlayerPed::ProcessClimb(const Input& in) {
     const float dt = in.dt;

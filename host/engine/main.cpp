@@ -1782,7 +1782,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     float d[3], dr = hr;
                     const bool room = !ClimbScan(g_world, 2, p2, hr, d, &dr);
                     const bool vault = !ClimbScan(g_world, 3, p2, hr, d, &dr);
-                    Log("SWEEP %.1f %.1f feet=%.2f rot=%.0f hold=%.2f rel=%.2f room=%d vault=%d", x, y, gz, rot * 57.29578f, hold[2], hold[2] - gz, room, vault);
+                    Log("SWEEP %.1f %.1f feet=%.2f rot=%.0f hold=%.2f rel=%.2f room=%d vault=%d hx=%.2f hy=%.2f hr=%.1f", x, y, gz, rot * 57.29578f, hold[2], hold[2] - gz, room, vault, hold[0], hold[1], hr * 57.29578f);
                 }
             }
         Log("SWEEP done");
@@ -2359,9 +2359,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (g_cj.TakeClimbRelease(rv)) { velZ = rv[2]; onGround = false; }
                     if (g_cj.Climbing()) { onGround = true; velZ = 0.0f; playerZ += g_cj.ClimbVelZ() * dt; }
                 }
-                if (getenv("GTA_CJLOG"))   // dev: per-frame animation trace
-                    Log("CJ f%d clip=%s xy=%.2f,%.2f v=%.2f ratio=%.2f ground=%d hag=%.2f z=%.2f", frame, g_cj.ClipName(), playerX, playerY,
-                        sqrtf(vx * vx + vy * vy), g_cj.MoveBlendRatio(), (int)onGround, pin.heightAboveGround, playerZ - EYE_HEIGHT);
+                if (getenv("GTA_CJLOG")) {   // dev: per-frame animation trace
+                    char cd[160] = "";
+                    if (g_cj.Climbing()) g_cj.ClimbDebug(cd, sizeof cd);
+                    Log("CJ f%d clip=%s xy=%.2f,%.2f v=%.2f ratio=%.2f ground=%d hag=%.2f z=%.2f %s", frame, g_cj.ClipName(), playerX, playerY,
+                        sqrtf(vx * vx + vy * vy), g_cj.MoveBlendRatio(), (int)onGround, pin.heightAboveGround, playerZ - EYE_HEIGHT, cd);
+                }
             }
             if (cjReady && g_cj.Climbing()) { playerX += vx * dt; playerY += vy * dt; vx = vy = 0.0f; }   // ignores the ledge's collision
             const float ox = playerX, oy = playerY;
