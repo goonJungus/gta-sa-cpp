@@ -380,7 +380,7 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
         for (const HudLabel& l : d.labels) {
             const float px = std::floor(l.x * sw + 0.5f), py = std::floor(l.y * sh + 0.5f);
             Text(g, FeFont::SUBTITLES, px, py, l.text, 0.36f * l.scale, 0.8f * l.scale, l.color,
-                 l.left ? FeFont::LEFT : FeFont::CENTER, std::max(1, (int)(1 * u)));
+                 l.left ? FeFont::LEFT : FeFont::CENTER, 1);
             if (l.bar >= 0.0f) Bar(g, px - 22.0f * u * l.scale, py + 15.0f * u * l.scale, 44.0f * u * l.scale, std::max(3.0f, 5.0f * u * l.scale), l.bar, 0xFFD23C3C, d.rewrite);
         }
     }
@@ -398,7 +398,7 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
     // Clock: pricedown 0.55 x 1.1, light gray
     char clk[16];
     std::snprintf(clk, sizeof(clk), "%02d:%02d", d.hour, d.minute);
-    Text(g, FeFont::PRICEDOWN, right, 22.0f * u, clk, 0.55f, 1.1f, kLightGray, FeFont::RIGHT, (int)(2 * u));
+    Text(g, FeFont::PRICEDOWN, right, 22.0f * u, clk, 0.55f, 1.1f, kLightGray, FeFont::RIGHT, 2);
 
     // Bars: armour 62 wide, breath 62, health 109 (right aligned)
     if (d.armor > 1.0f) Bar(g, right - 62.0f * u, (48.0f - 3.0f * off) * u, 62.0f * u, 9.0f * u, d.armor, kLightGray, false);
@@ -415,13 +415,13 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
             char a[32];
             if (d.clipSize <= 1 || d.clipSize >= 1000) std::snprintf(a, sizeof(a), "%d", d.ammoClip + d.ammoTotal);
             else std::snprintf(a, sizeof(a), "%d-%d", std::min(9999, d.ammoTotal), d.ammoClip);
-            Text(g, FeFont::SUBTITLES, x + 23.5f * u, 63.0f * u, a, 0.3f, 0.7f, kLightBlue, FeFont::CENTER, (int)(1 * u));
+            Text(g, FeFont::SUBTITLES, x + 23.5f * u, 63.0f * u, a, 0.3f, 0.7f, kLightBlue, FeFont::CENTER, 1);
         }
     }
 
     // Money: pricedown, green, y 89 - 12
     Text(g, FeFont::PRICEDOWN, right, (89.0f - 12.0f * off) * u, MoneyText(d.money, false), 0.55f, 1.1f,
-         d.money < 0 ? kRed : kGreen, FeFont::RIGHT, (int)(2 * u));
+         d.money < 0 ? kRed : kGreen, FeFont::RIGHT, 2);
 
     // Wanted stars: gothic ']' at 114 - 12, 18 apart, from the right
     if (d.wanted > 0 || m_wantedFade > 0.0f) {
@@ -430,7 +430,7 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
             const bool flash = ((int)(m_time * 8.0f) & 1) != 0;
             uint32_t col = lit ? (flash && m_wantedFade > 0.0f ? kGold : kCream) : 0x40000000;
             Text(g, FeFont::GOTHIC, sw - 29.0f * u - i * 18.0f * u, (114.0f - 12.0f * off) * u, "]",
-                 0.605f, 1.21f, lit ? col : 0x60000000, FeFont::RIGHT, lit ? (int)(1 * u) : 0);
+                 0.605f, 1.21f, lit ? col : 0x60000000, FeFont::RIGHT, lit ? 1 : 0);
         }
     }
 
@@ -444,7 +444,7 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
         else if (m_zoneTimer > 4.0f) a = std::max(0.0f, 5.0f - m_zoneTimer);
         if (a > 0.0f) {
             Text(g, FeFont::GOTHIC, right, sh - 28.0f * u - 1.9f * 32.0f * 0.5f * u, d.zone, 1.2f, 1.9f,
-                 Alpha(kLightBlue, a), FeFont::RIGHT, (int)(2 * u));
+                 Alpha(kLightBlue, a), FeFont::RIGHT, 2);
         }
     }
     // Message box (help text)
@@ -491,7 +491,7 @@ void Hud::DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh) {
     auto hr = [&](float x) { return sw - hx(x); };                                         // from the right
     auto hy = [&](float y) { return y * ref; };                                            // from the top
     auto hb = [&](float y) { return sh - y * ref; };                                       // from the bottom
-    const float cashShown = std::min(1.0f, m_moneyFade * 2.0f);   // fades over the last half second
+    const float cashShown = 1.0f;   // the cash stays on screen
     const float fk = 0.77f * d.scale;
 
     // ---- radar, bottom left, flat 270x172 box with the vitals strip under it ----
@@ -530,7 +530,7 @@ void Hud::DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh) {
             const bool flash = d.wanted > 0 && m_wantedFade > 0.0f && ((int)(m_time * 6.0f) & 1);
             const uint32_t col = lit ? (flash ? 0xFFFFFFFF : 0xFFF2C94C) : 0x50FFFFFF;
             Text(g, FeFont::GOTHIC, hr(96.0f + 32.0f + sp) + 32.0f * ref, hy(54.0f) - 6.0f * ref, "]", 0.7f * 0.77f * d.scale, 1.4f * 0.77f * d.scale,
-                 col, FeFont::RIGHT, lit ? (int)(1 * ref * 2.0f) : 0);
+                 col, FeFont::RIGHT, lit ? 1 : 0);
             sp += 30.0f;
         }
         shift += 35.0f * ref;
@@ -539,12 +539,12 @@ void Hud::DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh) {
     m_cashY += (((cashShown > 0.01f) ? cashH + 2.0f * ref + (m_diffTimer > 0.0f ? cashH * 0.86f : 0.0f) : 0.0f) - m_cashY) * k;
     if (cashShown > 0.01f) {
         Text(g, FeFont::PRICEDOWN, hr(96.0f), hy(54.0f) + shift, MoneyText(d.money, true), 1.02f * fk, 2.1f * fk,
-             Alpha(d.money < 0 ? 0xFFE05050 : 0xFFFFFFFF, cashShown), FeFont::RIGHT, (int)(2 * ref * 2.0f));
+             Alpha(d.money < 0 ? 0xFFE05050 : 0xFFFFFFFF, cashShown), FeFont::RIGHT, 2);
         if (m_diffTimer > 0.0f && m_moneyDiff != 0) {
             char df[24];
             std::snprintf(df, sizeof(df), "%s$%d", m_moneyDiff > 0 ? "+" : "-", std::abs(m_moneyDiff));
             Text(g, FeFont::PRICEDOWN, hr(96.0f), hy(56.0f) + shift + cashH, df, 1.02f * fk * 0.86f, 2.1f * fk * 0.86f,
-                 Alpha(m_moneyDiff > 0 ? 0xFF6CC46A : 0xFFE05050, std::min(1.0f, m_diffTimer * 2.0f) * cashShown), FeFont::RIGHT, (int)(2 * ref * 2.0f));
+                 Alpha(m_moneyDiff > 0 ? 0xFF6CC46A : 0xFFE05050, std::min(1.0f, m_diffTimer * 2.0f) * cashShown), FeFont::RIGHT, 2);
         }
     }
     shift += m_cashY;
@@ -560,11 +560,11 @@ void Hud::DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh) {
             m_font.SetStyle(FeFont::PRICEDOWN);
             m_font.SetScale(m_font.Sx(sx), m_font.Sy(sy));
             const float cw = m_font.StringWidth(small);
-            Text(g, FeFont::PRICEDOWN, hr(96.0f), ey, small, sx, sy, Alpha(d.ammoClip == 0 ? 0xFFE05050 : 0xFF9AA4AE, a), FeFont::RIGHT, (int)(2 * ref * 2.0f));
-            Text(g, FeFont::PRICEDOWN, hr(96.0f + 12.0f) - cw, ey, big, sx, sy, Alpha(0xFFFFFFFF, a), FeFont::RIGHT, (int)(2 * ref * 2.0f));
+            Text(g, FeFont::PRICEDOWN, hr(96.0f), ey, small, sx, sy, Alpha(d.ammoClip == 0 ? 0xFFE05050 : 0xFF9AA4AE, a), FeFont::RIGHT, 2);
+            Text(g, FeFont::PRICEDOWN, hr(96.0f + 12.0f) - cw, ey, big, sx, sy, Alpha(0xFFFFFFFF, a), FeFont::RIGHT, 2);
         } else {
             std::snprintf(big, sizeof(big), "%d", d.ammoClip + d.ammoTotal);
-            Text(g, FeFont::PRICEDOWN, hr(96.0f), ey, big, sx, sy, Alpha(0xFFFFFFFF, a), FeFont::RIGHT, (int)(2 * ref * 2.0f));
+            Text(g, FeFont::PRICEDOWN, hr(96.0f), ey, big, sx, sy, Alpha(0xFFFFFFFF, a), FeFont::RIGHT, 2);
         }
         if (d.reloading)
             Text(g, FeFont::SUBTITLES, hr(96.0f), ey + 34.0f * ref, "RELOADING", 0.34f * 0.77f * d.scale, 0.8f * 0.77f * d.scale, Alpha(0xFFF2C94C, a), FeFont::RIGHT, 0);

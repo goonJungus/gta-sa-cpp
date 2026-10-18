@@ -159,9 +159,6 @@ void FeMenu::BuildScreens() {
         std::vector<Entry>& ds = m_screens[4].items;
         ds.insert(ds.begin() + 4, MakeGoto("HUD AND VIEW", 44));
         if (ds.size() > 12) ds.resize(12);
-        std::vector<Entry>& pa = m_screens[41].items;
-        Entry q = rw; q.type = 11; q.align = 3;
-        pa.insert(pa.begin() + 6, q);
         // Audio screen sliders: music and sound effects volume.
         for (Entry& e : m_screens[3].items) {
             if (e.action == 28) { e.action = A_SLIDER; e.f = &m_set.musicVol; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
@@ -868,44 +865,32 @@ static std::string TimeText(double sec) {
     return b;
 }
 
+// Retail stat tables (CStats::ConstructStatLine): the stats each page lists. A row is listed
+// when its flag is set, or when its value is above zero (none of those are tracked here yet).
+struct StatRow { short id; bool always; };
+static const StatRow kStatsPlayer[] = {{21,1},{64,1},{25,1},{160,1},{229,1},{164,1},{330,1},{135,1},{186,0},{185,0},{189,0},{200,1}};
+static const StatRow kStatsMoney[] = {{53,0},{14,1},{16,1},{31,1},{54,1},{20,1},{35,0},{334,0},{39,0},{40,0}};
+static const StatRow kStatsWeapons[] = {{328,1},{126,1},{128,1}};
+static const StatRow kStatsCrimes[] = {{191,0},{182,0},{194,0},{132,1},{155,0},{218,0},{324,1},{121,1},{123,1},{125,1},{130,1},{176,0}};
+static const StatRow kStatsGangs[] = {{323,1},{235,0},{236,0},{238,0},{239,0},{331,1},{333,1}};
+static const StatRow kStatsAch[] = {{252,0},{254,0},{256,0},{3,0},{4,0},{5,0},{7,0},{9,0},{169,1},{44,0},{45,0},{144,1},{10,1},{11,1},{12,1},{139,1},{141,1},{52,1},{156,0},{46,0},{205,0},{207,0},{209,0},{231,1},{241,1}};
+static const StatRow kStatsMission[] = {{146,1},{157,0},{159,0},{158,0},{149,0},{161,0},{210,0},{36,0},{214,0},{202,0},{166,0},{168,0},{247,0},{249,0},{172,0},{212,0},{220,0},{49,0},{174,0},{179,0},{211,0}};
+static const StatRow kStatsMisc[] = {{0,1},{134,1},{137,0},{326,1},{195,0},{197,0}};
+
 void FeMenu::DrawStats(Fe2d& g) {
-    if (m_sel < 0 || m_sel >= (int)m_screens[0].items.size()) return;
+    if (m_sel < 0 || m_sel >= 8) return;   // the Back entry shows nothing
     typedef std::pair<std::string, std::string> Row;
     std::vector<Row> rows;
-    char b[64];
-    const PlayerInfo& p = m_info;
-    switch (m_sel) {
-    case 0:
-        std::snprintf(b, sizeof(b), "%d / %d", (int)p.health, (int)p.maxHealth);
-        rows = {{"Time played", TimeText(p.playSec)}, {"Health", b}};
-        std::snprintf(b, sizeof(b), "%d", (int)p.armor);
-        rows.push_back({"Armour", b});
-        std::snprintf(b, sizeof(b), "%.2f km", p.distFoot / 1000.0f);
-        rows.push_back({"Distance on foot", b});
-        rows.push_back({"Jumps", std::to_string(p.jumps)});
-        rows.push_back({"Times hurt", std::to_string(p.hurt)});
-        break;
-    case 1:
-        std::snprintf(b, sizeof(b), "$%d", p.money);
-        rows = {{"Cash in hand", b}};
-        break;
-    case 2:
-        rows = {{"Weapon", p.weapon.empty() ? "Fists" : p.weapon},
-                {"Ammo in clip", std::to_string(p.ammoClip)}, {"Ammo carried", std::to_string(p.ammoTotal)},
-                {"Shots fired", std::to_string(p.shots)}, {"Reloads", std::to_string(p.reloads)}};
-        break;
-    case 3:
-        rows = {{"Wanted level", std::to_string(p.wanted)}, {"Times hurt", std::to_string(p.hurt)}};
-        break;
-    case 4: rows = {{"Territory", "None taken yet"}}; break;
-    case 5: rows = {{"Achievements", "None yet"}}; break;
-    case 6: rows = {{"Missions passed", "0"}}; break;
-    default:
-        std::snprintf(b, sizeof(b), "%02d:%02d", p.hour, p.minute);
-        rows = {{"Game time", b}, {"Area", p.zone.empty() ? "San Andreas" : p.zone}};
-        std::snprintf(b, sizeof(b), "%d, %d, %d", (int)p.x, (int)p.y, (int)p.z);
-        rows.push_back({"Position", b});
-        break;
+    const StatRow* tab[8] = {kStatsPlayer, kStatsMoney, kStatsWeapons, kStatsCrimes, kStatsGangs, kStatsAch, kStatsMission, kStatsMisc};
+    const size_t cnt[8] = {sizeof(kStatsPlayer) / sizeof(StatRow), sizeof(kStatsMoney) / sizeof(StatRow), sizeof(kStatsWeapons) / sizeof(StatRow),
+                           sizeof(kStatsCrimes) / sizeof(StatRow), sizeof(kStatsGangs) / sizeof(StatRow), sizeof(kStatsAch) / sizeof(StatRow),
+                           sizeof(kStatsMission) / sizeof(StatRow), sizeof(kStatsMisc) / sizeof(StatRow)};
+    for (size_t i = 0; i < cnt[m_sel]; i++) {
+        const StatRow& r = tab[m_sel][i];
+        if (!r.always) continue;
+        char key[16];
+        std::snprintf(key, sizeof(key), r.id < 10 ? "STAT00%d" : r.id < 100 ? "STAT0%d" : "STAT%d", (int)r.id);
+        rows.push_back({m_text.Get(key), "0"});
     }
     if (m_rwList) {
         const float sw = m_w + 2 * m_ox, sh = m_h + 2 * m_oy, ref = sh / 1080.0f;
