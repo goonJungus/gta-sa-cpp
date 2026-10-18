@@ -202,6 +202,7 @@ private:
     void ShoulderBoneRotation();
     void ApplyRewritePose();
     void ApplyAimIK(const Input& in);
+    void UpdateArmChain(int side, bool want, const float target[3], float dt);
     void ApplyFootIK(const Input& in);
     void FootRestHeights();
     void Skin();
@@ -304,6 +305,9 @@ private:
     // CTaskSimpleSwim
     enum class SwimState { Tread, Sprint, Sprinting, Dive, Under, BackToSurface };
     bool m_swimming = false;
+    struct IkNode { int bone = 0, frame = 0; float q[4] = {0, 0, 0, 1}; float lmin[3] = {}, lmax[3] = {}; };
+    struct IkChain { bool alive = false; float blend = 0.0f, target = 0.0f, remainMs = 0.0f; std::vector<IkNode> nodes; };
+    IkChain m_ikArm[2];   // right, left arm point chains (IKChainManager_c slots)
     int m_moveSet = 0;   // last frame's move set (0 player, 1 armed, 2 rocket, 3 chainsaw)
     SwimState m_swimState = SwimState::Tread;
     float m_swimPitch = 0.0f;                  // m_fRotationX: positive dives

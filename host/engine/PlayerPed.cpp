@@ -1086,20 +1086,206 @@ void PlayerPed::ApplyRewritePose() {
     }
 }
 
-// Aim IK (stands in for CPedIK::PointGunInDirection): the gun arm is swung
-// about the shoulder until shoulder-to-hand points along the aim direction
-// (forward, tipped by the camera pitch).
+// BoneNode_c::QuatToEuler @ 00617080 / EulerToQuat @ 006171f0 (degrees, x y z).
+void IkQuatToEuler(const float q[4], float e[3]) {
+    const float x = q[0], y = q[1], z = q[2], w = q[3];
+    const float sp = std::clamp(2.0f * (x * z - y * w), -1.0f, 1.0f);
+    const float d = 180.0f / kPi;
+    e[1] = std::asin(-sp) * d;
+    if (std::fabs(sp - 1.0f) < 0.0001f) {
+        e[0] = std::atan2(-2.0f * (y * z - x * w), 1.0f - 2.0f * (x * x + z * z)) * d;
+        e[2] = 0.0f;
+    } else {
+        e[0] = std::atan2(2.0f * (x * w + y * z), 1.0f - 2.0f * (x * x + y * y)) * d;
+        e[2] = std::atan2(2.0f * (z * w + x * y), 1.0f - 2.0f * (y * y + z * z)) * d;
+    }
+}
+void IkEulerToQuat(const float e[3], float q[4]) {
+    const float r = kPi / 360.0f;
+    const float cx = std::cos(e[0] * r), sx = std::sin(e[0] * r), cy = std::cos(e[1] * r), sy = std::sin(e[1] * r);
+    const float cz = std::cos(e[2] * r), sz = std::sin(e[2] * r);
+    const float cc = cx * cz, cs = cx * sz, sc = sx * cz, ss = sx * sz;
+    float o[4] = {sc * cy - cs * sy, cc * sy + ss * cy, cs * cy - sc * sy, cc * cy + ss * sy};
+    const float m = std::sqrt(o[0] * o[0] + o[1] * o[1] + o[2] * o[2] + o[3] * o[3]);
+    for (int i = 0; i < 4; i++) q[i] = o[i] / m;
+}
+
+// BoneNodeManager_c::ms_boneInfos @ 008d26d0, the arm rows: bone, parent, pose rotation
+// (degrees), then min / max ranges about it per axis (x, y, z).
+namespace {
+struct IkBoneInfo { int bone, parent; float pose[3], minX, maxX, minY, maxY, minZ, maxZ; };
+const IkBoneInfo kIkBones[] = {
+    {21, 4, {22.0f, 80.6f, -166.7f}, 0, 0, 0, 0, 0, 0},
+    {22, 21, {-5.4f, -45.0f, -13.0f}, 0, 0, 0, 115.0f, 90.0f, 45.0f},
+    {23, 22, {0.0f, 0.0f, -13.6f}, 0, 0, 0, 0, 135.0f, 13.0f},
+    {24, 23, {113.4f, -4.0f, 6.5f}, 0, 0, 0, 0, 0, 0},
+    {31, 4, {-22.0f, -80.6f, -166.7f}, 0, 0, 0, 0, 0, 0},
+    {32, 31, {5.4f, 45.6f, -13.0f}, 0, 0, 115.0f, 0, 90.0f, 45.0f},
+    {33, 32, {0.0f, 0.0f, -13.6f}, 0, 0, 0, 0, 135.0f, 13.0f},
+    {34, 33, {-113.4f, 4.0f, 6.5f}, 0, 0, 0, 0, 0, 0},
+};
+const IkBoneInfo* IkInfo(int bone) {
+    for (const IkBoneInfo& i : kIkBones)
+        if (i.bone == bone) return &i;
+    return nullptr;
+}
+// Hamilton product a * b (RtQuatRotate's post-concat is r * q)
+void QuatMul(const float a[4], const float b[4], float o[4]) {
+    o[0] = a[3] * b[0] + b[3] * a[0] + (a[1] * b[2] - a[2] * b[1]);
+    o[1] = a[3] * b[1] + b[3] * a[1] + (a[2] * b[0] - a[0] * b[2]);
+    o[2] = a[3] * b[2] + b[3] * a[2] + (a[0] * b[1] - a[1] * b[0]);
+    o[3] = a[3] * b[3] - (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]);
+}
+}  // namespace
+
+// CTaskSimpleIKPointArm / IKChain_c: an arm chain from the hand (effector offset 0, 0.05, 0) up
+// to the clavicle under the neck (pivot). Each frame one sweep (MoveBonesToTarget @ 006178b0)
+// turns every bone, hand first, by half (chain speed 0.5) of the angle between "bone -> hand tip"
+// and "bone -> target", clamps it to its Euler limits (BoneNode_c::Limit), and the animated
+// keyframe is slerped toward the result by the chain blend (in over 250 ms, out over 250 ms).
+void PlayerPed::UpdateArmChain(int side, bool want, const float target[3], float dt) {
+    IkChain& c = m_ikArm[side];
+    const int handBone = side == 0 ? 24 : 34;
+    if (want) {
+        if (!c.alive) {
+            c.nodes.clear();
+            for (int bone = handBone; bone != 4;) {   // effector -> pivot
+                const IkBoneInfo* info = IkInfo(bone);
+                const int f = m_frameOfBone[bone];
+                if (!info || f < 0) { c.nodes.clear(); return; }
+                IkNode n;
+                n.bone = bone;
+                n.frame = f;
+                std::memcpy(n.q, m_pose[f].q, sizeof(n.q));   // BoneNode_c::Init: the current keyframe
+                const float mn[3] = {info->minX, info->minY, info->minZ}, mx[3] = {info->maxX, info->maxY, info->maxZ};
+                for (int k = 0; k < 3; k++) { n.lmin[k] = info->pose[k] - mn[k]; n.lmax[k] = info->pose[k] + mx[k]; }
+                c.nodes.push_back(n);
+                bone = info->parent;
+            }
+            c.alive = true;
+            c.blend = 0.0f;
+        }
+        if (c.target != 1.0f || c.remainMs < 0.0f) { c.target = 1.0f; c.remainMs = 250.0f; }
+    } else if (c.alive && c.target != 0.0f) {
+        c.target = 0.0f;   // CTaskSimpleIKChain::BlendOut(250)
+        c.remainMs = 250.0f;
+    }
+    if (!c.alive) return;
+    // CTaskSimpleIKChain::ProcessPed: blend toward the target over the remaining time
+    const float dtMs = dt * 1000.0f;
+    if (c.remainMs > 0.0f) {
+        c.blend += (c.target - c.blend) * std::min(1.0f, dtMs / std::max(dtMs, c.remainMs - dtMs));
+        c.remainMs -= dtMs;
+    } else {
+        c.blend = c.target;
+    }
+    if (c.target == 0.0f && c.blend <= 0.001f) { c.alive = false; c.nodes.clear(); return; }
+
+    const int pivotF = m_frameOfBone[4];
+    if (pivotF < 0 || c.nodes.empty()) return;
+    const int count = (int)c.nodes.size();
+    std::vector<RwMat> wld(count);
+    // BoneNode_c::CalcWldMat from the clavicle (last) down to the hand (first)
+    auto calcFrom = [&](int i) {
+        for (int k = i; k >= 0; k--) {
+            RwMat local;
+            QuatToRows(c.nodes[k].q, local);
+            for (int t = 0; t < 3; t++) local.m[3][t] = m_pose[c.nodes[k].frame].t[t];
+            wld[k] = local * (k == count - 1 ? m_globals[pivotF] : wld[k + 1]);
+        }
+    };
+    calcFrom(count - 1);
+    const float eff[3] = {0.0f, 0.05f, 0.0f};
+    for (int i = 0; i < count; i++) {
+        IkNode& n = c.nodes[i];
+        float tip[3];
+        wld[0].ApplyDir(eff, tip);
+        float toTip[3], toTgt[3];
+        for (int k = 0; k < 3; k++) {
+            toTip[k] = tip[k] + (wld[0].m[3][k] - wld[i].m[3][k]);
+            toTgt[k] = target[k] - wld[i].m[3][k];
+        }
+        const float l1 = std::sqrt(toTip[0] * toTip[0] + toTip[1] * toTip[1] + toTip[2] * toTip[2]);
+        const float l2 = std::sqrt(toTgt[0] * toTgt[0] + toTgt[1] * toTgt[1] + toTgt[2] * toTgt[2]);
+        if (l1 <= 0.00001f || l2 <= 0.00001f) continue;
+        for (int k = 0; k < 3; k++) { toTip[k] /= l1; toTgt[k] /= l2; }
+        const float dot = toTip[0] * toTgt[0] + toTip[1] * toTgt[1] + toTip[2] * toTgt[2];
+        if (dot >= 0.997f) continue;
+        const RwMat& parent = i + 1 < count ? wld[i + 1] : m_globals[pivotF];
+        const float cr[3] = {toTip[1] * toTgt[2] - toTip[2] * toTgt[1], toTip[2] * toTgt[0] - toTip[0] * toTgt[2],
+                             toTip[0] * toTgt[1] - toTip[1] * toTgt[0]};
+        // the axis into the parent's space (rows are the parent's axes)
+        float ax[3];
+        for (int k = 0; k < 3; k++) ax[k] = cr[0] * parent.m[k][0] + cr[1] * parent.m[k][1] + cr[2] * parent.m[k][2];
+        const float al = std::sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+        if (al <= 1e-8f) continue;
+        const float half = 0.5f * std::acos(std::clamp(dot, -1.0f, 1.0f)) * 0.5f;   // bone speed 1 * chain speed 0.5
+        const float r[4] = {ax[0] / al * std::sin(half), ax[1] / al * std::sin(half), ax[2] / al * std::sin(half), std::cos(half)};
+        float q[4];
+        QuatMul(r, n.q, q);
+        // BoneNode_c::Limit
+        float e[3];
+        IkQuatToEuler(q, e);
+        for (int k = 0; k < 3; k++) e[k] = std::clamp(e[k], n.lmin[k], n.lmax[k]);
+        IkEulerToQuat(e, n.q);
+        calcFrom(i);
+    }
+    // BoneNode_c::BlendKeyframe: the keyframe slerped toward the chain's orientation, then the
+    // chain bones and everything under them rebuilt from the pivot.
+    std::vector<RwMat> old = m_globals;
+    std::vector<bool> moved(m_skeleton.size(), false);
+    for (int i = count - 1; i >= 0; i--) {
+        const int f = c.nodes[i].frame;
+        float q[4];
+        Slerp(m_pose[f].q, c.nodes[i].q, c.blend, q);
+        RwMat local;
+        QuatToRows(q, local);
+        for (int t = 0; t < 3; t++) local.m[3][t] = m_pose[f].t[t];
+        m_globals[f] = local * m_globals[m_skeleton[f].parent];
+        moved[f] = true;
+    }
+    for (size_t f = 1; f < m_skeleton.size(); f++) {
+        const int p = m_skeleton[f].parent;
+        if (moved[f] || p <= 0 || !moved[p]) continue;
+        m_globals[f] = (old[f] * Invert(old[p])) * m_globals[p];
+        moved[f] = true;
+    }
+}
+
+// CTaskSimpleUseGun::AimGun @ 0061ed10: a gun with the arm flag (0x2) is pointed by the right
+// arm chain; any other gun, or any gun while ducking, by the torso (CPedIK::PointGunInDirection).
 void PlayerPed::ApplyAimIK(const Input& in) {
-    if (!m_aiming || m_gun < 0) return;
-    // CTaskSimpleUseGun::AimGun: a weapon without the arm flag (rifles,
-    // shotguns, SMGs) or any gun while ducking is aimed with the body
-    // (CPedIK::PointGunAtPosition tips the torso), the rest with the arm.
-    if (!m_guns[m_gun].aimWithArm || m_ducking) {
+    const bool armAim = m_aiming && m_gun >= 0 && m_guns[m_gun].aimWithArm && !m_ducking && !std::getenv("GTA_NOAIMIK");
+    {
+        // third-person free aim: a point far out along the camera's aim from the shoulder
+        const int fu = m_frameOfBone[22];
+        float tgt[3] = {0, 0, 0};
+        if (fu >= 0) {
+            const float a = std::clamp(in.camPitch, -1.4f, 1.4f);
+            for (int k = 0; k < 3; k++) tgt[k] = m_globals[fu].m[3][k];
+            tgt[1] += std::cos(a) * 20.0f;
+            tgt[2] += std::sin(a) * 20.0f;
+        }
+        UpdateArmChain(0, armAim && fu >= 0, tgt, in.dt);
+    }
+    if (armAim && std::getenv("GTA_AIMDBG") && m_frameOfBone[24] >= 0) {
+        static int n = 0;
+        if (++n % 30 == 0) {
+            const RwMat& hm = m_globals[m_frameOfBone[24]];
+            const float* b = m_guns[m_gun].barrel;
+            float c[3];
+            for (int k = 0; k < 3; k++) c[k] = b[0] * hm.m[0][k] + b[1] * hm.m[1][k] + b[2] * hm.m[2][k];
+            const float cl = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+            std::fprintf(stderr, "[AIMA] %s pitch %.1f blend %.2f barrel elev %.1f yaw %.1f\n", GunId(), in.camPitch * 57.29578f,
+                         m_ikArm[0].blend, std::asin(c[2] / cl) * 57.29578f, std::atan2(c[0], c[1]) * 57.29578f);
+        }
+    }
+    if (!m_aiming || m_gun < 0 || armAim) return;
+    if (m_guns[m_gun].aimWithArm && !m_ducking) return;   // GTA_NOAIMIK: the clip pose alone
+    {
         const int spine = m_frameOfBone[3];   // BONE_SPINE1: the torso, arms and head hang off it
         if (spine < 0) return;
-        // the rewrite pose tips the whole body afterwards by m_aimPitch, so only the rest is turned here
-        const float bodyTip = in.rewrite ? m_aimPitch * (kPi / 180.0f) : 0.0f;
-        const float a = std::clamp(in.camPitch - bodyTip, -0.95993f, 1.04720f);   // ms_torsoInfo: pitch limits -55 .. +60 degrees
+        const float a = std::clamp(in.camPitch, -0.95993f, 1.04720f);   // ms_torsoInfo: pitch limits -55 .. +60 degrees
         const float right[3] = {1, 0, 0}, up[3] = {0, 0, 1};
         auto turnTorso = [&](const float* axis, float ang) {
             if (std::fabs(ang) < 1e-4f) return;
@@ -1118,126 +1304,21 @@ void PlayerPed::ApplyAimIK(const Input& in) {
         };
         turnTorso(right, a);
         if (m_frameOfBone[24] >= 0) {
-            // CPedIK::PointGunInDirection turns the torso (yaw within +-50 degrees) until the gun
-            // lies along the aim: the clip's own holding angle (the sniper rifle sits well off the
-            // body axis) is taken out here, then the elevation is levelled the same way.
+            // The torso turns (yaw within +-50 degrees) until the gun lies along the aim: the clip's
+            // own holding angle (the sniper rifle sits well off the body axis) is taken out here,
+            // then the elevation is levelled the same way.
             float c[3];
             barrelDir(c);
             turnTorso(up, std::clamp(std::atan2(c[0], c[1]), -0.87266f, 0.87266f));
             barrelDir(c);
-            const float want = std::clamp(in.camPitch - bodyTip, -0.95993f, 1.04720f);
-            turnTorso(right, std::clamp(want - std::asin(std::clamp(c[2], -1.0f, 1.0f)), -0.5f, 0.5f));
-        }
-        if (std::getenv("GTA_AIMDBG") && m_frameOfBone[24] >= 0) {
-            static int n = 0;
-            if (++n % 30 == 0) {
-                const RwMat& hm = m_globals[m_frameOfBone[24]];
-                const float* b = m_guns[m_gun].barrel;
-                float c[3];
-                for (int k = 0; k < 3; k++) c[k] = b[0] * hm.m[0][k] + b[1] * hm.m[1][k] + b[2] * hm.m[2][k];
-                const float cl = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
-                std::fprintf(stderr, "[AIMT] %s pitch %.1f deg torso %.1f deg barrel elev %.1f deg yaw %.1f\n", GunId(),
-                             in.camPitch * 57.29578f, a * 57.29578f, std::asin(c[2] / cl) * 57.29578f,
-                             std::atan2(c[0], c[1]) * 57.29578f);
+            turnTorso(right, std::clamp(a - std::asin(std::clamp(c[2], -1.0f, 1.0f)), -0.5f, 0.5f));
+            if (std::getenv("GTA_AIMDBG")) {
+                static int n = 0;
+                barrelDir(c);
+                if (++n % 30 == 0)
+                    std::fprintf(stderr, "[AIMT] %s pitch %.1f deg barrel elev %.1f deg yaw %.1f\n", GunId(), in.camPitch * 57.29578f,
+                                 std::asin(c[2]) * 57.29578f, std::atan2(c[0], c[1]) * 57.29578f);
             }
-        }
-        return;
-    }
-    if (std::getenv("GTA_NOAIMIK")) return;   // dev: show the clip pose without the arm solve
-    // The arm gun aim (CIKChain PointArm): a two-bone solve that reaches the arm out along the
-    // aim direction, the clip only supplies the bend side and the hand pose.
-    const int fs = m_frameOfBone[22], fe = m_frameOfBone[23], fh = m_frameOfBone[24];
-    if (fs < 0 || fe < 0 || fh < 0) return;
-    auto sub = [](const float* a, const float* b, float* o) { for (int k = 0; k < 3; k++) o[k] = a[k] - b[k]; };
-    auto len = [](const float* v) { return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); };
-    auto dotf = [](const float* a, const float* b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
-    auto crossf = [](const float* a, const float* b, float* o) {
-        o[0] = a[1] * b[2] - a[2] * b[1]; o[1] = a[2] * b[0] - a[0] * b[2]; o[2] = a[0] * b[1] - a[1] * b[0];
-    };
-    auto rotateSubtree = [&](int root, const float* from, const float* to, const float* pivot) {
-        float ax[3];
-        crossf(from, to, ax);
-        const float al = len(ax);
-        if (al < 1e-6f) return;
-        for (float& v : ax) v /= al;
-        const float ang = std::acos(std::clamp(dotf(from, to), -1.0f, 1.0f));
-        const RwMat rot = AxisRotation(ax, ang, pivot);
-        for (size_t f = 0; f < m_skeleton.size(); f++)
-            for (int p = (int)f; p >= 0; p = m_skeleton[p].parent)
-                if (p == root) { m_globals[f] = m_globals[f] * rot; break; }
-    };
-    float S[3] = {m_globals[fs].m[3][0], m_globals[fs].m[3][1], m_globals[fs].m[3][2]};
-    float E[3] = {m_globals[fe].m[3][0], m_globals[fe].m[3][1], m_globals[fe].m[3][2]};
-    float H[3] = {m_globals[fh].m[3][0], m_globals[fh].m[3][1], m_globals[fh].m[3][2]};
-    float u1[3], u2[3];
-    sub(E, S, u1); sub(H, E, u2);
-    const float L1 = len(u1), L2 = len(u2);
-    if (L1 < 1e-4f || L2 < 1e-4f) return;
-    const float a = std::clamp(in.camPitch - (in.rewrite ? m_aimPitch * (kPi / 180.0f) : 0.0f), -1.2f, 1.2f);   // the body tip comes after
-    const float dir[3] = {0.0f, std::cos(a), std::sin(a)};
-    const float reach = (L1 + L2) * 0.985f;
-    // bend side: the clip's elbow offset away from the shoulder -> target line
-    float sh[3];
-    sub(H, S, sh);
-    const float shl = len(sh);
-    if (shl < 1e-4f) return;
-    float pole[3] = {u1[0], u1[1], u1[2]};
-    {
-        const float sd[3] = {sh[0] / shl, sh[1] / shl, sh[2] / shl};
-        const float pd = dotf(pole, sd);
-        for (int k = 0; k < 3; k++) pole[k] -= sd[k] * pd;
-        const float pl = len(pole);
-        if (pl < 1e-4f) { pole[0] = 0; pole[1] = 0; pole[2] = -1; } else for (float& v : pole) v /= pl;
-    }
-    // keep the pole perpendicular to the new aim direction
-    {
-        const float pd = dotf(pole, dir);
-        for (int k = 0; k < 3; k++) pole[k] -= dir[k] * pd;
-        const float pl = len(pole);
-        if (pl < 1e-4f) return;
-        for (float& v : pole) v /= pl;
-    }
-    const float ca = (L1 * L1 - L2 * L2 + reach * reach) / (2.0f * reach);
-    const float hh = std::sqrt(std::max(0.0f, L1 * L1 - ca * ca));
-    float E2[3], T[3];
-    for (int k = 0; k < 3; k++) { E2[k] = S[k] + dir[k] * ca + pole[k] * hh; T[k] = S[k] + dir[k] * reach; }
-    // upper arm: current elbow direction -> new elbow direction, about the shoulder
-    float d0[3], d1[3];
-    sub(E, S, d0); sub(E2, S, d1);
-    for (float& v : d0) v /= L1;
-    for (float& v : d1) v /= L1;
-    rotateSubtree(fs, d0, d1, S);
-    // forearm: the moved hand -> the target, about the new elbow
-    const float H1[3] = {m_globals[fh].m[3][0], m_globals[fh].m[3][1], m_globals[fh].m[3][2]};
-    const float E1[3] = {m_globals[fe].m[3][0], m_globals[fe].m[3][1], m_globals[fe].m[3][2]};
-    float f0[3], f1[3];
-    sub(H1, E1, f0); sub(T, E1, f1);
-    const float l0 = len(f0), l1 = len(f1);
-    if (l0 < 1e-4f || l1 < 1e-4f) return;
-    for (float& v : f0) v /= l0;
-    for (float& v : f1) v /= l1;
-    rotateSubtree(fe, f0, f1, E1);
-    // Level the barrel with the aim: the clip's wrist angle can leave the gun tilted off the aim
-    // direction (the silenced pistol and the sawn-off pitch up), so turn the hand until it points along it.
-    {
-        const RwMat& hm = m_globals[fh];
-        const float* b = m_guns[m_gun].barrel;
-        float cur[3];
-        for (int k = 0; k < 3; k++) cur[k] = b[0] * hm.m[0][k] + b[1] * hm.m[1][k] + b[2] * hm.m[2][k];
-        const float cl = len(cur);
-        if (cl > 1e-4f) {
-            for (float& v : cur) v /= cl;
-            const float pv[3] = {hm.m[3][0], hm.m[3][1], hm.m[3][2]};
-            rotateSubtree(fh, cur, dir, pv);
-        }
-    }
-    if (std::getenv("GTA_AIMDBG")) {
-        static int n = 0;
-        if (++n % 60 == 0) {
-            const RwMat& g0 = m_globals[fs]; const RwMat& g1 = m_globals[fe]; const RwMat& g2 = m_globals[fh];
-            std::fprintf(stderr, "[AIM] pitch %.2f dir (%.2f %.2f %.2f) S (%.2f %.2f %.2f) E (%.2f %.2f %.2f) H (%.2f %.2f %.2f) L1 %.3f L2 %.3f\n",
-                         in.camPitch, dir[0], dir[1], dir[2], g0.m[3][0], g0.m[3][1], g0.m[3][2], g1.m[3][0], g1.m[3][1], g1.m[3][2],
-                         g2.m[3][0], g2.m[3][1], g2.m[3][2], L1, L2);
         }
     }
 }
