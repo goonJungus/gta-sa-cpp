@@ -181,6 +181,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.moveSpeed = (float)std::atof((*row)[17].c_str());
         g.damage = (float)std::atof((*row)[10].c_str());
         g.range = (float)std::atof((*row)[4].c_str());
+        g.accuracy = (float)std::atof((*row)[16].c_str());
         // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
         g.aimWithArm = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x2) != 0;
         g.reloadTime = 1.0f;
@@ -294,6 +295,17 @@ int PlayerPed::GunClipAt(int i) const { return i >= 0 && i < (int)m_guns.size() 
 int PlayerPed::GunTotalAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].total : 0; }
 int PlayerPed::GunClipSizeAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].clipSize : 0; }
 const char* PlayerPed::GunName() const { return m_gun >= 0 ? m_guns[m_gun].name.c_str() : "Fists"; }
+// CPlayerPed::GetWeaponRadiusOnScreen @ 00609cd0: the crosshair circle size.
+float PlayerPed::WeaponRadiusOnScreen() const {
+    if (m_gun < 0) return 0.0f;
+    const Gun& g = m_guns[m_gun];
+    const float acc = 0.5f / std::max(0.01f, g.accuracy);
+    const std::string id = GunId();
+    if (id == "SHOTGUN" || id == "SPAS12" || id == "SAWNOFF") return std::max(0.2f, acc);
+    const float radius = std::min(1.0f, 15.0f / std::max(0.01f, g.range)) * acc;   // m_fAttackButtonCounter 0
+    return std::max(0.2f, m_ducking ? radius * 0.5f : radius);
+}
+
 const char* PlayerPed::GunId() const { return m_gun >= 0 && m_guns[m_gun].spec ? m_guns[m_gun].spec->name : ""; }
 int PlayerPed::GunAmmo() const { return m_gun >= 0 ? m_guns[m_gun].ammo : 0; }
 int PlayerPed::GunClipSize() const { return m_gun >= 0 ? m_guns[m_gun].clipSize : 0; }

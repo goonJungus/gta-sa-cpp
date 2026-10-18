@@ -233,6 +233,23 @@ static bool g_aimTest = false;      // --aimtest: the shooting range
 static AimTest g_aim;
 static PlayerPed g_dummy;           // the pose every range dummy shares
 static float g_aimEye[3] = {0, 0, 0}, g_aimDir[3] = {0, 1, 0};   // the camera ray bullets follow
+// CCamera::m_f3rdPersonCHairMultX / Y: the classic third-person crosshair sits right of and above
+// the screen centre; the rewrite crosshair is centred.
+static float g_chairX = 0.5f, g_chairY = 0.5f;
+static float g_aspect = 16.0f / 9.0f;   // render width / height
+// CCamera::Find3rdPersonCamTargetVector: the ray from the camera through the crosshair.
+static void CrosshairRay(float yaw, float pitch, float out[3]) {
+    const float cp = cosf(pitch), sp = sinf(pitch);
+    const float f[3] = {cosf(yaw) * cp, sinf(yaw) * cp, sp};
+    const float r[3] = {sinf(yaw), -cosf(yaw), 0.0f};                       // f x up
+    const float u[3] = {r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]};
+    const float tanV = tanf(g_fovDeg * 3.14159265f / 360.0f);
+    const float cu = tanV * (0.5f - g_chairY) * 2.0f, cr = tanV * g_aspect * (g_chairX - 0.5f) * 2.0f;
+    float d[3];
+    for (int k = 0; k < 3; k++) d[k] = f[k] + u[k] * cu + r[k] * cr;
+    const float l = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    for (int k = 0; k < 3; k++) out[k] = l > 1e-6f ? d[k] / l : f[k];
+}
 static bool g_hudReady = false;
 static bool g_menuReady = false;
 static bool g_escOpensMenu = false;      // play mode (not the capture modes)
@@ -2949,6 +2966,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.rewrite = g_menu.Settings().movementStyle == 1;
                 pin.camYaw = yaw;
                 pin.camPitch = pitch;
+                {   // classic third person aims through the offset crosshair (camera ray of the last frame's eye)
+                    const bool classicTp = g_menu.Settings().cameraStyle == PlayerCamera::kClassic && thirdPerson;
+                    g_aspect = (float)WIDTH / (float)HEIGHT;
+                    g_chairX = classicTp ? 0.53f : 0.5f;
+                    g_chairY = classicTp ? 0.4f : 0.5f;
+                    pin.haveAimRay = thirdPerson && !g_playerCam.FirstPerson(g_menu.Settings().cameraStyle);
+                    CrosshairRay(yaw, pitch, pin.aimDir);
+                    for (int k = 0; k < 3; k++) pin.aimEye[k] = g_aimEye[k];
+                }
                 pin.firstPerson = g_playerCam.FirstPerson(g_menu.Settings().cameraStyle);
                 pin.worldX = playerX; pin.worldY = playerY; pin.feetZ = playerZ - EYE_HEIGHT;
                 pin.jumpHeld = jumpKeyDown;
@@ -3220,6 +3246,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_renderer.SetViewMatrix(view);
                 camPosX = co.eye[0]; camPosY = co.eye[1]; camPosZ = co.eye[2];
                 for (int i = 0; i < 3; i++) { g_aimEye[i] = co.eye[i]; g_aimDir[i] = co.dir[i]; }
+                if (!co.firstPerson) CrosshairRay(yaw, pitch, g_aimDir);   // bullets go through the crosshair
                 g_hideCjHead = co.hideHead;
                 nearClip = co.nearClip;
             } else if (!thirdPerson) {
@@ -3678,6 +3705,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.reloading = g_cj.Reloading();
             hd.weaponName = g_cj.GunName();
             hd.aiming = g_cj.Aiming();
+            hd.crossX = g_chairX; hd.crossY = g_chairY;
+            hd.crossRadius = g_cj.WeaponRadiusOnScreen();
             hd.spread = std::min(1.0f, sqrtf(g_cj.VelX() * g_cj.VelX() + g_cj.VelY() * g_cj.VelY()) / 6.0f);
             hd.firstPerson = g_playerCam.FirstPerson(hs.cameraStyle);
             hd.x = playerX; hd.y = playerY; hd.z = playerZ - EYE_HEIGHT;

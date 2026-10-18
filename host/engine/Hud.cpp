@@ -519,10 +519,17 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
         m_font.SetWrapWidth(0);
     }
     // Crosshair: the retail sprite while aiming
+    // CHud::DrawCrossHairs: the siteM16 quarter ring drawn four times, mirrored about the
+    // crosshair point, 64 * radius units across; a 2 x 2 dot at the smallest radius.
     if (d.aiming && d.armed) {
+        const float cx = sw * d.crossX, cy = sh * d.crossY, r = d.crossRadius;
+        if (r == 0.2f) g.DrawRect(cx - 1.0f, cy - 1.0f, cx + 1.0f, cy + 1.0f, 0xFFFFFFFF);
         if (IDirect3DTexture9* site = Sprite("siteM16")) {
-            const float s = 28.0f * u;
-            g.DrawTex(site, sw / 2 - s / 2, sh / 2 - s / 2, sw / 2 + s / 2, sh / 2 + s / 2, 0xFFFFFFFF);
+            const float w = sw / 640.0f * 64.0f * r * 0.5f, h = sh / 448.0f * 64.0f * r * 0.5f;
+            g.DrawTex(site, cx - w, cy - h, cx, cy, 0xFFFFFFFF, 0, 0, 1, 1);
+            g.DrawTex(site, cx, cy - h, cx + w, cy, 0xFFFFFFFF, 1, 0, 0, 1);
+            g.DrawTex(site, cx - w, cy, cx, cy + h, 0xFFFFFFFF, 0, 1, 1, 0);
+            g.DrawTex(site, cx, cy, cx + w, cy + h, 0xFFFFFFFF, 1, 1, 0, 0);
         }
     }
 }
@@ -632,7 +639,7 @@ void Hud::DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh) {
 
     // ---- crosshair and hit marker ----
     if (d.aiming && d.armed && d.crosshairDot) {
-        const float cx = sw / 2, cyy = sh / 2;
+        const float cx = sw * d.crossX, cyy = sh * d.crossY;
         const float gap = (3.0f + 10.0f * d.spread) * u, len = 5.0f * u, th = 1.4f * u;
         const uint32_t c = 0xE0FFFFFF, sh2 = 0x70000000;
         auto bar = [&](float x0, float y0, float x1, float y1) {

@@ -55,6 +55,8 @@ public:
         bool rewrite = false;                 // rewrite handling (Movement.h)
         float camPitch = 0.0f;                // radians, positive = looking up
         float camYaw = 0.0f;                  // for the rewrite heading / lean
+        bool haveAimRay = false;              // third person: the camera ray through the crosshair
+        float aimEye[3] = {0, 0, 0}, aimDir[3] = {1, 0, 0};   // world
         bool firstPerson = false;             // face the camera, move along the stick
         // Ground height at (x, y) searching down from z (rewrite foot IK);
         // returns < -1e5 when there is none.
@@ -118,6 +120,7 @@ public:
     void SelectGun(int index);          // -1 = fists
     void NextGun();                     // cycles through the list, then fists
     int GunIndex() const { return m_gun; }
+    float WeaponRadiusOnScreen() const;   // CPlayerPed::GetWeaponRadiusOnScreen
     int GunCount() const;                 // guns carried (the wheel lists these plus the fists)
     const char* GunNameAt(int i) const;
     IDirect3DTexture9* GunIconAt(int i) const;
@@ -203,6 +206,7 @@ private:
     void ApplyRewritePose();
     void ApplyAimIK(const Input& in);
     void UpdateArmChain(int side, bool want, const float target[3], float dt);
+    void RotateTorsoForArm(const float target[3]);
     void ApplyFootIK(const Input& in);
     void FootRestHeights();
     void Skin();
@@ -281,6 +285,7 @@ private:
         float loop2Start = 0, loop2End = 0, fire2Time = 0;                   // the crouched loop (weapon.dat anim loop 2)
         float moveSpeed = 1.0f;                                              // weapon.dat move speed
         float barrel[3] = {0, 1, 0};                                         // barrel direction in hand space (long axis of the model, grip to muzzle)
+    float accuracy = 1.0f;                                               // weapon.dat accuracy
     float damage = 10.0f, range = 30.0f;                                 // weapon.dat damage and weapon range
         bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
         float fireOffset[3] = {0, 0, 0};
