@@ -19,6 +19,7 @@ enum SfxBank {
     BANK_FEET_GENERIC = 0, BANK_FEET_GRASS = 1, BANK_FEET_GRAVEL = 2, BANK_FEET_METAL = 3,
     BANK_FEET_SAND = 4, BANK_FEET_TILE = 5, BANK_FEET_WOOD = 6,
     BANK_BULLET_HITS = 27, BANK_COLLISIONS = 39,
+    BANK_SWIMMING = 128,
     BANK_FRONTEND_GAME = 59, BANK_FRONTEND_MENU = 60,
     BANK_WEAPONS = 143,
     BANK_PAIN_CARL = 144, BANK_PAIN_FEMALE = 145, BANK_PAIN_MALE = 146,
@@ -47,6 +48,10 @@ public:
     // Menu cue from FeMenu::TakeUiEvent: 1 highlight, 2 select, 3 back.
     void Ui(int cue);
     void Pain(float vol = 1.0f);
+    // CAEPedAudioEntity::HandleSwimSplash / HandleLandingEvent: a splash from the swimming bank,
+    // and a landing thud from the generic feet bank (sound 6 after a fall, 0 otherwise).
+    void Splash(float vol = 1.0f);
+    void Land(bool afterFall, float vol = 1.0f);
     // A bullet landing dist units away (hit sound, quieter with distance).
     void Impact(float dist);
     // Weapon change cue (frontend weapon sound).
