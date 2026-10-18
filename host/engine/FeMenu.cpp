@@ -586,9 +586,10 @@ void FeMenu::Draw(D3DRenderer& r) {
     Fe2d& g = m_2d;
     g.Begin(r.GetDevice());
 
-    m_rwList = m_set.movementStyle == 1 && m_screen != 0 && m_screen != 2 && m_screen != 5 && m_screen != 37;
+    m_rwList = m_set.movementStyle == 1 && m_screen != 2 && m_screen != 5 && m_screen != 37;
     if (m_rwList && m_font.Ready()) {
         DrawRewriteList(g, sw, sh);
+        if (m_screen == 0) { g.SetOrigin(0, 0); DrawStats(g); g.SetOrigin(m_ox, m_oy); }
         if (m_screen == kPauseScreen) DrawDevPanel(g);
         if (m_mouse && m_mx >= 0 && m_my >= 0) {
             g.DrawTex(m_mouse, m_mx + Sx(6), m_my + Sy(3), m_mx + Sx(24), m_my + Sy(21), 0x32646464);
@@ -771,8 +772,14 @@ void FeMenu::DrawMap(Fe2d& g) {
                                  {r, y0, 0, 0, c0}, {r, y1, 0, 0, c1}, {l, y1, 0, 0, c1}};
         g.DrawTris(nullptr, q, 6);
     };
-    band(t, t + Sy(78), 0xE0000000, 0x00000000);
-    band(b - Sy(70), b, 0x00000000, 0xE0000000);
+    const bool rw = m_set.movementStyle == 1;
+    if (rw) {
+        g.DrawRect(l, t, r, t + Sy(64), 0xB4000000);
+        g.DrawRect(l, b - Sy(64), r, b, 0xB4000000);
+    } else {
+        band(t, t + Sy(78), 0xE0000000, 0x00000000);
+        band(b - Sy(70), b, 0x00000000, 0xE0000000);
+    }
 
     // Blips: the waypoint, then CJ.
     const float bs = Sy(34);
@@ -799,14 +806,14 @@ void FeMenu::DrawMap(Fe2d& g) {
     }
 
     // Title and help.
-    m_font.SetStyle(FeFont::GOTHIC);
+    m_font.SetStyle(rw ? FeFont::PRICEDOWN : FeFont::GOTHIC);
     m_font.SetAlign(FeFont::LEFT);
     m_font.SetWrapWidth(0);
-    m_font.SetScale(Sx(1.3f), Sy(2.1f));
-    m_font.SetEdge(1);
-    m_font.SetColor(kSelected);
-    m_font.SetDropColor(kBlack);
-    m_font.Print(g, std::max(Sx(40), l + Sx(40)), Sy(28), m_text.Get(m_screens[5].title.c_str()));
+    m_font.SetScale(Sx(rw ? 0.9f : 1.3f), Sy(rw ? 1.5f : 2.1f));
+    m_font.SetEdge(rw ? 0 : 1);
+    m_font.SetColor(rw ? 0xFFFFFFFF : kSelected);
+    m_font.SetDropColor(rw ? 0x00000000 : kBlack);
+    m_font.Print(g, std::max(Sx(40), l + Sx(40)), rw ? Sy(14) : Sy(28), m_text.Get(m_screens[5].title.c_str()));
 
     m_font.SetStyle(FeFont::SUBTITLES);
     m_font.SetScale(Sx(0.4f), Sy(0.9f));
@@ -824,7 +831,8 @@ void FeMenu::DrawMap(Fe2d& g) {
         m_font.SetEdge(2);
         const float bx = fx + Sx(40), by = b - Sy(66);
         const bool hot = m_mx >= bx && m_mx <= bx + m_font.StringWidth(label) && m_my >= by && m_my <= by + m_font.LineHeight();
-        m_font.SetColor(hot ? kSelected : 0xFF8FA6BF);
+        if (rw) g.DrawRect(bx - Sx(12), by - Sy(4), bx + m_font.StringWidth(label) + Sx(12), by + m_font.LineHeight() + Sy(4), hot ? 0xFFFFFFFF : 0xB4646464);
+        m_font.SetColor(rw ? (hot ? 0xFF000000 : 0xFFFFFFFF) : (hot ? kSelected : 0xFF8FA6BF));
         m_font.Print(g, bx, by, label);
         m_mapBack[0] = bx; m_mapBack[1] = by; m_mapBack[2] = bx + m_font.StringWidth(label); m_mapBack[3] = by + m_font.LineHeight();
         if (m_arrow) g.DrawTex(m_arrow, bx - Sx(40), by - Sx(5), bx - Sx(8), by + Sx(47), 0xFFFFFFFF);
@@ -836,7 +844,7 @@ void FeMenu::DrawMap(Fe2d& g) {
     char buf[96];
     std::snprintf(buf, sizeof(buf), "%s   %d, %d", m_info.zone.empty() ? "SAN ANDREAS" : m_info.zone.c_str(),
                   (int)m_info.x, (int)m_info.y);
-    m_font.SetColor(kSelected);
+    m_font.SetColor(rw ? 0xFFFFFFFF : kSelected);
     m_font.Print(g, r - Sx(40), b - Sy(64), buf);
     if (m_wpSet) {
         const float dist = std::hypot(m_wpX - m_info.x, m_wpY - m_info.y);
@@ -898,6 +906,29 @@ void FeMenu::DrawStats(Fe2d& g) {
         std::snprintf(b, sizeof(b), "%d, %d, %d", (int)p.x, (int)p.y, (int)p.z);
         rows.push_back({"Position", b});
         break;
+    }
+    if (m_rwList) {
+        const float sw = m_w + 2 * m_ox, sh = m_h + 2 * m_oy, ref = sh / 1080.0f;
+        const float left = std::max(96.0f * ref, (sw - 1920.0f * ref) * 0.5f + 96.0f * ref);
+        const float px0 = left + 760.0f * ref + 24.0f * ref, pw = 640.0f * ref, rowH = 56.0f * ref, gap = 3.0f * ref;
+        const float top = 230.0f * ref;
+        g.DrawRect(px0, top, px0 + pw, top + rows.size() * (rowH + gap) - gap, 0xB4000000);
+        for (size_t i = 0; i < rows.size(); i++) {
+            const float ry = top + i * (rowH + gap);
+            m_font.SetStyle(FeFont::SUBTITLES);
+            m_font.SetScale(Sx(0.5f), Sy(1.1f));
+            m_font.SetEdge(0);
+            m_font.SetDropColor(0x00000000);
+            m_font.SetWrapWidth(0);
+            const float ty = ry + (rowH - m_font.LineHeight()) * 0.5f;
+            m_font.SetAlign(FeFont::LEFT);
+            m_font.SetColor(0xFFB8C4D0);
+            m_font.Print(g, px0 + 14.0f * ref, ty, rows[i].first);
+            m_font.SetAlign(FeFont::RIGHT);
+            m_font.SetColor(0xFFFFFFFF);
+            m_font.Print(g, px0 + pw - 14.0f * ref, ty, rows[i].second);
+        }
+        return;
     }
     const float x0 = Sx(300), x1 = Sx(600), y0 = Sy(112);
     g.DrawRect(x0 - Sx(14), y0 - Sy(10), x1 + Sx(14), y0 + Sy(26.0f * (float)rows.size() + 8), 0xA0000000);
