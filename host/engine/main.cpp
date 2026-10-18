@@ -3016,6 +3016,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     playerZ = c.z + EYE_HEIGHT; velZ = 0.0f; onGround = true;
                     c.speed = 0.0f;
                     g_driveCar = -1;
+                    g_audio.EngineStop();
                     g_radio.Tune(-1);
                     Log("DRIVE: got out");
                 }
@@ -3036,6 +3037,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                     [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
                                     [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f); });
                     const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
+                    if (const VehicleInfo* vi = g_vehicles.Info(c.model)) {
+                        const HandlingData* hd = g_vehicles.Handling(vi->handling);
+                        g_audio.Engine(c.model, th, c.speed, (hd ? hd->maxVelocity : 160.0f) / 3.6f, hd ? hd->numGears : 5, dt);
+                    }
                     playerX = c.x; playerY = c.y; playerZ = c.z + EYE_HEIGHT + 0.7f;   // the camera rides above the roof
                     velZ = 0.0f; onGround = true; vx = vy = 0.0f;
                 }
