@@ -726,6 +726,11 @@ void PlayerPed::ControlInAir(const Input& in) {
     } else if (in.heightAboveGround > 1.3f && !Active(fallGlide) && !falling) {
         Blend(fallGlide, true, false, 4.0f);   // walked off an edge
     }
+    {   // nothing left playing (a vault drop fades every clip out): hold the fall pose, never the bind pose
+        bool any = false;
+        for (const Assoc& a : m_assocs) if (!a.dead && a.delta >= 0.0f && a.blend > 0.0f) { any = true; break; }
+        if (!any) Blend(fallGlide, true, false, 8.0f);
+    }
     // No ground within 4 m and dropping faster than 0.1 per timestep (5 m/s).
     if (in.heightAboveGround > 4.0f && in.velZ < -5.0f && !falling) Blend(fall, true, false, 4.0f);
     if (Active(fall) && in.heightAboveGround > 35.0f && in.velZ < -15.0f) Blend(sky, true, false, 1.0f);
