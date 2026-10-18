@@ -2,10 +2,9 @@
 // Grove Street with GTA SA-style controls (WASD + mouse), debug overlay.
 //
 // Modes:
-//   --play        Playable Grove Street (WASD + mouse, debug info)
+//   (no flag)     The game (WASD + mouse, debug info); --play is accepted and ignored
 //   --grove       Static Grove Street scene (original)
 //   --housetest   3-house test (original)
-//   (no flag)     M4 map loading (original)
 //
 // Play controls:
 //   W/A/S/D - move (camera-relative)
@@ -594,7 +593,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     bool hasYawOverride = false, hasPitchOverride = false, hasPosOverride = false;
     bool houseTest = false;
     bool groveTest = false;
-    bool playMode = false;
+    bool playMode = true;   // the game is the default; --grove / --housetest are the old static scenes
     bool scripted = false;
     bool flyover = false;
     bool auditCollision = false;
@@ -626,9 +625,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 WideToUtf8(argv[i + 1], p, sizeof(p));
                 logPath = p; i++;
             } else if (a == "--housetest") {
-                houseTest = true;
+                houseTest = true; playMode = false;
             } else if (a == "--grove") {
-                groveTest = true;
+                groveTest = true; playMode = false;
             } else if (a == "--play") {
                 playMode = true;
             } else if (a == "--scripted") {
