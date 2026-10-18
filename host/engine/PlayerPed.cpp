@@ -1097,14 +1097,50 @@ void PlayerPed::ApplyAimIK(const Input& in) {
     if (!m_guns[m_gun].aimWithArm || m_ducking) {
         const int spine = m_frameOfBone[3];   // BONE_SPINE1: the torso, arms and head hang off it
         if (spine < 0) return;
-        const float a = std::clamp(in.camPitch * 0.75f, -0.6f, 0.6f);
-        if (std::fabs(a) < 1e-3f) return;
-        const float right[3] = {1, 0, 0};
-        const float pv[3] = {m_globals[spine].m[3][0], m_globals[spine].m[3][1], m_globals[spine].m[3][2]};
-        const RwMat rot = AxisRotation(right, a, pv);
-        for (size_t f = 0; f < m_skeleton.size(); f++)
-            for (int p = (int)f; p >= 0; p = m_skeleton[p].parent)
-                if (p == spine) { m_globals[f] = m_globals[f] * rot; break; }
+        // the rewrite pose tips the whole body afterwards by m_aimPitch, so only the rest is turned here
+        const float bodyTip = in.rewrite ? m_aimPitch * (kPi / 180.0f) : 0.0f;
+        const float a = std::clamp(in.camPitch - bodyTip, -0.95993f, 1.04720f);   // ms_torsoInfo: pitch limits -55 .. +60 degrees
+        const float right[3] = {1, 0, 0}, up[3] = {0, 0, 1};
+        auto turnTorso = [&](const float* axis, float ang) {
+            if (std::fabs(ang) < 1e-4f) return;
+            const float pv[3] = {m_globals[spine].m[3][0], m_globals[spine].m[3][1], m_globals[spine].m[3][2]};
+            const RwMat rot = AxisRotation(axis, ang, pv);
+            for (size_t f = 0; f < m_skeleton.size(); f++)
+                for (int p = (int)f; p >= 0; p = m_skeleton[p].parent)
+                    if (p == spine) { m_globals[f] = m_globals[f] * rot; break; }
+        };
+        auto barrelDir = [&](float* c) {
+            const RwMat& hm = m_globals[m_frameOfBone[24]];
+            const float* b = m_guns[m_gun].barrel;
+            for (int k = 0; k < 3; k++) c[k] = b[0] * hm.m[0][k] + b[1] * hm.m[1][k] + b[2] * hm.m[2][k];
+            const float cl = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+            if (cl > 1e-4f) for (int k = 0; k < 3; k++) c[k] /= cl;
+        };
+        turnTorso(right, a);
+        if (m_frameOfBone[24] >= 0) {
+            // CPedIK::PointGunInDirection turns the torso (yaw within +-50 degrees) until the gun
+            // lies along the aim: the clip's own holding angle (the sniper rifle sits well off the
+            // body axis) is taken out here, then the elevation is levelled the same way.
+            float c[3];
+            barrelDir(c);
+            turnTorso(up, std::clamp(std::atan2(c[0], c[1]), -0.87266f, 0.87266f));
+            barrelDir(c);
+            const float want = std::clamp(in.camPitch - bodyTip, -0.95993f, 1.04720f);
+            turnTorso(right, std::clamp(want - std::asin(std::clamp(c[2], -1.0f, 1.0f)), -0.5f, 0.5f));
+        }
+        if (std::getenv("GTA_AIMDBG") && m_frameOfBone[24] >= 0) {
+            static int n = 0;
+            if (++n % 30 == 0) {
+                const RwMat& hm = m_globals[m_frameOfBone[24]];
+                const float* b = m_guns[m_gun].barrel;
+                float c[3];
+                for (int k = 0; k < 3; k++) c[k] = b[0] * hm.m[0][k] + b[1] * hm.m[1][k] + b[2] * hm.m[2][k];
+                const float cl = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+                std::fprintf(stderr, "[AIMT] %s pitch %.1f deg torso %.1f deg barrel elev %.1f deg yaw %.1f\n", GunId(),
+                             in.camPitch * 57.29578f, a * 57.29578f, std::asin(c[2] / cl) * 57.29578f,
+                             std::atan2(c[0], c[1]) * 57.29578f);
+            }
+        }
         return;
     }
     if (std::getenv("GTA_NOAIMIK")) return;   // dev: show the clip pose without the arm solve
@@ -1137,7 +1173,7 @@ void PlayerPed::ApplyAimIK(const Input& in) {
     sub(E, S, u1); sub(H, E, u2);
     const float L1 = len(u1), L2 = len(u2);
     if (L1 < 1e-4f || L2 < 1e-4f) return;
-    const float a = std::clamp(in.camPitch, -1.2f, 1.2f);
+    const float a = std::clamp(in.camPitch - (in.rewrite ? m_aimPitch * (kPi / 180.0f) : 0.0f), -1.2f, 1.2f);   // the body tip comes after
     const float dir[3] = {0.0f, std::cos(a), std::sin(a)};
     const float reach = (L1 + L2) * 0.985f;
     // bend side: the clip's elbow offset away from the shoulder -> target line
