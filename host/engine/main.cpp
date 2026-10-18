@@ -146,6 +146,21 @@ static TimeCycle g_timecyc;
 static bool g_timecycOk = false;
 static size_t g_weatherIdx = 0;
 static float g_gameSeconds = 12.0f * 3600.0f;
+static int   g_gameDay     = 0;         // days elapsed (moon phase)
+// Weather: each region of the map has its own forecast; the change crosses over ~20 game minutes.
+static bool   g_weatherAuto  = true;
+static size_t g_weatherPrev  = 0;
+static float  g_weatherBlend = 1.0f;    // 0 = still the previous weather, 1 = arrived
+static float  g_weatherTimer = 0.0f;    // game hours until the next forecast change
+static int    g_weatherRegion = -1;
+static uint32_t g_weatherRng = 12345u;
+static int WeatherRegionAt(float x, float y) {   // 0 LA, 1 SF, 2 Las Venturas, 3 desert, 4 countryside
+    if (x > 800.0f && y > 400.0f) return 2;
+    if (x > 900.0f && y < -300.0f) return 0;
+    if (x < -1200.0f && x > -3000.0f && y > -1000.0f && y < 1800.0f) return 1;
+    if (y > 400.0f && x > -1700.0f && x < 800.0f) return 3;
+    return 4;
+}
 static bool g_timeFlow = true;
 static DWORD g_fogColor = 0xFF35A2E3;  // = timecyc SkyBot (horizon)
 static float g_waterRGBA[4] = {90, 110, 120, 240};  // timecyc Water, refreshed every frame
@@ -722,6 +737,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 char n[64] = {};
                 WideToUtf8(argv[i + 1], n, sizeof(n));
                 weatherName = n;
+                g_weatherAuto = false;
                 for (auto& c : weatherName) c = (char)toupper((unsigned char)c);
                 i++;
             } else if (a == "--notimeflow") {
@@ -943,6 +959,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (w < 0) w = 0;   // unknown name: retail default block
             g_weatherIdx = (size_t)w;
             g_gameSeconds = startHour * 3600.0f;
+            if (const char* gd = getenv("GTA_DAY")) g_gameDay = atoi(gd);   // dev: day count (moon phase)
             Log("TIMECYC: weather=%s startHour=%.2f flow=%d",
                 g_timecyc.WeatherName(g_weatherIdx).c_str(), startHour, (int)g_timeFlow);
         }
@@ -2036,6 +2053,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // the two don't fire on the same key.
             if (DevKeyPressed('N') && g_timecycOk) {
                 g_weatherIdx = (g_weatherIdx + 1) % g_timecyc.WeatherCount();
+                g_weatherBlend = 1.0f; g_weatherAuto = false;
                 Log("DEV: weather %zu = %s", g_weatherIdx, g_timecyc.WeatherName(g_weatherIdx).c_str());
             }
             // Save / restore a player position + facing. Mark a tricky spot
@@ -2163,11 +2181,43 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         float fogStart = 400.0f, fogEnd = 2500.0f;
         float clockHour = 12.0f;
         if (g_timeFlow && playMode) g_gameSeconds += dt * 60.0f;  // 1 real s = 1 game min
+        while (g_gameSeconds >= 86400.0f) { g_gameSeconds -= 86400.0f; g_gameDay++; }
         if (g_timecycOk) {
             clockHour = fmodf(g_gameSeconds / 3600.0f, 24.0f);
             if (clockHour < 0.0f) clockHour += 24.0f;
             TimeCycleHour tc;
+            if (g_weatherAuto && playMode && !g_devPaused) {
+                static const char* kForecast[5][9] = {
+                    {"EXTRASUNNY_LA", "SUNNY_LA", "EXTRASUNNY_SMOG_LA", "SUNNY_SMOG_LA", "CLOUDY_LA", "SUNNY_LA", "EXTRASUNNY_LA", "CLOUDY_LA", "SUNNY_LA"},
+                    {"SUNNY_SF", "EXTRASUNNY_SF", "CLOUDY_SF", "RAINY_SF", "FOGGY_SF", "SUNNY_SF", "EXTRASUNNY_SF", "CLOUDY_SF", "SUNNY_SF"},
+                    {"SUNNY_VEGAS", "EXTRASUNNY_VEGAS", "CLOUDY_VEGAS", "SUNNY_VEGAS", "EXTRASUNNY_VEGAS", "SUNNY_VEGAS", "CLOUDY_VEGAS", "SUNNY_VEGAS", "EXTRASUNNY_VEGAS"},
+                    {"EXTRASUNNY_DESERT", "SUNNY_DESERT", "EXTRASUNNY_DESERT", "SUNNY_DESERT", "SANDSTORM_DESERT", "SUNNY_DESERT", "EXTRASUNNY_DESERT", "SUNNY_DESERT", "EXTRASUNNY_DESERT"},
+                    {"EXTRASUNNY_COUNTRYSIDE", "SUNNY_COUNTRYSIDE", "CLOUDY_COUNTRYSIDE", "RAINY_COUNTRYSIDE", "SUNNY_COUNTRYSIDE", "EXTRASUNNY_COUNTRYSIDE", "CLOUDY_COUNTRYSIDE", "SUNNY_COUNTRYSIDE", "EXTRASUNNY_COUNTRYSIDE"}};
+                const int region = WeatherRegionAt(playerX, playerY);
+                g_weatherTimer -= dt / 60.0f;   // game minutes -> hours at 1 s = 1 min
+                if (region != g_weatherRegion || g_weatherTimer <= 0.0f) {
+                    g_weatherRng = g_weatherRng * 1664525u + 1013904223u;
+                    const char* pick = kForecast[region][(g_weatherRng >> 16) % 9];
+                    const int w = g_timecyc.FindWeather(pick);
+                    if (w >= 0 && (size_t)w != g_weatherIdx) {
+                        g_weatherPrev = g_weatherIdx;
+                        g_weatherIdx = (size_t)w;
+                        g_weatherBlend = 0.0f;
+                        Log("WEATHER: %s -> %s", g_timecyc.WeatherName(g_weatherPrev).c_str(), pick);
+                    }
+                    g_weatherRegion = region;
+                    g_weatherTimer = 3.0f + (float)((g_weatherRng >> 8) & 0xFF) / 255.0f * 3.0f;   // 3 to 6 game hours
+                }
+            }
+            if (g_weatherBlend < 1.0f) g_weatherBlend = std::min(1.0f, g_weatherBlend + dt / 20.0f);
             g_timecyc.Sample(g_weatherIdx, clockHour, tc);
+            if (g_weatherBlend < 1.0f && g_weatherPrev != g_weatherIdx) {
+                TimeCycleHour from;
+                g_timecyc.Sample(g_weatherPrev, clockHour, from);
+                const float* fa = reinterpret_cast<const float*>(&from);
+                float* ta = reinterpret_cast<float*>(&tc);
+                for (size_t i = 0; i < sizeof(TimeCycleHour) / sizeof(float); i++) ta[i] = fa[i] + (ta[i] - fa[i]) * g_weatherBlend;
+            }
             g_renderer.SetSkyColors(tc.skyTop[0], tc.skyTop[1], tc.skyTop[2],
                                     tc.skyBot[0], tc.skyBot[1], tc.skyBot[2]);
             // Sun path: SA coords are +X = east, +Y = north. Sunrise 06:00 in the
@@ -2823,7 +2873,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_renderer.RenderSky(camPosX, camPosY, camPosZ);
             if (g_timecycOk)
                 g_sky.Render(g_renderer, camPosX, camPosY, camPosZ, clockHour,
-                             g_timecyc.WeatherName(g_weatherIdx), g_tcNow);
+                             g_timecyc.WeatherName(g_weatherIdx), g_tcNow, g_gameDay);
         }
 
         // Distance fog in play mode (hides the sea's far edge and the

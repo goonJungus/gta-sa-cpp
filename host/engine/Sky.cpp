@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 namespace {
 
@@ -44,6 +45,30 @@ bool Sky::Load(D3DRenderer& r, const std::string& gameDir) {
                                     (uint32_t)t.mip0.size(), &t.extraMips);
     }
     if (!m_cloud || !m_star || !m_moon) std::fprintf(stderr, "[SKY] particle.txd sky textures missing\n");
+    // Moon discs: a lit sphere per phase (0 new .. 8 full .. 15), soft rim and faint maria.
+    const int N = 64;
+    for (int ph = 0; ph < 16; ph++) {
+        std::vector<uint32_t> px((size_t)N * N);
+        const float th = 2.0f * 3.14159265f * (float)ph / 16.0f;
+        const float lx = std::sin(th), lz = -std::cos(th);
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++) {
+                const float u = ((float)x + 0.5f) / N * 2.0f - 1.0f, v = 1.0f - ((float)y + 0.5f) / N * 2.0f;
+                const float rr = u * u + v * v;
+                float a = 0.0f;
+                if (rr < 1.0f) {
+                    const float z = std::sqrt(1.0f - rr);
+                    float lit = u * lx + z * lz;
+                    lit = std::min(1.0f, std::max(0.0f, lit * 2.2f));   // sharp-ish terminator
+                    const float maria = 0.82f + 0.18f * std::sin(u * 7.0f + 1.3f) * std::sin(v * 5.0f + 0.4f);
+                    const float rim = std::min(1.0f, (1.0f - std::sqrt(rr)) * 14.0f);
+                    a = lit * maria * rim;
+                }
+                const int c = (int)(a * 255.0f);
+                px[(size_t)y * N + x] = 0xFF000000u | (c << 16) | (c << 8) | c;
+            }
+        m_phase[ph] = r.CreateTexture(N, N, D3DFMT_A8R8G8B8, px.data(), (uint32_t)(px.size() * 4));
+    }
     return m_cloud && m_star && m_moon;
 }
 
@@ -51,11 +76,12 @@ void Sky::Shutdown(D3DRenderer& r) {
     r.DestroyTexture(m_cloud);
     r.DestroyTexture(m_star);
     r.DestroyTexture(m_moon);
+    for (auto*& t : m_phase) { if (t) r.DestroyTexture(t); t = nullptr; }
     m_cloud = m_star = m_moon = nullptr;
 }
 
 void Sky::Render(D3DRenderer& r, float camX, float camY, float camZ, float hour,
-                 const std::string& weather, const TimeCycleHour& tc) {
+                 const std::string& weather, const TimeCycleHour& tc, int day) {
     auto rnd = [this]() { m_rand = m_rand * 1103515245u + 12345u; return (m_rand >> 16) & 0x7FFF; };
     const int h = (int)hour, minutes = (int)((hour - h) * 60.0f);
     D3DRenderer::SkySprite s[16];
@@ -66,17 +92,29 @@ void Sky::Render(D3DRenderer& r, float camX, float camY, float camZ, float hour,
                         weather.find("STORM") != std::string::npos;
     const float cover = cloudy || weather.find("FOG") != std::string::npos ? 1.0f : 0.0f;
 
-    // Moon (gta_sa.exe 0x7139B2..0x713D21): up from 00:00 to 07:20, brightest
-    // at 03:40: b = (220 - |minute of day - 220|) * (1 - max(clouds, fog)).
-    // 100 m south and 15 m up; size 2 * MoonSize + 4; colour (b, b, 0.85 b).
-    // The phase mask drawn through destination alpha is not reproduced.
-    const int dist = (int)std::fabs(hour * 60.0f - 220.0f);
-    if (m_moon && dist < 220) {
-        const int b = (int)((220 - dist) * (1.0f - cover));
-        if (b > 0) {
-            const float half = (2.0f * kMoonSize + 4.0f) * kSpriteScale;
-            s[0] = {camX, camY - 100.0f, camZ + 15.0f, half, half, Rgb(b, b, b * 85 / 100)};
-            r.DrawSkySprites(s, 1, m_moon);
+    // Moon: rises in the east, crosses the sky and sets in the west, about 12 hours up. The rise
+    // time follows the phase (new moon with the sun, full moon opposite it). Phases cycle every 29.5 days.
+    {
+        const float p01 = std::fmod((float)day, 29.5f) / 29.5f;   // 0 new, 0.5 full
+        const float riseHour = std::fmod(6.0f + 24.0f * p01, 24.0f);
+        float t = hour - riseHour;
+        while (t < 0.0f) t += 24.0f;
+        if (m_moon && t < 12.0f) {
+            const float a = 3.14159265f * t / 12.0f;                       // 0 rising .. pi setting
+            const float edge = std::min(std::min(a, 3.14159265f - a) / 0.12f, 1.0f);   // fade at the horizon
+            const bool sunUp = hour > 6.5f && hour < 17.5f;
+            float b = 235.0f * edge * (1.0f - cover) * (sunUp ? 0.22f : 1.0f);
+            if (b > 1.0f) {
+                const float px = camX + std::cos(a) * 160.0f, pz = camZ + std::sin(a) * 120.0f + 4.0f;
+                const float halo = 17.0f * kSpriteScale, disc = 8.0f * kSpriteScale;
+                const int bi = (int)b;
+                s[0] = {px, camY - 40.0f, pz, halo, halo, Rgb(bi / 5, bi / 5, bi / 6)};
+                r.DrawSkySprites(s, 1, m_moon);
+                const int ph = ((int)(p01 * 16.0f + 0.5f)) & 15;
+                IDirect3DTexture9* tex = m_phase[ph] ? m_phase[ph] : m_moon;
+                s[0] = {px, camY - 40.0f, pz, disc, disc, Rgb(bi, bi, bi * 92 / 100)};
+                r.DrawSkySprites(s, 1, tex);
+            }
         }
     }
 
