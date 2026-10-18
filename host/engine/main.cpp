@@ -2010,7 +2010,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         RECT rc; GetClientRect(g_hwnd, &rc);
         POINT c = {(rc.right-rc.left)/2, (rc.bottom-rc.top)/2};
         ClientToScreen(g_hwnd, &c);
-        SetCursorPos(c.x, c.y);
+        if (MouseMode() == 0) SetCursorPos(c.x, c.y);   // a warp locks the pointer under Wayland
     }
 
     IDirect3DDevice9* dev = g_renderer.GetDevice();
@@ -2406,7 +2406,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         RECT cr; GetClientRect(g_hwnd, &cr);
                         POINT c; c.x = (cr.right - cr.left) / 2; c.y = (cr.bottom - cr.top) / 2;
                         ClientToScreen(g_hwnd, &c);
-                        SetCursorPos(c.x, c.y);
+                        if (MouseMode() == 0) SetCursorPos(c.x, c.y);
                     }
                     Log("FRONTEND: pause menu opened");
                 } else if (wasOpen && !g_menu.IsOpen()) {
@@ -2603,33 +2603,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 dx = (int)g_rawMouseDX; dy = (int)g_rawMouseDY;
                 g_rawMouseDX = 0; g_rawMouseDY = 0;
                 if (g_hasFocus && MouseMode() == 1) {
-                    // Free pointer: the pointer is never pinned, so the compositor keeps it moving. The
-                    // view turns by the pointer's own movement; near the window edge it is warped back
-                    // to the centre (once the warp is seen to work) so a long swipe keeps turning.
+                    // Free pointer: never pinned and never warped (a warp makes Wine's Wayland driver lock
+                    // the pointer at the warp target, which ends all motion). The view turns by the
+                    // pointer's own movement; held against a window edge it keeps turning that way.
                     RECT rc; GetClientRect(g_hwnd, &rc);
                     const int w = rc.right - rc.left, h = rc.bottom - rc.top;
                     POINT cur;
                     if (g_msgMouseSeen) { cur.x = g_msgMouseX; cur.y = g_msgMouseY; }
                     else { GetCursorPos(&cur); ScreenToClient(g_hwnd, &cur); }
                     static POINT s_last = {0, 0};
-                    static bool s_warpOk = true;
-                    static int s_pending = 0;
-                    if (s_pending > 0) {   // a warp is in flight: wait for the pointer to land
-                        if (abs(cur.x - w / 2) < 40 && abs(cur.y - h / 2) < 40) s_pending = 0;
-                        else if (--s_pending == 0) s_warpOk = false;   // never landed: the system ignores warps
-                        s_last = cur;
-                    } else {
-                        if (dx == 0 && dy == 0 && g_freeHave) { dx = cur.x - s_last.x; dy = cur.y - s_last.y; }
-                        s_last = cur;
-                        g_freeHave = true;
-                        if (s_warpOk && w > 0 && h > 0 &&
-                            (cur.x < w / 5 || cur.x > w * 4 / 5 || cur.y < h / 5 || cur.y > h * 4 / 5)) {
-                            POINT c = {w / 2, h / 2};
-                            ClientToScreen(g_hwnd, &c);
-                            SetCursorPos(c.x, c.y);
-                            s_pending = 6;
-                        }
+                    if (dx == 0 && dy == 0 && g_freeHave) { dx = cur.x - s_last.x; dy = cur.y - s_last.y; }
+                    if (g_freeHave && cur.x == s_last.x && cur.y == s_last.y && w > 0 && h > 0) {
+                        const int edge = 3, push = 18;   // pixels per frame while held at an edge
+                        if (cur.x <= edge) dx = -push; else if (cur.x >= w - 1 - edge) dx = push;
+                        if (cur.y <= edge) dy = -push; else if (cur.y >= h - 1 - edge) dy = push;
                     }
+                    s_last = cur;
+                    g_freeHave = true;
                     g_cursorCentred = false;
                 } else if (g_hasFocus) {
                     POINT mp; GetCursorPos(&mp);
