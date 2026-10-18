@@ -107,6 +107,7 @@ private:
         float blend = 0.0f, delta = 0.0f;
         float speed = 1.0f;
         bool loop = true, movement = false, playing = true, finished = false;
+        bool keepRoot = false;           // climb clips: root XY stays in the pose, not extracted
         bool dead = false;               // removed; erased at the next Advance
     };
 

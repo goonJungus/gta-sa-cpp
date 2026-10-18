@@ -367,6 +367,7 @@ PlayerPed::Assoc* PlayerPed::Add(const AnimClip* c, bool loop, bool movement) {
     a->speed = 1.0f;
     a->loop = loop;
     a->movement = movement;
+    a->keepRoot = false;
     a->playing = true;
     a->finished = false;
     return a;
@@ -439,7 +440,7 @@ void PlayerPed::Advance(float dt) {
                 a.finished = true;
             }
             a.time = t;
-            if (totalBlend > 0.0f && a.blend > 0.0f) {
+            if (totalBlend > 0.0f && a.blend > 0.0f && !a.keepRoot) {
                 float x0, x1, xe, xs;
                 const float y0 = RootY(a.clip, a.prevTime, &x0), y1 = RootY(a.clip, t, &x1);
                 float dy = y1 - y0, dx = x1 - x0;
@@ -483,7 +484,7 @@ void PlayerPed::BuildPose() {
             float st[3];
             for (int i = 0; i < 3; i++)
                 st[i] = s->hasTranslation ? ka.t[i] + (kb.t[i] - ka.t[i]) * u : m_skeleton[f].local.m[3][i];
-            if (m_skeleton[f].boneId == 0) { st[0] = 0.0f; st[1] = 0.0f; }   // extracted root motion
+            if (m_skeleton[f].boneId == 0 && !a.keepRoot) { st[0] = 0.0f; st[1] = 0.0f; }   // extracted root motion
             const float dot = q[0] * sq[0] + q[1] * sq[1] + q[2] * sq[2] + q[3] * sq[3];
             const float sign = (w > 0.0f && dot < 0.0f) ? -1.0f : 1.0f;
             for (int i = 0; i < 4; i++) q[i] += sq[i] * a.blend * sign;
@@ -802,7 +803,7 @@ bool PlayerPed::TakeClimbRelease(float v[3]) {
 
 // CTaskSimpleClimb::StartAnim @ 0067dbe0
 void PlayerPed::ClimbStartAnim() {
-    auto go = [&](const char* name, bool loop, float rate) { m_cClip = Clip(name); if (m_cClip) Blend(m_cClip, loop, false, rate); };
+    auto go = [&](const char* name, bool loop, float rate) { m_cClip = Clip(name); if (m_cClip) { Assoc* b = Blend(m_cClip, loop, false, rate); if (b) b->keepRoot = true; } };
     switch (m_cHAnim) {
     case CGRAB:
         if (!m_cClip) go("climb_jump", false, 8.0f);

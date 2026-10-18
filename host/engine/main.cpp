@@ -1754,10 +1754,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const float FLY_CX = 2500.0f, FLY_CY = -1680.0f, FLY_R = 100.0f, FLY_H = 30.0f;
     if (flyover) Log("FLYOVER MODE: circular path r=100 h=30, 12 shots/loop, 2 loops");
     const float MOUSE_SENS = 0.0035f;
+
+    // Headless verification overrides: place/orient the camera deterministically
+    if (playMode) {
+        if (hasPosOverride) { playerX = camPosOverrideX; playerY = camPosOverrideY; playerZ = camPosOverrideZ; }
+        if (hasYawOverride) yaw = camYawOverride;
+        if (hasPitchOverride) pitch = camPitchOverride;
+        if (hasPosOverride) {
+            g_world.Stream(playerX, playerY, playerZ);
+            float og = g_world.GetGroundHeight(playerX, playerY, playerZ + 2.0f);
+            Log("CAM OVERRIDE pos=(%.1f,%.1f,%.1f) yaw=%.1f pitch=%.1f ground=%.2f",
+                playerX, playerY, playerZ, yaw * 57.29578f, pitch * 57.29578f, og);
+        }
+    }
     // Dev: GTA_CLIMBSWEEP=<radius> lists every ledge the climb scan finds around the start (headless test aid).
     if (const char* sw = getenv("GTA_CLIMBSWEEP")) {
         const float rad = (float)atof(sw);
-        g_world.Stream(playerX, playerY, playerZ);
+        for (int i = 0; i < 300; i++) g_world.Stream(playerX, playerY, playerZ);   // streaming is incremental
         for (float x = playerX - rad; x <= playerX + rad; x += 1.0f)
             for (float y = playerY - rad; y <= playerY + rad; y += 1.0f) {
                 const float gz = g_world.GetGroundHeight(x, y, playerZ + 2.0f);
@@ -1773,19 +1786,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
         Log("SWEEP done");
-    }
-
-    // Headless verification overrides: place/orient the camera deterministically
-    if (playMode) {
-        if (hasPosOverride) { playerX = camPosOverrideX; playerY = camPosOverrideY; playerZ = camPosOverrideZ; }
-        if (hasYawOverride) yaw = camYawOverride;
-        if (hasPitchOverride) pitch = camPitchOverride;
-        if (hasPosOverride) {
-            g_world.Stream(playerX, playerY, playerZ);
-            float og = g_world.GetGroundHeight(playerX, playerY, playerZ + 2.0f);
-            Log("CAM OVERRIDE pos=(%.1f,%.1f,%.1f) yaw=%.1f pitch=%.1f ground=%.2f",
-                playerX, playerY, playerZ, yaw * 57.29578f, pitch * 57.29578f, og);
-        }
     }
 
     MSG msg = {};
@@ -2360,7 +2360,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (g_cj.Climbing()) { onGround = true; velZ = 0.0f; playerZ += g_cj.ClimbVelZ() * dt; }
                 }
                 if (getenv("GTA_CJLOG"))   // dev: per-frame animation trace
-                    Log("CJ f%d clip=%s v=%.2f ratio=%.2f ground=%d hag=%.2f z=%.2f", frame, g_cj.ClipName(),
+                    Log("CJ f%d clip=%s xy=%.2f,%.2f v=%.2f ratio=%.2f ground=%d hag=%.2f z=%.2f", frame, g_cj.ClipName(), playerX, playerY,
                         sqrtf(vx * vx + vy * vy), g_cj.MoveBlendRatio(), (int)onGround, pin.heightAboveGround, playerZ - EYE_HEIGHT);
             }
             if (cjReady && g_cj.Climbing()) { playerX += vx * dt; playerY += vy * dt; vx = vy = 0.0f; }   // ignores the ledge's collision
