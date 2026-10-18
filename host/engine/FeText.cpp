@@ -30,6 +30,14 @@ uint32_t FeText::UppercaseKey(const char* str) {
 bool FeText::Load(const std::string& gameDir, const char* file) {
     m_keys.clear();
     m_data.clear();
+    m_lang = 0;
+    {
+        std::string fn = file ? file : "";
+        if (fn.rfind("french", 0) == 0) m_lang = 1;
+        else if (fn.rfind("german", 0) == 0) m_lang = 2;
+        else if (fn.rfind("italian", 0) == 0) m_lang = 3;
+        else if (fn.rfind("spanish", 0) == 0) m_lang = 4;
+    }
     std::string path = gameDir + "\\text\\" + file;
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
@@ -76,6 +84,37 @@ std::string FeText::Get(const char* key) const {
     auto it = std::lower_bound(m_keys.begin(), m_keys.end(), h,
                                [](const Key& k, uint32_t v) { return k.hash < v; });
     if (it == m_keys.end() || it->hash != h || it->offset >= m_data.size())
-        return std::string(key);
+        return Extra(key);
     return std::string(&m_data[it->offset]);   // NUL-terminated in TDAT
+}
+
+// Labels this port adds on top of the retail table. English text is the key; the rest follow the
+// language order of kLanguageFiles (English, French, German, Italian, Spanish).
+std::string FeText::Extra(const char* key) const {
+    static const char* const kTable[][5] = {
+        {"REWRITE MODE", "MODE REMASTERISE", "REWRITE-MODUS", "MODALITA REWRITE", "MODO REWRITE"},
+        {"GAMEPLAY", "JEU", "SPIELWEISE", "GIOCO", "JUGABILIDAD"},
+        {"HUD AND VIEW", "ATH ET VUE", "HUD UND ANSICHT", "HUD E VISTA", "HUD Y VISTA"},
+        {"HIT MARKERS", "MARQUEURS DE TOUCHE", "TREFFERMARKER", "SEGNALI DI COLPO", "MARCAS DE IMPACTO"},
+        {"DAMAGE FLASH", "FLASH DE DEGATS", "SCHADENSBLITZ", "LAMPO DANNI", "DESTELLO DE DANO"},
+        {"CROSSHAIR DOT", "POINT DE VISEE", "ZIELPUNKT", "PUNTO DI MIRA", "PUNTO DE MIRA"},
+        {"AUTO RELOAD", "RECHARGE AUTO", "AUTO-NACHLADEN", "RICARICA AUTO", "RECARGA AUTOMATICA"},
+        {"SHOW HUD", "AFFICHER ATH", "HUD ANZEIGEN", "MOSTRA HUD", "MOSTRAR HUD"},
+        {"HUD SCALE", "TAILLE DE L ATH", "HUD-GROESSE", "SCALA HUD", "ESCALA DEL HUD"},
+        {"FIELD OF VIEW", "CHAMP DE VISION", "SICHTFELD", "CAMPO VISIVO", "CAMPO DE VISION"},
+        {"DISPLAY MODE", "MODE D AFFICHAGE", "ANZEIGEMODUS", "MODALITA SCHERMO", "MODO DE PANTALLA"},
+        {"WINDOW SIZE", "TAILLE DE FENETRE", "FENSTERGROESSE", "DIMENSIONE FINESTRA", "TAMANO DE VENTANA"},
+        {"BORDERLESS", "SANS BORDURE", "RANDLOS", "SENZA BORDI", "SIN BORDES"},
+        {"WINDOWED", "FENETRE", "FENSTER", "IN FINESTRA", "VENTANA"},
+        {"MAP AND BLIPS", "CARTE ET BLIPS", "KARTE UND BLIPS", "MAPPA E BLIP", "MAPA Y MARCADORES"},
+        {"VSYNC", "VSYNC", "VSYNC", "VSYNC", "VSYNC"},
+        {"ON", "OUI", "AN", "SI", "SI"},
+        {"OFF", "NON", "AUS", "NO", "NO"},
+        {"FEL_FRE", "FRANCAIS", "FRANCAIS", "FRANCAIS", "FRANCAIS"},
+        {"FEL_GER", "DEUTSCH", "DEUTSCH", "DEUTSCH", "DEUTSCH"},
+        {"FEL_ITA", "ITALIANO", "ITALIANO", "ITALIANO", "ITALIANO"},
+    };
+    for (const auto& row : kTable)
+        if (std::strcmp(row[0], key) == 0) return row[m_lang];
+    return std::string(key);
 }

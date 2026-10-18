@@ -133,6 +133,8 @@ public:
     // Pair Present to the display instead of presenting immediately. Works
     // before Init or at runtime (resets the device with the new interval).
     bool SetVsync(bool on);
+    // Mip filtering of the world textures (the Display > Advanced MIP MAPPING switch).
+    void SetMipmaps(bool on) { if (m_device) m_device->SetSamplerState(0, D3DSAMP_MIPFILTER, on ? D3DTEXF_LINEAR : D3DTEXF_NONE); }
     bool Vsync() const { return m_vsync; }
 
     // Baked day/night prelit blend (M6). nightFactor 0 = day prelit colours

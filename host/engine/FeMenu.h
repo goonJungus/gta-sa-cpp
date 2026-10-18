@@ -49,7 +49,13 @@ struct FeSettings {
     bool invertY = false;
     int displayMode = 0;      // 0 = borderless fullscreen, 1 = windowed
     int windowSize = 1;       // index into kWindowSizes (windowed mode)
+    float brightness = 0.5f;  // screen overlay: below 0.5 darker, above lighter
+    bool mipmaps = true;
+    int language = 0;         // index into kLanguageFiles: English, French, German, Italian, Spanish
 };
+
+static const char* const kLanguageFiles[] = {"american.gxt", "french.gxt", "german.gxt", "italian.gxt", "spanish.gxt"};
+static const int kLanguageCount = 5;
 
 // Window sizes offered in windowed mode.
 static const int kWindowSizes[][2] = {{1024, 768}, {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1080},
@@ -105,7 +111,7 @@ private:
         A_TEXT = 1, A_BACK = 2, A_GOTO = 5, A_FRAME_LIMITER = 24, A_YES_QUIT = 53,
         A_RESUME = 54, A_NO = 55, A_DRAW_DIST = 61,
         A_VSYNC = 200,   // ours: not in retail
-        A_STAT = 21, A_TOGGLE = 210, A_CHOICE = 211, A_SLIDER = 212, A_REWRITE = 213,
+        A_STAT = 21, A_TOGGLE = 210, A_CHOICE = 211, A_SLIDER = 212, A_REWRITE = 213, A_LANG = 214, A_DEFAULTS = 215,
     };
     struct Entry {
         uint8_t action = 0;
@@ -154,6 +160,7 @@ private:
 
     std::vector<Screen> m_screens;
     int m_screen = kPauseScreen, m_sel = 0;
+    std::string m_gameDir;
     bool m_open = false, m_changed = false, m_quit = false;
     FeSettings m_set;
     float m_w = 640, m_h = 448, m_ox = 0, m_oy = 0;

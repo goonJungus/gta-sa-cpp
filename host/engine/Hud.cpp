@@ -184,6 +184,20 @@ void Hud::RotatedSprite(Fe2d& g, IDirect3DTexture9* tex, float cx, float cy, flo
     g.DrawTris(tex, tris, 6);
 }
 
+void Hud::Brightness(D3DRenderer& r, float level) {
+    if (!m_ready || !r.GetDevice() || std::fabs(level - 0.5f) < 0.02f) return;
+    const float sw = (float)r.Width(), sh = (float)r.Height();
+    const bool dark = level < 0.5f;
+    const float a = std::min(0.6f, std::fabs(level - 0.5f) * (dark ? 1.2f : 0.7f));
+    const uint32_t col = Alpha(dark ? 0xFF000000 : 0xFFFFFFFF, a);
+    Fe2d& g = m_2d;
+    g.Begin(r.GetDevice());
+    const Fe2d::Vert q[6] = {{0, 0, 0, 0, col}, {sw, 0, 0, 0, col}, {0, sh, 0, 0, col},
+                             {sw, 0, 0, 0, col}, {sw, sh, 0, 0, col}, {0, sh, 0, 0, col}};
+    g.DrawTris(nullptr, q, 6);
+    g.End();
+}
+
 void Hud::Vignette(Fe2d& g, float sw, float sh, uint32_t rgb, float strength) {
     if (strength <= 0.01f) return;
     const float t = std::min(sw, sh) * 0.32f;

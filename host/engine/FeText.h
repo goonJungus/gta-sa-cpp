@@ -24,6 +24,8 @@ public:
     static uint32_t UppercaseKey(const char* str);  // CKeyGen::GetUppercaseKey
 
 private:
+    std::string Extra(const char* key) const;
+    int m_lang = 0;               // 0 en, 1 fr, 2 de, 3 it, 4 es
     struct Key { uint32_t offset, hash; };
     std::vector<Key> m_keys;      // sorted by hash (as stored in the file)
     std::vector<char> m_data;     // TDAT

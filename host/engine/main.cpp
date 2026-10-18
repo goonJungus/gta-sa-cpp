@@ -252,6 +252,14 @@ static void LoadSettings(FeSettings& s) {
     s.mouseSens = flt("Controls", "MouseSensitivity", 1.0f, 0.25f, 3.0f);
     s.invertY = flag("Controls", "InvertY", false);
     s.windowSize = (int)GetPrivateProfileIntA("Display", "WindowSize", 1, g_iniPath);
+    s.language = (int)GetPrivateProfileIntA("Display", "Language", 0, g_iniPath);
+    s.mipmaps = GetPrivateProfileIntA("Display", "MipMaps", 1, g_iniPath) != 0;
+    {
+        char bb[32];
+        GetPrivateProfileStringA("Display", "Brightness", "0.5", bb, sizeof(bb), g_iniPath);
+        s.brightness = std::clamp((float)atof(bb), 0.0f, 1.0f);
+    }
+    if (s.language < 0 || s.language >= kLanguageCount) s.language = 0;
     if (s.windowSize < 0 || s.windowSize >= kWindowSizeCount) s.windowSize = 1;
 }
 static void SaveSettings(const FeSettings& s) {
@@ -286,6 +294,11 @@ static void SaveSettings(const FeSettings& s) {
     flag("Controls", "InvertY", s.invertY);
     snprintf(buf, sizeof(buf), "%d", s.windowSize);
     WritePrivateProfileStringA("Display", "WindowSize", buf, g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", s.language);
+    WritePrivateProfileStringA("Display", "Language", buf, g_iniPath);
+    WritePrivateProfileStringA("Display", "MipMaps", s.mipmaps ? "1" : "0", g_iniPath);
+    snprintf(buf, sizeof(buf), "%.4f", s.brightness);
+    WritePrivateProfileStringA("Display", "Brightness", buf, g_iniPath);
 }
 static HWND g_hwnd = nullptr;
 // Pending window resize (WndProc -> main loop): keep the backbuffer matched to
@@ -958,6 +971,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("FRONTEND: pause menu %s", g_menuReady ? "ready" : "FAILED (fonts.txd / american.gxt?)");
         if (g_menuReady && startMenuScreen >= 0) { g_menu.Open(startMenuScreen); g_devPaused = true; }
         g_hudReady = g_hud.Init(g_renderer, GameDir());
+        if (g_hudReady && g_menu.Settings().language > 0) g_hud.SetLanguage(GameDir(), kLanguageFiles[g_menu.Settings().language]);
         g_fx.Init(g_renderer);
         Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
         if (g_audio.Ready() && getenv("GTA_AUDIOTEST"))
@@ -2175,6 +2189,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (s.vsync != g_renderer.Vsync() && !g_renderer.SetVsync(s.vsync))
                         Log("SETTINGS: VSync reset failed");
                     g_world.SetHdDrawScale(s.drawDist);
+                    g_renderer.SetMipmaps(s.mipmaps);
+                    {
+                        static int lastLang = -1;
+                        if (lastLang < 0) lastLang = 0;
+                        if (s.language != lastLang) {
+                            lastLang = s.language;
+                            if (g_hudReady) g_hud.SetLanguage(GameDir(), kLanguageFiles[s.language]);
+                        }
+                    }
                     {
                         // Borderless <-> windowed, and the windowed size.
                         static int lastMode = -1, lastSize = -1;
@@ -2403,7 +2426,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     // the cursor offset only counts when the last frame left it centred
                     // (not on the first frame or after the menu moved it)
                     if (dx == 0 && dy == 0 && s_warpOk && g_cursorCentred) { dx = mp.x - center.x; dy = mp.y - center.y; }
-                    if (mp.x != center.x || mp.y != center.y) {
+                    // Wayland / VNC: the compositor ignores warps. Fall back to the cursor's own
+                    // movement between frames; it stops at the window edge, so a swipe at the edge
+                    // does nothing, but a trackpad still turns the view.
+                    static POINT s_lastMp = {0, 0};
+                    static bool s_haveLast = false;
+                    if (!s_warpOk) {
+                        if (dx == 0 && dy == 0 && s_haveLast) { dx = mp.x - s_lastMp.x; dy = mp.y - s_lastMp.y; }
+                        s_lastMp = mp; s_haveLast = true;
+                    } else s_haveLast = false;
+                    if (s_warpOk && (mp.x != center.x || mp.y != center.y)) {
                         SetCursorPos(center.x, center.y);
                         POINT chk; GetCursorPos(&chk);
                         if (chk.x != center.x || chk.y != center.y) s_warpOk = false;
@@ -3365,6 +3397,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.hasWaypoint = g_menu.Waypoint(hd.wpX, hd.wpY);
             g_hud.Draw(g_renderer, hd);
         }
+        if (g_hudReady) g_hud.Brightness(g_renderer, g_menu.Settings().brightness);
 
         // ---- SA pause menu + the dev key list beside it ----
         if (g_menuReady && g_menu.IsOpen()) {

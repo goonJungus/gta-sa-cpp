@@ -53,7 +53,8 @@ IDirect3DTexture9* LoadSprite(D3DRenderer& r, const std::vector<TxdTexture>& txd
 
 bool FeMenu::Init(D3DRenderer& r, const std::string& gameDir) {
     m_r = &r;
-    m_text.Load(gameDir, "american.gxt");
+    m_gameDir = gameDir;
+    m_text.Load(gameDir, kLanguageFiles[std::clamp(m_set.language, 0, kLanguageCount - 1)]);
     m_font.Init(r, gameDir);
     // CMenuManager::LoadAllTextures: fronten1 (arrow + radio logos),
     // fronten2 (backgrounds + map), fronten_pc (mouse pointers).
@@ -159,11 +160,37 @@ void FeMenu::BuildScreens() {
         std::vector<Entry>& ds = m_screens[4].items;
         ds.insert(ds.begin() + 4, MakeGoto("HUD AND VIEW", 44));
         if (ds.size() > 12) ds.resize(12);
+        // Display page: brightness, radar mode and HUD mode; mip mapping on the advanced page.
+        for (Entry& e : m_screens[4].items) {
+            if (e.action == 27) { e.action = A_SLIDER; e.f = &m_set.brightness; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
+            else if (e.action == 34) { e.action = A_CHOICE; e.i = &m_set.radarMode; e.choices = {"ON", "OFF"}; }
+            else if (e.action == 35) { e.action = A_TOGGLE; e.b = &m_set.showHud; }
+            else if (e.action == A_GOTO && (e.target == 23 || e.target == 24)) { e.action = A_DEFAULTS; e.target = 1; }
+        }
+        for (Entry& e : m_screens[27].items)
+            if (e.action == 43) { e.action = A_TOGGLE; e.b = &m_set.mipmaps; }
+        for (Entry& e : m_screens[3].items)
+            if (e.action == A_GOTO && (e.target == 23 || e.target == 24)) { e.action = A_DEFAULTS; e.target = 0; }
         // Audio screen sliders: music and sound effects volume.
         for (Entry& e : m_screens[3].items) {
             if (e.action == 28) { e.action = A_SLIDER; e.f = &m_set.musicVol; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
             if (e.action == 29) { e.action = A_SLIDER; e.f = &m_set.sfxVol; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
         }
+    }
+    // Language page: all five retail text tables (the PC menu only listed two).
+    {
+        Entry back;
+        for (const Entry& e : m_screens[28].items) if (e.action == A_BACK) back = e;
+        std::vector<Entry>& ln = m_screens[28].items;
+        ln.clear();
+        static const char* const keys[kLanguageCount] = {"FEL_ENG", "FEL_FRE", "FEL_GER", "FEL_ITA", "FEL_SPA"};
+        for (int i = 0; i < kLanguageCount; i++) {
+            Entry l;
+            l.action = A_LANG; l.name = keys[i]; l.type = 11; l.target = i; l.align = 3;
+            l.x = 320; l.y = 132 + 30 * i;
+            ln.push_back(l);
+        }
+        ln.push_back(back);
     }
     // Ours: mouse look settings, the controls list, display mode and window size.
     {
@@ -209,7 +236,7 @@ void FeMenu::BuildScreens() {
             switch (e.action) {
             case A_BACK: case A_RESUME: case A_NO: case A_YES_QUIT:
             case A_FRAME_LIMITER: case A_DRAW_DIST: case A_VSYNC:
-            case A_TOGGLE: case A_CHOICE: case A_SLIDER: case A_REWRITE: case A_STAT:
+            case A_TOGGLE: case A_CHOICE: case A_SLIDER: case A_REWRITE: case A_STAT: case A_LANG: case A_DEFAULTS:
                 e.live = true;
                 break;
             case A_GOTO:
@@ -306,6 +333,19 @@ void FeMenu::Activate(int dir) {
     case A_SLIDER:
         if (e.f && dir != 0) {
             *e.f = std::min(e.hi, std::max(e.lo, *e.f + dir * e.step * (e.hi - e.lo > 2.0f ? 1.0f : 1.0f)));
+            m_changed = true;
+        }
+        break;
+    case A_DEFAULTS:
+        if (dir != 0) break;
+        if (e.target == 0) { m_set.masterVol = 0.8f; m_set.sfxVol = 1.0f; m_set.musicVol = 0.7f; }
+        else { m_set.brightness = 0.5f; m_set.radarMode = 0; m_set.showHud = true; m_set.hudScale = 1.0f; m_set.fov = 70.0f; m_set.mipmaps = true; }
+        m_changed = true;
+        break;
+    case A_LANG:
+        if (dir == 0 && e.target >= 0 && e.target < kLanguageCount && e.target != m_set.language) {
+            m_set.language = e.target;
+            m_text.Load(m_gameDir, kLanguageFiles[m_set.language]);
             m_changed = true;
         }
         break;
@@ -419,11 +459,11 @@ std::string FeMenu::ValueText(const Entry& e) const {
         return std::to_string(m_set.frameLimit) + " FPS";
     case A_SLIDER: return std::string();
     case A_TOGGLE:
-        return e.b ? std::string(*e.b ? "ON" : "OFF") : std::string();
+        return e.b ? m_text.Get(*e.b ? "FEM_ON" : "FEM_OFF") : std::string();
     case A_CHOICE:
-        return (e.i && *e.i >= 0 && *e.i < (int)e.choices.size()) ? e.choices[*e.i] : std::string();
+        return (e.i && *e.i >= 0 && *e.i < (int)e.choices.size()) ? m_text.Get(e.choices[*e.i].c_str()) : std::string();
     case A_REWRITE:
-        return m_set.movementStyle == 1 ? "ON" : "OFF";
+        return m_text.Get(m_set.movementStyle == 1 ? "FEM_ON" : "FEM_OFF");
     case A_VSYNC:
         return m_text.Get(m_set.vsync ? "FEM_ON" : "FEM_OFF");
     }

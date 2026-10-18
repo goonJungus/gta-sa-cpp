@@ -85,9 +85,14 @@ public:
     bool Init(D3DRenderer& r, const std::string& gameDir);
     void Shutdown();
     bool Ready() const { return m_ready; }
+    // Swap the text table (GXT file name, e.g. "spanish.gxt").
+    void SetLanguage(const std::string& gameDir, const char* file) { m_text.Load(gameDir, file); }
 
     // The in-game HUD (call after the world, before the pause menu).
     void Draw(D3DRenderer& r, const HudData& d);
+
+    // Display > Brightness: a flat black or white wash over the whole frame (0.5 = none).
+    void Brightness(D3DRenderer& r, float level);
 
     // A hit confirmed on a target (rewrite hit marker); kill = a heavier one.
     void Hit(bool kill) { m_hitTimer = 0.25f; m_hitKill = kill; }
