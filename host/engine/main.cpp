@@ -50,6 +50,7 @@
 #include "FeMenu.h"
 #include "PlayerPed.h"
 #include "Camera.h"
+#include "CameraShake.h"
 #include "Water.h"
 #include "Sky.h"
 #include "ClimbScan.h"
@@ -60,7 +61,8 @@ static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
 static Sky g_sky;        // CClouds: moon, stars, low clouds
 static TimeCycleHour g_tcNow;  // this frame's timecyc sample
 static bool g_startThirdPerson = false;   // --third
-static PlayerCamera g_playerCam;          // on-foot camera views (V)
+static CameraShake g_shake;
+PlayerCamera g_playerCam;          // on-foot camera views (V)
 static bool g_hideCjHead = false;         // first-person view
 static float g_nearClip = 0.5f;
 static int  g_forceStyle = -1;            // --classic / --rewrite (not saved)
@@ -2502,7 +2504,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     ci.ray = [](const float a[3], const float b[3]) {
                         return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]);
                     };
-                const PlayerCamera::Output co = g_playerCam.Update(ci);
+                PlayerCamera::Output co = g_playerCam.Update(ci);
+                if (camStyle == PlayerCamera::kRewrite) {   // rewrite shake: displaces the camera along its own axes
+                    static uint32_t shakeMs = 0;
+                    static const char* devShake = getenv("GTA_SHAKE");   // dev: strength fired once at frame 20
+                    shakeMs += (uint32_t)(dt * 1000.0f);
+                    if (devShake && frame == 20) g_shake.Trigger((float)atof(devShake), shakeMs);
+                    float fwd[3] = {co.dir[0], co.dir[1], co.dir[2]};
+                    float rgt[3] = {fwd[1], -fwd[0], 0.0f};
+                    const float rl = std::sqrt(rgt[0] * rgt[0] + rgt[1] * rgt[1]);
+                    if (rl > 1e-4f) { rgt[0] /= rl; rgt[1] /= rl; } else { rgt[0] = 1.0f; rgt[1] = 0.0f; }
+                    const float up[3] = {rgt[1] * fwd[2] - rgt[2] * fwd[1], rgt[2] * fwd[0] - rgt[0] * fwd[2],
+                                         rgt[0] * fwd[1] - rgt[1] * fwd[0]};
+                    float off[3];
+                    g_shake.Update(shakeMs, dt * 50.0f, rgt, fwd, up, off);
+                    for (int i = 0; i < 3; i++) co.eye[i] += off[i];
+                }
                 D3DMATRIX view = MatrixLookAt(co.eye[0], co.eye[1], co.eye[2], co.eye[0] + co.dir[0],
                                               co.eye[1] + co.dir[1], co.eye[2] + co.dir[2], 0, 0, 1);
                 g_renderer.SetViewMatrix(view);

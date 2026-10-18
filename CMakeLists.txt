@@ -67,6 +67,7 @@ if(WIN32)
         host/engine/PlayerPed.cpp
         host/engine/Movement.cpp
         host/engine/Camera.cpp
+        host/engine/CameraShake.cpp
         host/engine/Water.cpp
         host/engine/ClimbScan.cpp
         host/engine/Sky.cpp
