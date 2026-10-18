@@ -2122,7 +2122,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 float fx = playerX - camPosX, fy = playerY - camPosY;   // away from the camera, along the view
                 const float fl = std::sqrt(fx * fx + fy * fy);
                 if (fl < 0.01f) { fx = cosf(yaw); fy = sinf(yaw); } else { fx /= fl; fy /= fl; }
-                const float sx = playerX + fx * 4.0f, sy = playerY + fy * 4.0f;
+                static int s_carSlot = 0;   // spread the spawns sideways so they do not overlap
+                const float side = (float)(s_carSlot++ % 3 - 1) * 3.2f;
+                const float sx = playerX + fx * 5.0f + fy * side, sy = playerY + fy * 5.0f - fx * side;
                 const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
                 g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz + 0.1f, std::atan2(fy, fx) - 1.57079633f);
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);

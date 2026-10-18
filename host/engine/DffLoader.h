@@ -32,6 +32,7 @@ struct DffMesh {
     int geometry = 0;          // index of the RW geometry this mesh came from (one geometry may give several meshes, one per material)
     std::string textureName;   // from RW_TEXTURE (empty if material is untextured)
     std::string materialName;  // DFF materials carry no name string; kept for API symmetry
+    uint32_t materialColor = 0xFFFFFFFFu;   // the material's RGBA colour as D3DCOLOR; vehicles mark paint areas with it
 };
 
 // One 2dfx EFFECT_LIGHT marker (RW plugin 0x253F2F8) in model-local space:
@@ -93,6 +94,7 @@ private:
     struct DffMaterial {
         std::string textureName;
         std::string materialName;
+        uint32_t color = 0xFFFFFFFFu;
     };
 
     // Parses one RW_GEOMETRY section; appends one DffMesh per material to outMeshes
