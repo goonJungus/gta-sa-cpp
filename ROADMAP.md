@@ -33,7 +33,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [ ] GXT text tables (w 1)
 
 ## Audio
-- [ ] Sound effects (w 2)
+- [~] Sound effects (retail SFX bank loader and software mixer on waveOut; gun shots, dry fire and reloads per weapon, footsteps, jumps, pain, menu cues; volume sliders; no vehicles, ambient, speech or radio yet) (w 2)
 - [ ] Radio station playback (w 1)
 
 ## Scripts and missions

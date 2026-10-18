@@ -161,6 +161,7 @@ void PlayerPed::NextGun() {
 }
 
 const char* PlayerPed::GunName() const { return m_gun >= 0 ? m_guns[m_gun].name.c_str() : "Fists"; }
+const char* PlayerPed::GunId() const { return m_gun >= 0 && m_guns[m_gun].spec ? m_guns[m_gun].spec->name : ""; }
 int PlayerPed::GunAmmo() const { return m_gun >= 0 ? m_guns[m_gun].ammo : 0; }
 int PlayerPed::GunClipSize() const { return m_gun >= 0 ? m_guns[m_gun].clipSize : 0; }
 int PlayerPed::GunTotalAmmo() const { return m_gun >= 0 ? m_guns[m_gun].total : 0; }

@@ -55,6 +55,7 @@
 #include "Water.h"
 #include "Sky.h"
 #include "ClimbScan.h"
+#include "Audio.h"
 
 static D3DRenderer g_renderer;
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
@@ -160,6 +161,7 @@ static bool g_running = true;
 // SA pause menu (FeMenu) + its persisted display settings.
 static FeMenu g_menu;
 static Hud g_hud;
+static Audio g_audio;
 static bool g_hudReady = false;
 static bool g_menuReady = false;
 static bool g_escOpensMenu = false;      // play mode (not the capture modes)
@@ -890,6 +892,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("FRONTEND: pause menu %s", g_menuReady ? "ready" : "FAILED (fonts.txd / american.gxt?)");
         if (g_menuReady && startMenuScreen >= 0) { g_menu.Open(startMenuScreen); g_devPaused = true; }
         g_hudReady = g_hud.Init(g_renderer, GameDir());
+        Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
+        if (g_audio.Ready() && getenv("GTA_AUDIOTEST"))
+            Log("AUDIO: weapons bank %d sounds, menu bank %d, feet %d, pain %d", g_audio.SoundCount(BANK_WEAPONS),
+                g_audio.SoundCount(BANK_FRONTEND_MENU), g_audio.SoundCount(BANK_FEET_GENERIC), g_audio.SoundCount(BANK_PAIN_CARL));
         Log("HUD: %s", g_hudReady ? "ready" : "FAILED (fonts.txd / hud.txd?)");
     }
 
@@ -2854,6 +2860,43 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             DrawDebugText(dev, dbg, 12.0f, 12.0f, 1.4f, 0xFFFFFF00); // yellow
         }
 
+        // ---- Audio cues: menu, guns, footsteps, jumps, pain ----
+        if (g_audio.Ready()) {
+            const FeSettings& as = g_menu.Settings();
+            g_audio.SetVolumes(as.masterVol, as.sfxVol);
+            if (int ui = g_menu.TakeUiEvent()) g_audio.Ui(ui);
+            struct Pending { float t; const char* gun; int kind; };
+            static std::vector<Pending> s_pending;
+            static float s_stepDist = 0.0f, s_prevX = 0, s_prevY = 0, s_lastFlash = 0.0f;
+            static bool s_wasAir = false, s_havePrev = false;
+            if (cjReady && !g_menu.IsOpen() && !g_devPaused) {
+                const char* gid = g_cj.GunId();
+                for (int n = g_cj.TakeShotEvents(); n > 0; n--) g_audio.Gun(gid, 0);
+                for (int n = g_cj.TakeDryEvents(); n > 0; n--) g_audio.Gun(gid, 1);
+                for (int n = g_cj.TakeReloadEvents(); n > 0; n--) {
+                    g_audio.Gun(gid, 2);
+                    s_pending.push_back({ 0.9f, gid, 3 });
+                }
+                for (size_t i = 0; i < s_pending.size();) {
+                    s_pending[i].t -= dt;
+                    if (s_pending[i].t <= 0.0f) { g_audio.Gun(s_pending[i].gun, s_pending[i].kind); s_pending.erase(s_pending.begin() + i); }
+                    else i++;
+                }
+                // Footsteps: one per stride walked on the ground.
+                bool air = g_cj.InAir();
+                if (s_havePrev && !air && !g_cj.Swimming()) {
+                    s_stepDist += hypotf(playerX - s_prevX, playerY - s_prevY);
+                    if (s_stepDist >= 1.25f) { s_stepDist = 0.0f; g_audio.Step(BANK_FEET_GENERIC, 0.5f); }
+                }
+                if (s_wasAir && !air) g_audio.Step(BANK_FEET_GENERIC, 0.8f);   // landing
+                if (!s_wasAir && air) g_audio.Step(BANK_FEET_GENERIC, 0.4f);   // take-off
+                s_wasAir = air; s_prevX = playerX; s_prevY = playerY; s_havePrev = true;
+                float fl = g_cj.DamageFlash();
+                if (fl > 0.95f && s_lastFlash <= 0.95f) g_audio.Pain();
+                s_lastFlash = fl;
+            }
+        }
+
         // ---- HUD (CHud::Draw): vitals, weapon, money, radar ----
         if (g_hudReady && cjReady && !g_menu.IsOpen() && !g_devPaused) {
             HudData hd;
@@ -2998,7 +3041,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
         frame++;
         g_scriptFrame = frame;
-        if (maxFrames > 0 && frame >= maxFrames) break;
+        if (maxFrames > 0 && frame >= maxFrames) { if (g_audio.Ready()) Log("AUDIO: %d sounds started, last %s", g_audio.Played(), g_audio.LastPlayed().c_str()); break; }
     }
 
     if (playMode) ShowCursor(TRUE);

@@ -68,6 +68,7 @@ if(WIN32)
         host/engine/PlayerFootIK.cpp
         host/engine/PlayerWeapon.cpp
         host/engine/Hud.cpp
+        host/engine/Audio.cpp
         host/engine/Movement.cpp
         host/engine/Camera.cpp
         host/engine/CameraShake.cpp
@@ -77,7 +78,7 @@ if(WIN32)
     )
     target_include_directories(gta_standalone PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/host/engine)
-    target_link_libraries(gta_standalone PRIVATE gta_sa_module d3d9 shell32 ole32)
+    target_link_libraries(gta_standalone PRIVATE gta_sa_module d3d9 shell32 ole32 winmm)
     if(MSVC)
         target_compile_definitions(gta_standalone PRIVATE
             UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)

@@ -227,6 +227,7 @@ void FeMenu::SwitchTo(int screen, int fromChild) {
 }
 
 void FeMenu::Back() {
+    m_uiEvent = 3;
     if (m_screen == kPauseScreen) { Close(); return; }
     int prev = m_screens[m_screen].prev;
     if (prev < 0) { Close(); return; }
@@ -238,7 +239,7 @@ void FeMenu::Move(int dir) {
     int n = (int)it.size();
     for (int step = 1; step <= n; step++) {
         int i = ((m_sel + dir * step) % n + n) % n;   // retail wraps around
-        if (Live(it[i]) && Visible(it[i])) { m_sel = i; return; }
+        if (Live(it[i]) && Visible(it[i])) { if (m_sel != i) m_uiEvent = 1; m_sel = i; return; }
     }
 }
 
@@ -246,6 +247,7 @@ void FeMenu::Activate(int dir) {
     std::vector<Entry>& it = m_screens[m_screen].items;
     if (m_sel < 0 || m_sel >= (int)it.size() || !Live(it[m_sel])) return;
     const Entry& e = it[m_sel];
+    if (e.action != A_BACK && e.action != A_RESUME) m_uiEvent = (dir == 0) ? 2 : 1;
     switch (e.action) {
     case A_BACK:      if (dir == 0) Back(); break;
     case A_GOTO:      if (dir == 0) SwitchTo(e.target); break;
@@ -318,7 +320,7 @@ void FeMenu::OnMouse(float x, float y, bool click, bool held) {
         const Entry& e = it[i];
         if (Live(e) && Visible(e) && x >= e.hx0 && x <= e.hx1 && y >= e.hy0 && y <= e.hy1) hover = (int)i;
     }
-    if (hover >= 0 && (m_mouseMoved || click)) m_sel = hover;
+    if (hover >= 0 && (m_mouseMoved || click)) { if (m_sel != hover) m_uiEvent = 1; m_sel = hover; }
     // Draw distance: dragging on the slider sets it directly.
     bool onSlider = x >= Sx(500) && x <= Sx(600) + Sx(3) && y >= Sy(120) && y <= Sy(150);
     if (held && onSlider && m_sel >= 0 && m_sel < (int)it.size() && it[m_sel].action == A_DRAW_DIST) {

@@ -56,6 +56,8 @@ public:
 
     // WM_KEYDOWN virtual keys (auto-repeat included).
     void OnKey(int vk);
+    // Menu sound cue since the last call: 0 none, 1 highlight, 2 select, 3 back.
+    int TakeUiEvent() { int e = m_uiEvent; m_uiEvent = 0; return e; }
     // Mouse in backbuffer pixels; `click` = left button went down this frame,
     // `held` = it is down.
     void OnMouse(float x, float y, bool click, bool held);
@@ -119,6 +121,7 @@ private:
     FeSettings m_set;
     float m_w = 640, m_h = 448, m_ox = 0, m_oy = 0;
     float m_mx = -1, m_my = -1;
+    int m_uiEvent = 0;
     bool m_mouseMoved = false, m_mouseClick = false, m_mouseHeld = false;
 
     Fe2d m_2d;

@@ -116,6 +116,8 @@ public:
     void SelectGun(int index);          // -1 = fists
     void NextGun();                     // cycles through the list, then fists
     int GunIndex() const { return m_gun; }
+    const char* GunId() const;            // weapon.dat name, or ""
+    bool InAir() const { return m_inAir; }
     const char* GunName() const;
     int GunAmmo() const;
     int GunClipSize() const;
