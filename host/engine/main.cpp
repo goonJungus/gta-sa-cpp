@@ -3002,7 +3002,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 nearClip = 0.1f;
                 g_hideCjHead = false;
             }
-            const float wantFov = g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f;
+            // Rewrite: the view widens a little while sprinting (smoothed so it eases in and out).
+            static float s_fovKick = 0.0f;
+            {
+                const float tgt = (g_menu.Settings().movementStyle == 1 && cjReady && !g_freeCam)
+                                      ? std::clamp(g_cj.MoveBlendRatio() - 2.0f, 0.0f, 1.0f) * 6.0f : 0.0f;
+                s_fovKick += (tgt - s_fovKick) * std::min(1.0f, dt * 5.0f);
+            }
+            const float wantFov = (g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f) + s_fovKick;
             if (nearClip != g_nearClip || wantFov != g_fovDeg) {   // first person needs a near plane at the eyes
                 g_nearClip = nearClip;
                 g_fovDeg = wantFov;
@@ -3191,6 +3198,28 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
                 st.shots += evShots; st.reloads += evReload;
                 g_fx.Update(dt);
+                if (worldReady && !g_devNoClip) {   // water splashes and landing dust
+                    static bool s_pGround = true, s_pSwim = false;
+                    static float s_pVelZ = 0.0f, s_pX = 0.0f, s_pY = 0.0f, s_ripple = 0.0f;
+                    const float feet = playerZ - EYE_HEIGHT;
+                    float wz = -1e9f;
+                    if (g_water.Ready()) { float w; if (g_water.GetWaterLevel(playerX, playerY, &w)) wz = w; }
+                    const bool swim = g_cj.Swimming();
+                    const float moved = dt > 0.0f ? hypotf(playerX - s_pX, playerY - s_pY) / dt : 0.0f;
+                    const bool inWater = wz > -1e8f && feet < wz && wz - feet < 1.1f;
+                    s_ripple -= dt;
+                    if (swim && !s_pSwim && wz > -1e8f) { const float p[3] = {playerX, playerY, wz}; g_fx.Splash(p, 1.0f); }
+                    else if (onGround && !s_pGround && s_pVelZ < -4.0f && !swim) {
+                        const float p[3] = {playerX, playerY, feet + 0.05f};
+                        const float st = std::min(1.0f, -s_pVelZ / 14.0f);
+                        if (inWater) { const float w3[3] = {playerX, playerY, wz}; g_fx.Splash(w3, st); } else g_fx.Dust(p, st);
+                    } else if (s_ripple <= 0.0f && moved > 1.5f && (swim || (inWater && onGround))) {
+                        s_ripple = swim ? 0.45f : 0.28f;
+                        const float p[3] = {playerX, playerY, wz};
+                        g_fx.Splash(p, swim ? 0.25f : 0.12f);
+                    }
+                    s_pGround = onGround; s_pSwim = swim; s_pVelZ = velZ; s_pX = playerX; s_pY = playerY;
+                }
                 if (g_aimTest && worldReady) {
                     static bool s_aimInit = false;
                     if (!s_aimInit) {

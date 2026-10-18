@@ -18,6 +18,10 @@ public:
     void Blood(const float p[3]);
     // A bullet hit on a surface at p; nz = surface normal z (0 = wall).
     void Impact(const float p[3], float nz);
+    // Foam and droplets thrown up where CJ hits or wades through water (strength 0..1).
+    void Splash(const float p[3], float strength);
+    // A kick of dust at the feet (hard landings, sprint starts).
+    void Dust(const float p[3], float strength);
     // A tracer streak from a to b.
     void Tracer(const float a[3], const float b[3]);
 

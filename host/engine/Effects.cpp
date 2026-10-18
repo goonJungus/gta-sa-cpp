@@ -58,6 +58,41 @@ void Effects::Impact(const float p[3], float nz) {
     }
 }
 
+void Effects::Splash(const float p[3], float strength) {
+    const int foam = 3 + (int)(6 * strength), drops = 4 + (int)(14 * strength);
+    for (int i = 0; i < foam; i++) {
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k] + Rnd(-0.12f, 0.12f) * (0.5f + strength);
+        f.v[0] = Rnd(-0.5f, 0.5f) * (0.5f + strength); f.v[1] = Rnd(-0.5f, 0.5f) * (0.5f + strength); f.v[2] = Rnd(0.4f, 1.2f) * (0.5f + strength);
+        f.life = Rnd(0.5f, 0.9f);
+        f.size0 = 0.10f; f.size1 = Rnd(0.35f, 0.6f) * (0.6f + strength);
+        f.rgb = 0xE6F2FA; f.alpha = 0.5f;
+        m_puffs.push_back(f);
+    }
+    for (int i = 0; i < drops; i++) {
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k];
+        f.v[0] = Rnd(-1.6f, 1.6f) * (0.4f + strength); f.v[1] = Rnd(-1.6f, 1.6f) * (0.4f + strength); f.v[2] = Rnd(1.0f, 3.2f) * (0.4f + strength);
+        f.life = Rnd(0.3f, 0.6f);
+        f.size0 = 0.05f; f.size1 = 0.03f;
+        f.rgb = 0xCFE6FF; f.alpha = 0.9f; f.spark = true;
+        m_puffs.push_back(f);
+    }
+}
+
+void Effects::Dust(const float p[3], float strength) {
+    const int n = 3 + (int)(5 * strength);
+    for (int i = 0; i < n; i++) {
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k] + Rnd(-0.1f, 0.1f);
+        f.v[0] = Rnd(-1.0f, 1.0f) * (0.5f + strength); f.v[1] = Rnd(-1.0f, 1.0f) * (0.5f + strength); f.v[2] = Rnd(0.1f, 0.4f);
+        f.life = Rnd(0.5f, 0.9f);
+        f.size0 = 0.12f; f.size1 = Rnd(0.4f, 0.7f) * (0.6f + strength);
+        f.rgb = 0xB4A58C; f.alpha = 0.4f;
+        m_puffs.push_back(f);
+    }
+}
+
 void Effects::Blood(const float p[3]) {
     for (int i = 0; i < 7; i++) {
         Puff f = {};
