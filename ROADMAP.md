@@ -10,7 +10,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [x] IDE object definitions, text and binary IPL placements (w 1)
 - [x] DFF geometry and TXD textures, including parent-TXD chains (w 2)
 - [x] Streaming with LOD swaps and HD draw distance (w 2)
-- [~] Whole-state map (Los Santos streams today; SF, LV and countryside do not) (w 2)
+- [x] Whole-state map: LS, SF, LV, countryside, desert, mountains and seabed stream; collision ray audit shows 0 holes (w 2)
 - [x] Timecycle lighting and weather presets (w 1)
 - [x] 2DFX lights and night lamps (w 1)
 - [x] Traffic lights with retail phase timing (w 1)

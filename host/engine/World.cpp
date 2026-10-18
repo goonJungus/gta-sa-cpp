@@ -400,7 +400,15 @@ bool GameWorld::LoadIdes(const std::string& gameDir) {
                                     "dynamic2", "multiobj", "procobj"};
     static const char* la[] = {"LAn",  "LAn2", "LAs",  "LAs2", "LAe", "LAe2",
                                "LAw",  "LAwn", "LAw2", "LAhills", "LAxref"};
-    static const char* level[] = {"levelmap"};
+    static const char* sf[] = {"SFn", "SFs", "SFSe", "SFe", "SFw", "SFxref"};
+    static const char* vegas[] = {"vegasN", "VegasS", "vegasE", "VegasW", "vegaxref"};
+    static const char* country[] = {"countryN", "countn2", "countryS", "countrye",
+                                    "countryW", "counxref"};
+    static const char* level[] = {"levelmap", "levelxre", "seabed"};
+    static const char* interior[] = {"int_LA", "int_SF", "int_veg", "int_cont", "gen_int1",
+                                     "gen_int2", "gen_intb", "gen_int3", "gen_int4",
+                                     "gen_int5", "savehous", "stadint", "props", "props2",
+                                     "propext"};
 
     int loaded = 0;
     auto collectParents = [&](std::vector<TxdParent>& parents) {
@@ -430,7 +438,12 @@ bool GameWorld::LoadIdes(const std::string& gameDir) {
 
     for (const char* n : generic) loadOne("generic", n);
     for (const char* n : la) loadOne("LA", n);
+    for (const char* n : sf) loadOne("SF", n);
+    for (const char* n : vegas) loadOne("vegas", n);
+    for (const char* n : country) loadOne("country", n);
     for (const char* n : level) loadOne("leveldes", n);
+    for (const char* n : interior) loadOne("interior", n);
+    loadOne("veh_mods", "veh_mods");
 
     // Dedicated txd-parent files (txdp-only). data\maps\txd.ide holds the
     // gb_* global/LOD chain (gb_global root); data\txdcut.ide holds cutscene
@@ -460,7 +473,16 @@ bool GameWorld::LoadTextIpls(const std::string& gameDir) {
         {"lan2", "LA\\LAn2.ipl"},     {"las", "LA\\LAs.ipl"},
         {"las2", "LA\\LAs2.ipl"},     {"law", "LA\\LAw.ipl"},
         {"law2", "LA\\LAw2.ipl"},     {"lawn", "LA\\LaWn.ipl"},
+        {"sfn", "SF\\SFn.ipl"},       {"sfs", "SF\\SFs.ipl"},
+        {"sfse", "SF\\SFSe.ipl"},     {"sfe", "SF\\SFe.ipl"},
+        {"sfw", "SF\\SFw.ipl"},
+        {"vegasn", "vegas\\vegasN.ipl"}, {"vegass", "vegas\\vegasS.ipl"},
+        {"vegase", "vegas\\vegasE.ipl"}, {"vegasw", "vegas\\vegasW.ipl"},
+        {"countryn", "country\\countryN.ipl"}, {"countn2", "country\\countN2.ipl"},
+        {"countrys", "country\\countrys.ipl"}, {"countrye", "country\\countryE.ipl"},
+        {"countryw", "country\\countryW.ipl"},
         {"levelmap", "leveldes\\levelmap.ipl"},
+        {"seabed", "leveldes\\seabed.ipl"},
     };
     for (auto& r : regions) {
         std::string p = m_gameDir + "\\data\\maps\\" + r.second;
@@ -479,7 +501,10 @@ bool GameWorld::LoadTextIpls(const std::string& gameDir) {
 void GameWorld::LoadStreams() {
     static const char* regionKeys[] = {"lae2", "lae", "lahills", "lan",  "lan2",
                                        "las",  "las2", "law",    "law2", "lawn",
-                                       "levelmap"};
+                                       "sfn",  "sfs",  "sfse",   "sfe",  "sfw",
+                                       "vegasn", "vegass", "vegase", "vegasw",
+                                       "countryn", "countn2", "countrys", "countrye",
+                                       "countryw", "levelmap", "seabed"};
     size_t parsed = 0, kept = 0, skippedArea = 0, skippedModel = 0, linked = 0;
 
     for (size_t i = 0; i < m_img->EntryCount(); i++) {
@@ -515,7 +540,11 @@ void GameWorld::LoadStreams() {
             // Area 0 = outdoors, 13 = visible in every area (CEntity::m_nAreaCode).
             if (b.AreaCode() != 0 && b.AreaCode() != 13) { skippedArea++; continue; }
             auto it = m_byId.find(b.modelId);
-            if (it == m_byId.end()) { skippedModel++; continue; }
+            if (it == m_byId.end()) {
+                skippedModel++;
+                if (getenv("GTA_COLAUDIT")) std::fprintf(stderr, "[COLAUDIT] unknown model id %d at %.0f,%.0f in %s\n", b.modelId, b.x, b.y, en.c_str());
+                continue;
+            }
 
             Inst in;
             in.x = b.x; in.y = b.y; in.z = b.z;
@@ -701,28 +730,9 @@ void GameWorld::LinkLodChildren() {
 }
 
 void GameWorld::LoadCols() {
-    static const char* generic[] = {"barriers", "dynamic", "dynamic2", "multiobj",
-                                    "procobj", "vegepart", "propext",
-                                    "cranes_dyn2"};   // LA dock/tower cranes
-    static const char* laPrefixes[] = {"lae2", "lae", "lahills", "lan", "lan2",
-                                       "las", "las2", "law", "law2", "lawn"};
-    static const char* named[] = {"laxref", "laxrefdocks", "levelmap_1", "levelxre"};
-
+    // Every COL archive in the image (CColStore keeps them all).
     auto want = [&](const std::string& en) -> bool {
-        if (en.size() < 5 || en.compare(en.size() - 4, 4, ".col") != 0) return false;
-        std::string base = en.substr(0, en.size() - 4);
-        for (const char* g : generic)
-            if (base == g) return true;
-        for (const char* n : named)
-            if (base == n) return true;
-        for (const char* p : laPrefixes) {
-            size_t pl = strlen(p);
-            // e.g. lae2_1 .. lae2_9
-            if (base.size() == pl + 2 && base.compare(0, pl, p) == 0 &&
-                base[pl] == '_' && base[pl + 1] >= '1' && base[pl + 1] <= '9')
-                return true;
-        }
-        return false;
+        return en.size() >= 5 && en.compare(en.size() - 4, 4, ".col") == 0;
     };
 
     for (size_t i = 0; i < m_img->EntryCount(); i++) {
@@ -1990,6 +2000,11 @@ void GameWorld::DumpCollisionProbe(float px, float py, float feetZ, float radius
     std::fprintf(stderr, "[PROBE] wrote %s (%zu active OBB boxes)\n", path, m_worldObbs.size());
 }
 
+void GameWorld::BuildAllGroundTris() {
+    for (Inst& in : m_insts)
+        if (!in.groundTrisIn) BuildGroundTris(in);
+}
+
 float GameWorld::GetGroundHeight(float x, float y, float refZ) const {
     const float kMaxStepUp = 1.5f;
     float best = kNoGround;
@@ -2092,12 +2107,22 @@ float RayTri(const float o[3], const float d[3], const float a[3], const float b
 }
 }  // namespace
 
-float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float bz) const {
+float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind, float* hitNz) const {
     const float o[3] = {ax, ay, az}, d[3] = {bx - ax, by - ay, bz - az};
     float best = 1.0f;
+    int curKind = 0;
     auto hit = [&](const float a[3], const float b[3], const float c[3]) {
         const float t = RayTri(o, d, a, b, c);
-        if (t >= 0.0f && t < best) best = t;
+        if (t >= 0.0f && t < best) {
+            best = t;
+            if (kind) *kind = curKind;
+            if (hitNz) {
+                const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, v[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                const float n[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+                const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                *hitNz = l > 1e-9f ? std::fabs(n[2]) / l : 1.0f;
+            }
+        }
     };
     const float lo[3] = {std::min(ax, bx), std::min(ay, by), std::min(az, bz)};
     const float hi[3] = {std::max(ax, bx), std::max(ay, by), std::max(az, bz)};
@@ -2114,6 +2139,7 @@ float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float
             }
         }
     // Oriented boxes: the 6 faces (corner bit 0 = top, bits 1/2 the other axes).
+    curKind = 1;
     const size_t n = std::min(m_worldObbs.size(), m_worldBoxes.size());
     for (size_t k = 0; k < n; k++) {
         const WorldColBox& ab = m_worldBoxes[k];
@@ -2141,7 +2167,7 @@ float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float
             const float disc = bq * bq - dd * cq;
             if (disc < 0.0f) continue;
             const float t = (-bq - std::sqrt(disc)) / dd;
-            if (t >= 0.0f && t < best) best = t;
+            if (t >= 0.0f && t < best) { best = t; if (kind) *kind = 2; if (hitNz) *hitNz = 0.0f; }
         }
     return best;
 }

@@ -111,6 +111,7 @@ public:
     // sentinel (see ColLoader) when there is no terrain - caller falls back to
     // its grass safety net.
     float GetGroundHeight(float x, float y, float refZ) const;
+    void BuildAllGroundTris();   // dev audit: collision triangles for every placement, no streaming
 
     // Player collision: true when a solid COL box blocks movement INTO (x,y)
     // from (ox,oy) at feet height feetZ. Mirrors retail tolerances: boxes up
@@ -123,7 +124,7 @@ public:
     // Segment a -> b against the streamed collision (COL triangles, boxes and
     // spheres). Returns the fraction of the way to the first hit, 1 if clear
     // (the camera's CWorld::ProcessLineOfSight).
-    float RayCast(float ax, float ay, float az, float bx, float by, float bz) const;
+    float RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind = nullptr, float* hitNz = nullptr) const;
 
     // Sphere vs the world's COL (boxes, spheres, triangles): the deepest-free
     // way to ask CCollision::ProcessColModels about one probe sphere. Returns

@@ -1788,6 +1788,64 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("SWEEP done");
     }
 
+    // Dev: GTA_GROUNDMAP=<metres per pixel> writes the top collision surface over the whole map to groundmap.pgm
+    // (0 = nothing there, which is open sea or a hole in the land).
+    if (const char* gm = getenv("GTA_GROUNDMAP")) {
+        const float step = std::max(1.0f, (float)atof(gm));
+        g_world.BuildAllGroundTris();
+        const int n = (int)(6000.0f / step);
+        std::vector<uint8_t> img((size_t)n * n, 0);
+        int filled = 0;
+        for (int py = 0; py < n; py++)
+            for (int px = 0; px < n; px++) {
+                const float x = -3000.0f + (px + 0.5f) * step, y = 3000.0f - (py + 0.5f) * step;
+                const float h = g_world.GetGroundHeight(x, y, 2000.0f);
+                if (h < -900.0f) continue;
+                filled++;
+                img[(size_t)py * n + px] = (uint8_t)std::clamp(40.0f + (h + 100.0f) * 0.5f, 1.0f, 255.0f);
+            }
+        char path[512];
+        snprintf(path, sizeof path, "%s\\groundmap.pgm", shotDir);
+        if (FILE* f = fopen(path, "wb")) {
+            fprintf(f, "P5\n%d %d\n255\n", n, n);
+            fwrite(img.data(), 1, img.size(), f);
+            fclose(f);
+        }
+        Log("GROUNDMAP %dx%d, %d filled, wrote %s", n, n, filled, path);
+    }
+
+    // Dev: GTA_COLRAY=<radius> checks collision holes. From a grid of ground points, chest-high rays
+    // go out in 8 directions; wherever a ray hits geometry the walking test must block the move through it.
+    if (const char* cr = getenv("GTA_COLRAY")) {
+        const float rad = (float)atof(cr);
+        for (int i = 0; i < 300; i++) g_world.Stream(playerX, playerY, playerZ);
+        int rays = 0, holes = 0;
+        for (float x = playerX - rad; x <= playerX + rad; x += 5.0f)
+            for (float y = playerY - rad; y <= playerY + rad; y += 5.0f) {
+                const float gz = g_world.GetGroundHeight(x, y, playerZ + 2.0f);
+                if (gz < -90.0f) continue;
+                if (g_world.HitsSolidCircle(x, y, gz, x + 40.0f, y, PLAYER_RADIUS, STEP_OVER, PLAYER_HEIGHT)) continue;   // inside a solid: not a place CJ can stand
+                for (int k = 0; k < 8; k++) {
+                    const float a = k * 0.7853982f, dx = cosf(a), dy = sinf(a);
+                    int kind = 0; float hnz = 0.0f;
+                    const float t = g_world.RayCast(x, y, gz + 1.0f, x + dx * 3.0f, y + dy * 3.0f, gz + 1.0f, &kind, &hnz);
+                    if (t >= 1.0f) continue;
+                    rays++;
+                    const float d = 3.0f * t;
+                    if (d < 1.0f || (kind == 0 && hnz > 0.5f)) continue;   // too close to judge, or a walkable slope
+                    bool stopped = false;   // walk at into it in 0.1 m steps, as the game does
+                    for (float w = d - 0.9f; w < d + 0.3f && !stopped; w += 0.1f)
+                        stopped = g_world.HitsSolidCircle(x + dx * (w + 0.1f), y + dy * (w + 0.1f), gz, x + dx * w, y + dy * w,
+                                                          PLAYER_RADIUS, STEP_OVER, PLAYER_HEIGHT);
+                    if (!stopped) {
+                        holes++;
+                        Log("COLRAY HOLE at %.1f %.1f %.2f dir=%d d=%.2f kind=%d nz=%.2f", x, y, gz, k, d, kind, hnz);
+                    }
+                }
+            }
+        Log("COLRAY done: %d rays hit, %d holes", rays, holes);
+    }
+
     MSG msg = {};
     while (g_running) {
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {

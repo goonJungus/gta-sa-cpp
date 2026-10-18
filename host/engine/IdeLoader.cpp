@@ -49,6 +49,7 @@ bool IdeLoader::Load(const std::string& path,
     bool inObjs = false;
     bool inTobj = false;
     bool inTxdp = false;
+    bool inAnim = false;
     while (fgets(lineBuf, sizeof(lineBuf), f)) {
         std::string line = Trim(lineBuf);
         if (line.empty() || line[0] == '#')
@@ -79,7 +80,16 @@ bool IdeLoader::Load(const std::string& path,
             inTxdp = false;
             continue;
         }
+        // anim (animated objects): id, model, txd, animFile, drawDist, flags.
+        if (low == "anim") {
+            inAnim = true;
+            inObjs = false;
+            inTobj = false;
+            inTxdp = false;
+            continue;
+        }
         if (low == "end") {
+            inAnim = false;
             inObjs = false;
             inTobj = false;
             inTxdp = false;
@@ -116,9 +126,10 @@ bool IdeLoader::Load(const std::string& path,
         if (line.find(',') == std::string::npos) {
             inObjs = false;  // any new section ends objs/tobj
             inTobj = false;
+            inAnim = false;
             continue;
         }
-        if (!inObjs && !inTobj)
+        if (!inObjs && !inTobj && !inAnim)
             continue;
 
         std::vector<std::string> fields = SplitComma(line);
@@ -132,6 +143,19 @@ bool IdeLoader::Load(const std::string& path,
         }
         obj.modelName = ToLower(fields[1]);
         obj.txdName = ToLower(fields[2]);
+
+        if (inAnim) {
+            if (fields.size() < 6) continue;
+            try {
+                obj.drawDistance = std::stof(fields[4]);
+                obj.flags = std::stoi(fields[5]);
+            } catch (...) {
+                continue;
+            }
+            outById[obj.id] = outObjects.size();
+            outObjects.push_back(std::move(obj));
+            continue;
+        }
 
         // Standard form: id, name, txd, drawDistance, flags.
         // Extended objType form (gta-reversed CFileLoader::LoadObject):
