@@ -46,6 +46,8 @@ struct SkinnedClump {
     std::vector<RwMat> inverseBind;       // per node index (skin space -> bone space)
     std::vector<SkinVertex> vertices;
     std::vector<uint16_t> indices;        // triangle list, D3D winding
+    std::vector<uint16_t> triMaterial;    // material index per triangle
+    std::vector<std::string> materialTexture;   // texture name per material, empty when untextured
     bool valid = false;
 };
 

@@ -121,8 +121,8 @@ bool Peds::Init(D3DRenderer&, const std::string& gameDir) {
 
 void Peds::Shutdown(D3DRenderer& r) {
     for (auto& kv : m_models) {
-        if (kv.second.mesh) r.DestroyMesh(kv.second.mesh);
-        if (kv.second.texture) r.DestroyTexture(kv.second.texture);
+        for (D3DRenderMesh* me : kv.second.meshes) r.DestroyMesh(me);
+        for (IDirect3DTexture9* t : kv.second.textures) if (t) r.DestroyTexture(t);
     }
     m_models.clear();
     m_actors.clear();
@@ -176,21 +176,39 @@ Peds::Model* Peds::GetModel(D3DRenderer& r, int id) {
         m.skinned[v] = {sv.pos[0], sv.pos[1], sv.pos[2], sv.normal[0], sv.normal[1], sv.normal[2], 0xFFFFFFFFu, sv.uv[0], sv.uv[1]};
         m.feetZ = std::min(m.feetZ, sv.pos[2]);
     }
-    m.mesh = r.CreateMesh(m.skinned.data(), (uint32_t)m.skinned.size(), c.indices.data(), (uint32_t)c.indices.size());
-    if (!m.mesh) return nullptr;
-    if (!txd.empty()) {   // the ped's own texture dictionary: the first (usually only) texture is the skin
-        std::vector<TxdTexture> tex = TxdLoader::LoadFromMemory(txd.data(), txd.size());
-        if (!tex.empty()) {
-            const TxdTexture& t = tex[0];
-            m.texture = r.CreateTexture(t.width, t.height, t.d3dFormat, t.mip0.data(), (uint32_t)t.mip0.size(), &t.extraMips);
-            m.mesh->texture = m.texture;
+    // One mesh per material, each with its own texture from the ped's dictionary.
+    std::vector<TxdTexture> tex;
+    if (!txd.empty()) tex = TxdLoader::LoadFromMemory(txd.data(), txd.size());
+    auto lowerOf = [](std::string s) { for (char& ch : s) ch = (char)std::tolower((unsigned char)ch); return s; };
+    const size_t numMat = std::max<size_t>(1, c.materialTexture.size());
+    for (size_t mi = 0; mi < numMat; mi++) {
+        std::vector<uint16_t> idx;
+        for (size_t t = 0; t < c.indices.size() / 3; t++) {
+            const size_t tm = t < c.triMaterial.size() ? c.triMaterial[t] : 0;
+            if (tm != mi) continue;
+            idx.insert(idx.end(), c.indices.begin() + (long)(t * 3), c.indices.begin() + (long)(t * 3 + 3));
         }
+        if (idx.empty()) continue;
+        D3DRenderMesh* me = r.CreateMesh(m.skinned.data(), (uint32_t)m.skinned.size(), idx.data(), (uint32_t)idx.size());
+        if (!me) continue;
+        const std::string want = mi < c.materialTexture.size() ? lowerOf(c.materialTexture[mi]) : std::string();
+        const TxdTexture* pick = nullptr;
+        for (const TxdTexture& t : tex) if (!want.empty() && lowerOf(t.name) == want) { pick = &t; break; }
+        if (!pick && !want.empty() && !tex.empty()) pick = &tex[0];   // name missing from the dictionary
+        if (pick) {
+            IDirect3DTexture9* tx = r.CreateTexture(pick->width, pick->height, pick->d3dFormat, pick->mip0.data(), (uint32_t)pick->mip0.size(), &pick->extraMips);
+            me->texture = tx;
+            m.textures.push_back(tx);
+        }
+        m.meshes.push_back(me);
     }
+    if (m.meshes.empty()) return nullptr;
     auto grp = m_groups.find(m.info.group);
     if (grp == m_groups.end()) grp = m_groups.find("man");
     if (grp != m_groups.end() && grp->second.size() >= 4) {
         auto find = [&](const std::string& n) -> const AnimClip* { auto k = m_clips.find(n); return k == m_clips.end() ? nullptr : &k->second; };
         m.walk = find(grp->second[0]);
+        m.run = find(grp->second[1]);
         m.idle = find(grp->second[3]);
     }
     m.valid = true;
@@ -254,25 +272,74 @@ void Peds::Pose(Model& m, const AnimClip* clip, float time) {
 }
 
 void Peds::Update(float dt, const std::function<float(float, float, float)>& groundAt,
-                  const std::function<bool(float, float, float, float, float)>& blocked) {
-    for (Actor& a : m_actors) {
+                  const std::function<bool(float, float, float, float, float)>& blocked, const Player& player) {
+    for (size_t ai = 0; ai < m_actors.size(); ai++) {
+        Actor& a = m_actors[ai];
         auto it = m_models.find(a.model);
         if (it == m_models.end()) continue;
         const Model& m = it->second;
+        const float pdx = player.x - a.x, pdy = player.y - a.y, pd = std::sqrt(pdx * pdx + pdy * pdy);
+        // Gunfire or an aimed weapon close by: run away from CJ for a while.
+        if (player.threat && pd < 25.0f) a.fleeTimer = 6.0f;
+        const bool fleeing = a.fleeTimer > 0.0f && m.run;
+        if (a.fleeTimer > 0.0f) a.fleeTimer -= dt;
         a.turnTimer -= dt;
-        if (a.turnTimer <= 0.0f) {   // pick a new heading and whether to stand or walk
+        // Face away from the threat, or look at CJ when he stands close and stop to watch him pass.
+        bool watching = false;
+        if (fleeing) {
+            a.heading = std::atan2(-pdy, -pdx);
+            a.walking = true;
+        } else if (pd < 3.0f) {
+            const float want = std::atan2(pdy, pdx);
+            float d = want - a.heading;
+            while (d > kPi) d -= 2.0f * kPi;
+            while (d < -kPi) d += 2.0f * kPi;
+            a.heading += d * std::min(1.0f, 4.0f * dt);
+            a.walking = false;
+            watching = true;
+            a.turnTimer = std::max(a.turnTimer, 1.0f);
+        } else if (a.turnTimer <= 0.0f) {   // pick a new heading and whether to stand or walk
             a.turnTimer = 3.0f + (float)Rand(50) * 0.1f;
-            a.heading = (float)Rand(628) * 0.01f;
+            a.heading += ((float)Rand(200) - 100.0f) * 0.01f * kPi * 0.5f;
             a.walking = Rand(4) != 0;
         }
-        const AnimClip* clip = a.walking && m.walk ? m.walk : m.idle;
+        const AnimClip* clip = fleeing ? m.run : (a.walking && m.walk ? m.walk : m.idle);
         const float dur = clip ? std::max(clip->duration, 0.1f) : 1.0f;
         a.animTime = std::fmod(a.animTime + dt, dur);
-        if (a.walking && m.walk) {
-            const float speed = 1.4f;   // walk cycle speed, m/s
-            const float nx = a.x + std::cos(a.heading) * speed * dt, ny = a.y + std::sin(a.heading) * speed * dt;
-            if (blocked && blocked(nx, ny, a.x, a.y, a.z)) a.turnTimer = 0.0f;   // bumped something: choose again
+        if ((a.walking && m.walk) || fleeing) {
+            const float speed = fleeing ? 4.2f : 1.4f;
+            float h = a.heading;
+            // Look ahead: when something stands a body length in front, veer to the clearer side.
+            const float look = fleeing ? 1.6f : 1.0f;
+            if (blocked && blocked(a.x + std::cos(h) * look, a.y + std::sin(h) * look, a.x, a.y, a.z)) {
+                const float lx = std::cos(h + 1.0f), ly = std::sin(h + 1.0f), rx = std::cos(h - 1.0f), ry = std::sin(h - 1.0f);
+                const bool leftBlocked = blocked(a.x + lx * look, a.y + ly * look, a.x, a.y, a.z);
+                const bool rightBlocked = blocked(a.x + rx * look, a.y + ry * look, a.x, a.y, a.z);
+                if (!leftBlocked) h += 1.0f; else if (!rightBlocked) h -= 1.0f; else h += kPi;
+                a.heading = h;
+                if (!fleeing) a.turnTimer = 2.0f;
+            }
+            // Walk around other pedestrians instead of through them.
+            float sx = 0.0f, sy = 0.0f;
+            for (size_t bi = 0; bi < m_actors.size(); bi++) {
+                if (bi == ai) continue;
+                const float dx = a.x - m_actors[bi].x, dy = a.y - m_actors[bi].y, d2 = dx * dx + dy * dy;
+                if (d2 < 0.9f * 0.9f && d2 > 1e-4f) { const float d = std::sqrt(d2); sx += dx / d * (0.9f - d); sy += dy / d * (0.9f - d); }
+            }
+            const float nx = a.x + std::cos(a.heading) * speed * dt + sx * 2.0f * dt, ny = a.y + std::sin(a.heading) * speed * dt + sy * 2.0f * dt;
+            if (blocked && blocked(nx, ny, a.x, a.y, a.z)) { a.turnTimer = 0.0f; a.heading += kPi * 0.5f; }
             else { a.x = nx; a.y = ny; }
+        } else if (!watching) {
+            // Standing pedestrians still give way to others who bump them.
+            for (size_t bi = 0; bi < m_actors.size(); bi++) {
+                if (bi == ai) continue;
+                const float dx = a.x - m_actors[bi].x, dy = a.y - m_actors[bi].y, d2 = dx * dx + dy * dy;
+                if (d2 < 0.6f * 0.6f && d2 > 1e-4f) {
+                    const float d = std::sqrt(d2);
+                    const float nx = a.x + dx / d * (0.6f - d) * 3.0f * dt, ny = a.y + dy / d * (0.6f - d) * 3.0f * dt;
+                    if (!(blocked && blocked(nx, ny, a.x, a.y, a.z))) { a.x = nx; a.y = ny; }
+                }
+            }
         }
         if (groundAt) {
             const float g = groundAt(a.x, a.y, a.z + 1.0f);
@@ -288,13 +355,18 @@ void Peds::Draw(D3DRenderer& r) {
         auto it = m_models.find(a.model);
         if (it == m_models.end() || !it->second.valid) continue;
         Model& m = it->second;
-        const AnimClip* clip = a.walking && m.walk ? m.walk : m.idle;
+        const AnimClip* clip = a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
         Pose(m, clip, a.animTime);
+        // Stand the posed feet on the ground: the animation sets the pelvis height, the bind pose does not.
+        float footZ = 1e9f;
+        for (const MeshVertex& v : m.skinned) footZ = std::min(footZ, v.z);
         const float ang = a.heading - kPi * 0.5f, c = std::cos(ang), s = std::sin(ang);
-        D3DMATRIX w = {c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, a.x, a.y, a.z - m.feetZ, 1};
+        D3DMATRIX w = {c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, a.x, a.y, a.z - footZ, 1};
         dev->SetTransform(D3DTS_WORLD, &w);
-        r.UpdateMeshVertices(m.mesh, m.skinned.data(), (uint32_t)m.skinned.size());
-        r.DrawMesh(m.mesh);
+        for (D3DRenderMesh* me : m.meshes) {
+            r.UpdateMeshVertices(me, m.skinned.data(), (uint32_t)m.skinned.size());
+            r.DrawMesh(me);
+        }
     }
 }
 
