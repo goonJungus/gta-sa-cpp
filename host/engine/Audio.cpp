@@ -163,18 +163,21 @@ Audio::Bank& Audio::GetBank(int id) {
     std::vector<Entry> e(count);
     for (int i = 0; i < count; i++) memcpy(&e[i], raw.data() + 4 + i * 12, 12);
     for (int i = 0; i < count; i++) {
-        uint32_t end = (i + 1 < count) ? e[i + 1].off : (uint32_t)got;
+        // sound offsets count from the end of the header
+        const uint32_t dataLen = (uint32_t)got - kHeaderBytes;
+        uint32_t end = (i + 1 < count) ? e[i + 1].off : dataLen;
         Sound s;
-        if (e[i].off < got && end > e[i].off && end <= got) {
+        if (e[i].off < dataLen && end > e[i].off && end <= dataLen) {
             size_t n = (end - e[i].off) / 2;
             s.pcm.resize(n);
-            memcpy(s.pcm.data(), raw.data() + e[i].off, n * 2);
+            memcpy(s.pcm.data(), raw.data() + kHeaderBytes + e[i].off, n * 2);
         }
         s.freq = e[i].freq ? e[i].freq : 22050;
-        s.loopStart = e[i].loop > 0 && e[i].loop != 0xFFFFFFFFu ? (int)(e[i].loop / 2) : 0;
-        // headroom is in hundredths of a dB
-        s.gain = std::pow(10.0f, e[i].head / 2000.0f);
-        if (s.gain > 1.0f) s.gain = 1.0f;
+        // loop start is in samples; 0xFFFFFFFF = the sound does not loop
+        s.loopStart = e[i].loop != 0xFFFFFFFFu && (int64_t)e[i].loop < (int64_t)s.pcm.size() ? (int)e[i].loop : 0;
+        // headroom is in hundredths of a dB and is taken off the volume
+        s.gain = std::pow(10.0f, -e[i].head / 2000.0f);
+        if (s.gain > 2.0f) s.gain = 2.0f;
         b.sounds.push_back(std::move(s));
     }
     return b;
@@ -246,9 +249,16 @@ void Audio::Mix(int16_t* out, int frames) {
                     if (p >= n) p = 0;
                 }
                 float f = (float)(v.pos - p);
-                float a = s.pcm[p];
-                float c = p + 1 < n ? s.pcm[p + 1] : (v.loop ? s.pcm[s.loopStart] : 0.0f);
-                float smp = (a + (c - a) * f) * g0;
+                // 4-point Hermite: linear interpolation of 16 kHz material imaged badly (crunchy)
+                auto at = [&](int k) -> float {
+                    if (k < 0) return s.pcm[0];
+                    if (k >= n) return v.loop ? s.pcm[s.loopStart + (k - n) % std::max(1, n - s.loopStart)] : 0.0f;
+                    return s.pcm[k];
+                };
+                const float y0 = at(p - 1), y1 = at(p), y2 = at(p + 1), y3 = at(p + 2);
+                const float c1 = 0.5f * (y2 - y0), c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+                const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+                float smp = (((c3 * f + c2) * f + c1) * f + y1) * g0;
                 acc[i * 2] += smp * gl;
                 acc[i * 2 + 1] += smp * gr;
                 v.pos += step;
@@ -364,7 +374,12 @@ void Audio::Step(int bank, float vol, float pan) {
     int n = SoundCount(bank);
     if (n <= 0) { bank = BANK_FEET_GENERIC; n = SoundCount(bank); }
     if (n <= 0) return;
-    Play(bank, Rand(n), vol, pan, 0.92f + Rand(17) * 0.01f);
+    // footstep variations 0..6 are the steps (7, 8 are heavier), never the same one twice running
+    static int s_last = -1;
+    int pick = Rand(std::min(n, 7));
+    if (n > 1 && pick == s_last) pick = (pick + 1) % std::min(n, 7);
+    s_last = pick;
+    Play(bank, pick, vol, pan, 0.96f + Rand(9) * 0.01f);
 }
 
 void Audio::Ui(int cue) {

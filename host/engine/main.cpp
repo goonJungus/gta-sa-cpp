@@ -3484,7 +3484,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 bool air = g_cj.InAir();
                 if (s_havePrev && !air && !g_cj.Swimming()) {
                     s_stepDist += hypotf(playerX - s_prevX, playerY - s_prevY);
-                    if (s_stepDist >= 1.25f) { s_stepDist = 0.0f; g_audio.Step(BANK_FEET_GENERIC, 0.5f); }
+                    const float spd = hypotf(g_cj.VelX(), g_cj.VelY());
+                    if (s_stepDist >= 0.6f + 0.2f * spd) { s_stepDist = 0.0f; g_audio.Step(BANK_FEET_GENERIC, 0.35f + 0.04f * std::min(spd, 6.0f)); }
                 }
                 if (!s_wasAir && air) g_audio.Step(BANK_FEET_GENERIC, 0.4f);   // take-off
                 s_wasAir = air; s_prevX = playerX; s_prevY = playerY; s_havePrev = true;
