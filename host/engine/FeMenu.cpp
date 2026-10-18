@@ -919,7 +919,7 @@ void FeMenu::DrawMap(Fe2d& g) {
         if (dist >= 1000.0f) std::snprintf(buf, sizeof(buf), "WAYPOINT   %.1f km", dist / 1000.0f);
         else std::snprintf(buf, sizeof(buf), "WAYPOINT   %d m", (int)dist);
         m_font.SetColor(0xFFE2C063);
-        m_font.Print(g, r - Sx(40), b - lh * 1.4f, buf);
+        m_font.Print(g, r - Sx(40), b - Sy(64) - lh * 1.3f, buf);
     }
     if (m_mouse && m_mx >= 0 && m_my >= 0) {
         g.DrawTex(m_mouse, m_mx + Sx(6), m_my + Sy(3), m_mx + Sx(24), m_my + Sy(21), 0x32646464);
