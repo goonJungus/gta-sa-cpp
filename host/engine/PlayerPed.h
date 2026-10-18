@@ -188,7 +188,7 @@ private:
         bool autoRemove = false;         // ANIMATION_IS_FINISH_AUTO_REMOVE: gone once it has played through
     };
 
-    bool ArmedGroup() const;
+    int MoveSetId() const;
     const AnimClip* Clip(const char* name) const;
     Assoc* Get(const AnimClip* c);
     bool Active(const AnimClip* c) { const Assoc* a = Get(c); return a && a->delta >= 0.0f; }
@@ -304,7 +304,7 @@ private:
     // CTaskSimpleSwim
     enum class SwimState { Tread, Sprint, Sprinting, Dive, Under, BackToSurface };
     bool m_swimming = false;
-    bool m_armedPrev = false;   // last frame's anim group (PLAYER2ARMED)
+    int m_moveSet = 0;   // last frame's move set (0 player, 1 armed, 2 rocket, 3 chainsaw)
     SwimState m_swimState = SwimState::Tread;
     float m_swimPitch = 0.0f;                  // m_fRotationX: positive dives
     float m_swimVelZ = 0.0f;

@@ -1259,7 +1259,7 @@ IDirect3DTexture9* GameWorld::GetTexture(const std::string& txdName,
     if (!src) {
         if (m_texMiss.insert(key).second) {
             static std::set<std::string> s_missLogged;
-            if (s_missLogged.insert(key).second)
+            if (s_missLogged.insert(key).second && std::getenv("GTA_TEXMISS"))   // retail misses these too; opt-in log
                 std::fprintf(stderr, "[World] TEXMISS %s\n", key.c_str());
         }
         // Still nowhere: draw it untextured, like retail. RW's texture find

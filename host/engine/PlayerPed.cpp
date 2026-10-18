@@ -195,27 +195,33 @@ std::vector<uint8_t> Composite(const TxdTexture& base, const TxdTexture* over) {
 
 }  // namespace
 
-// CPlayerPed::ProcessAnimGroups: long guns use the PLAYER2ARMED group (no sprint, no run stop).
-bool PlayerPed::ArmedGroup() const {
-    static const char* const kLong[] = {"SHOTGUN", "SPAS12", "AK47", "M4", "COUNTRYRIFLE", "SNIPERRIFLE"};
+// CPlayerPed::ProcessAnimGroups: the move set follows the weapon in hand.
+namespace {
+struct MoveSet { const char *idle, *walk, *run, *start; };   // null sprint / run stop: the group has none
+const MoveSet kSets[] = {{"idle_stance", "walk_player", "run_player", "walk_start"},
+                         {"idle_armed", "walk_armed", "run_armed", "walk_start_armed"},      // PLAYER2ARMED
+                         {"idle_rocket", "walk_rocket", "run_rocket", "walk_start_rocket"},  // PLAYERROCKET
+                         {"idle_csaw", "walk_csaw", "run_csaw", "walk_start_csaw"}};         // PLAYERCSAW
+}  // namespace
+
+int PlayerPed::MoveSetId() const {
+    static const struct { const char* gun; int set; } kGuns[] = {
+        {"SHOTGUN", 1}, {"SPAS12", 1}, {"AK47", 1}, {"M4", 1}, {"COUNTRYRIFLE", 1}, {"SNIPERRIFLE", 1},
+        {"ROCKET", 2}, {"HEATSEEKER", 2}, {"CHAINSAW", 3}, {"FLAMETHROWER", 3}, {"MINIGUN", 3}};
     const char* id = GunId();
-    for (const char* n : kLong)
-        if (!strcmp(id, n)) return true;
-    return false;
+    for (const auto& g : kGuns)
+        if (!strcmp(id, g.gun)) return g.set;
+    return 0;   // the baseball bat group (PLAYERBBBAT) uses the plain player set
 }
 
 const AnimClip* PlayerPed::Clip(const char* name) const {
-    if (ArmedGroup()) {
-        static const struct { const char *from, *to; } kMap[] = {
-            {"idle_stance", "idle_armed"}, {"walk_player", "walk_armed"}, {"run_player", "run_armed"},
-            {"sprint_civi", nullptr}, {"walk_start", "walk_start_armed"}, {"run_stop", nullptr},
-            {"run_stopr", nullptr}};
-        for (const auto& m : kMap)
-            if (!strcmp(name, m.from)) {
-                if (!m.to) return nullptr;
-                name = m.to;
-                break;
-            }
+    if (const int set = MoveSetId()) {
+        const MoveSet& m = kSets[set];
+        if (!strcmp(name, "idle_stance")) name = m.idle;
+        else if (!strcmp(name, "walk_player")) name = m.walk;
+        else if (!strcmp(name, "run_player")) name = m.run;
+        else if (!strcmp(name, "walk_start")) name = m.start;
+        else if (!strcmp(name, "sprint_civi") || !strcmp(name, "run_stop") || !strcmp(name, "run_stopr")) return nullptr;
     }
     auto it = m_clips.find(name);
     return it == m_clips.end() ? nullptr : &it->second;
@@ -1205,20 +1211,19 @@ void PlayerPed::ApplyAimIK(const Input& in) {
 void PlayerPed::Update(const Input& in) {
     if (!m_ready) return;
     const float dt = in.dt;
-    if (ArmedGroup() != m_armedPrev) {   // CPed::ReApplyMoveAnims: swap the move set in place
-        static const char* const kPairs[][2] = {{"idle_stance", "idle_armed"}, {"walk_player", "walk_armed"},
-                                                {"run_player", "run_armed"}, {"walk_start", "walk_start_armed"}};
-        const bool toArmed = !m_armedPrev;
-        for (const auto& pr : kPairs) {
-            auto a = m_clips.find(pr[toArmed ? 0 : 1]), b = m_clips.find(pr[toArmed ? 1 : 0]);
+    if (MoveSetId() != m_moveSet) {   // CPed::ReApplyMoveAnims: swap the move set in place
+        const MoveSet &from = kSets[m_moveSet], &to = kSets[MoveSetId()];
+        const char *const f[] = {from.idle, from.walk, from.run, from.start}, *const t[] = {to.idle, to.walk, to.run, to.start};
+        for (int i = 0; i < 4; i++) {
+            auto a = m_clips.find(f[i]), b = m_clips.find(t[i]);
             if (a == m_clips.end() || b == m_clips.end()) continue;
             for (Assoc& as : m_assocs)
-                if (as.clip == &a->second) { as.clip = &b->second; }
+                if (as.clip == &a->second) as.clip = &b->second;
         }
-        if (toArmed)   // no sprint / run stop in this group
+        if (MoveSetId())   // no sprint / run stop in these groups
             for (const char* n : {"sprint_civi", "run_stop", "run_stopr"})
                 if (auto it = m_clips.find(n); it != m_clips.end()) Remove(&it->second);
-        m_armedPrev = !m_armedPrev;
+        m_moveSet = MoveSetId();
     }
     m_damageFlash = std::max(0.0f, m_damageFlash - dt * 1.5f);
     if (Underwater()) {   // air in the lungs; empty lungs drown CJ
