@@ -71,6 +71,7 @@ if(WIN32)
         host/engine/Script.cpp
         host/engine/VorbisDecoder.cpp
         host/engine/Radio.cpp
+        host/engine/Peds.cpp
         host/engine/Hud.cpp
         host/engine/Audio.cpp
         host/engine/Effects.cpp

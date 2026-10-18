@@ -52,6 +52,7 @@
 #include "Vehicle.h"
 #include "Script.h"
 #include "Radio.h"
+#include "Peds.h"
 #include "PlayerPed.h"
 #include "Camera.h"
 #include "CameraShake.h"
@@ -422,6 +423,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // ResolveGameDir; nothing machine-specific is compiled in.
 static std::string g_gameDir;
 static Vehicles g_vehicles;
+static Peds g_peds;
 static int g_vehSpawnIdx = 0;
 
 static bool IsGameDir(const std::string& d) {
@@ -1212,6 +1214,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
     g_vehicles.Init(g_renderer, GameDir());
+    g_peds.Init(g_renderer, GameDir());
     if (getenv("GTA_SCMTEST")) {   // dev: run the main script's core language and report where it stops
         ScmMachine scm;
         if (scm.Init(GameDir())) {
@@ -2121,6 +2124,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz + 0.1f, std::atan2(fy, fx) - 1.57079633f);
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
             }
+            if (DevKeyPressed('P') && g_peds.Ready()) {   // dev: a pedestrian ahead of CJ
+                float fx = playerX - camPosX, fy = playerY - camPosY;
+                const float fl = std::sqrt(fx * fx + fy * fy);
+                if (fl < 0.01f) { fx = cosf(yaw); fy = sinf(yaw); } else { fx /= fl; fy /= fl; }
+                static int s_pedSlot = 0;   // each spawn lands a little further to the right so they do not stack
+                const float side = (float)(s_pedSlot++ % 5 - 2) * 1.2f;
+                const float sx = playerX + fx * 3.5f + fy * side, sy = playerY + fy * 3.5f - fx * side;
+                const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
+                const int n = g_peds.Spawn(g_renderer, -1, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(-fy, -fx));
+                Log("DEV: spawned ped %d", n);
+            }
             if (DevKeyPressed(VK_F4)) {
                 g_devNoClip = !g_devNoClip;
                 Log("DEV: noclip %s", g_devNoClip ? "ON (free fly)" : "OFF");
@@ -2947,6 +2961,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
 
+            g_peds.Update(dt, [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
+                          [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z, ox, oy, 0.4f, 0.3f, 1.8f); });
             // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
             {
                 static bool s_prevF = false;
@@ -3180,6 +3196,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // against it instead of the old "player drawn over everything".
             drawPlayerBox();
             g_vehicles.Draw(g_renderer);
+            g_peds.Draw(g_renderer);
             // Water (translucent) before the world's alpha meshes: it's a far,
             // low surface, so nearer glass/foliage blends over it.
             // Wavyness = WindClipped + 0.3 in CWeather::Update; there is no wind yet.
