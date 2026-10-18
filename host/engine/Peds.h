@@ -33,6 +33,10 @@ public:
     void Update(float dt, const std::function<float(float, float, float)>& groundAt,
                 const std::function<bool(float, float, float, float, float)>& blocked);
     void Draw(D3DRenderer& r);
+    // Keep about `target` civilians around (px, py): spawn on the ground in a ring in front of and around
+    // the player, remove the ones that fell far behind. target 0 clears the crowd.
+    void Populate(D3DRenderer& r, float px, float py, float pz, int target,
+                  const std::function<float(float, float, float)>& groundAt);
 
 private:
     struct Model {
@@ -54,6 +58,7 @@ private:
         float x = 0, y = 0, z = 0, heading = 0;   // heading 0 faces +x
         float animTime = 0.0f, turnTimer = 0.0f, walkTimer = 0.0f;
         bool walking = false;
+        bool crowd = false;               // spawned by Populate, removed again when far away
     };
 
     Model* GetModel(D3DRenderer& r, int id);

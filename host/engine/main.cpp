@@ -424,6 +424,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 static std::string g_gameDir;
 static Vehicles g_vehicles;
 static Peds g_peds;
+static int g_crowdTarget = 0;   // ambient pedestrians around CJ (key O toggles, GTA_PEDS=n sets it)
 static int g_vehSpawnIdx = 0;
 
 static bool IsGameDir(const std::string& d) {
@@ -1215,6 +1216,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
     g_vehicles.Init(g_renderer, GameDir());
     g_peds.Init(g_renderer, GameDir());
+    if (const char* e = getenv("GTA_PEDS")) g_crowdTarget = atoi(e);
     if (getenv("GTA_SCMTEST")) {   // dev: run the main script's core language and report where it stops
         ScmMachine scm;
         if (scm.Init(GameDir())) {
@@ -2966,6 +2968,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
 
+            if (DevKeyPressed('O')) { g_crowdTarget = g_crowdTarget ? 0 : 12; Log("DEV: crowd target %d", g_crowdTarget); }
+            g_peds.Populate(g_renderer, playerX, playerY, playerZ - EYE_HEIGHT, g_crowdTarget,
+                            [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); });
+            if (g_crowdTarget && (frame % 60) == 0) Log("PEDS: %zu actors", g_peds.Count());
             g_peds.Update(dt, [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
                           [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z, ox, oy, 0.4f, 0.3f, 1.8f); });
             // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
