@@ -274,6 +274,7 @@ private:
         float loopStart = 0, loopEnd = 0, fireTime = 0, reloadTime = 1.0f;   // seconds (standing loop)
         float loop2Start = 0, loop2End = 0, fire2Time = 0;                   // the crouched loop (weapon.dat anim loop 2)
         float moveSpeed = 1.0f;                                              // weapon.dat move speed
+        float barrel[3] = {0, 1, 0};                                         // barrel direction in hand space (long axis of the model, grip to muzzle)
     float damage = 10.0f, range = 30.0f;                                 // weapon.dat damage and weapon range
         bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
         float fireOffset[3] = {0, 0, 0};

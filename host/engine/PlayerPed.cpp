@@ -1147,6 +1147,20 @@ void PlayerPed::ApplyAimIK(const Input& in) {
     for (float& v : f0) v /= l0;
     for (float& v : f1) v /= l1;
     rotateSubtree(fe, f0, f1, E1);
+    // Level the barrel with the aim: the clip's wrist angle can leave the gun tilted off the aim
+    // direction (the silenced pistol and the sawn-off pitch up), so turn the hand until it points along it.
+    {
+        const RwMat& hm = m_globals[fh];
+        const float* b = m_guns[m_gun].barrel;
+        float cur[3];
+        for (int k = 0; k < 3; k++) cur[k] = b[0] * hm.m[0][k] + b[1] * hm.m[1][k] + b[2] * hm.m[2][k];
+        const float cl = len(cur);
+        if (cl > 1e-4f) {
+            for (float& v : cur) v /= cl;
+            const float pv[3] = {hm.m[3][0], hm.m[3][1], hm.m[3][2]};
+            rotateSubtree(fh, cur, dir, pv);
+        }
+    }
 }
 
 // ---- Frame update ----

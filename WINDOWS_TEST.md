@@ -1,0 +1,13 @@
+# Windows test checklist
+
+Build with MSVC (`cmake --build build/gta_sa --config Release --parallel 16`). `gta` opens classic, `gta --rewrite` opens rewrite.
+
+- [ ] Sidewalk collisions: walk along curbs and thin edges. Any sticking?
+- [ ] Swim out: swim to a ledge and jump. Does CJ climb out and animate after?
+- [ ] Lay flat after a climb: canal vault at 2624.64, -1948.57 with W held. If it still happens, run with `GTA_CJLOG=1` and keep the log.
+- [ ] Trackpad and window on Wayland / Hyprland over VNC.
+- [ ] Spanish: Options > Language > Spanish; check menus and HUD. Check the French, German and Italian wording too.
+- [ ] Display page: Brightness, Radar Mode, HUD Mode, MIP Mapping, Restore Defaults.
+- [ ] Controller: menu navigation, weapon wheel on LB, analog movement, tap A to sprint.
+- [ ] Effects: water splashes, landing dust, sprint FOV kick (rewrite only).
+- [ ] Guns: backtick freecam, check every gun for finger clipping and tilt. Report which ones.

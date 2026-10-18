@@ -199,6 +199,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
             }
             DffModel m = dffData.empty() ? DffModel() : DffLoader::LoadFromMemory(dffData.data(), dffData.size());
             const std::vector<GeomXf> gx = dffData.empty() ? std::vector<GeomXf>() : GeometryFrames(dffData);
+            float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
             for (DffMesh& dm : m.meshes) {
                 const size_t gi = (size_t)dm.geometry;
                 if (dm.vertices.empty() || dm.indices.empty()) continue;
@@ -214,6 +215,11 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
                         v.nz = nx * f[2] + ny * f[5] + nz * f[8];
                     }
                 }
+                if (TxdLoader::KeyOf(dm.textureName) != TxdLoader::KeyOf("muzzle_texture4"))
+                    for (const DffVertex& v : dm.vertices) {
+                        const float c[3] = {v.x, v.y, v.z};
+                        for (int k = 0; k < 3; k++) { lo[k] = std::min(lo[k], c[k]); hi[k] = std::max(hi[k], c[k]); }
+                    }
                 D3DRenderMesh* mesh = r.CreateMesh(reinterpret_cast<const MeshVertex*>(dm.vertices.data()),
                                                    (uint32_t)dm.vertices.size(), dm.indices.data(),
                                                    (uint32_t)dm.indices.size());
@@ -228,6 +234,12 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
                 }
                 const bool flash = TxdLoader::KeyOf(dm.textureName) == TxdLoader::KeyOf("muzzle_texture4");
                 (flash ? g.muzzle : g.meshes).push_back(mesh);
+            }
+            if (hi[0] >= lo[0]) {   // barrel: the model's long axis, pointing away from the grip
+                int ax = 0;
+                for (int k = 1; k < 3; k++) if (hi[k] - lo[k] > hi[ax] - lo[ax]) ax = k;
+                g.barrel[0] = g.barrel[1] = g.barrel[2] = 0.0f;
+                g.barrel[ax] = (hi[ax] + lo[ax]) < 0.0f ? -1.0f : 1.0f;
             }
         }
         g.ammo = g.clipSize;
