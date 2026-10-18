@@ -65,6 +65,8 @@ struct HudData {
     bool reloading = false;
     const char* weaponName = "";
     bool aiming = false;
+    float crossX = 0.5f, crossY = 0.5f;
+    float crossRadius = 0.2f;              // CPlayerPed::GetWeaponRadiusOnScreen   // crosshair, fraction of the screen (CCamera::m_f3rdPersonCHairMultX / Y)
     float spread = 0.0f;           // 0..1 crosshair widening (moving, firing)
     bool firstPerson = false;
     // Radar and map

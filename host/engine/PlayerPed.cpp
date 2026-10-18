@@ -1252,21 +1252,52 @@ void PlayerPed::UpdateArmChain(int side, bool want, const float target[3], float
     }
 }
 
+// CPedIK::RotateTorsoForArm @ 005fdf90: a target more than 45 degrees to the left (up to 90) or
+// more than 60 degrees to the right turns the upper torso and the neck half the excess each.
+// Model space: the ped faces +Y.
+void PlayerPed::RotateTorsoForArm(const float target[3]) {
+    const float dif = std::atan2(-target[0], target[1]);   // + = left of the facing
+    const float d45 = kPi / 4.0f, d60 = kPi / 3.0f;
+    float res;
+    if (dif > d45 && dif <= kPi / 2.0f) res = dif - d45;
+    else if (dif >= -d60) return;
+    else res = dif < -kPi * 80.0f / 180.0f ? -kPi / 9.0f : dif + d60;
+    const float up[3] = {0, 0, 1};
+    for (int bone : {3, 4}) {   // upper torso, then the neck (bRotateWithNeck)
+        const int f = m_frameOfBone[bone];
+        if (f < 0) continue;
+        const float pv[3] = {m_globals[f].m[3][0], m_globals[f].m[3][1], m_globals[f].m[3][2]};
+        const RwMat rot = AxisRotation(up, res * 0.5f, pv);
+        for (size_t g = 0; g < m_skeleton.size(); g++)
+            for (int p = (int)g; p >= 0; p = m_skeleton[p].parent)
+                if (p == f) { m_globals[g] = m_globals[g] * rot; break; }
+    }
+}
+
 // CTaskSimpleUseGun::AimGun @ 0061ed10: a gun with the arm flag (0x2) is pointed by the right
 // arm chain; any other gun, or any gun while ducking, by the torso (CPedIK::PointGunInDirection).
 void PlayerPed::ApplyAimIK(const Input& in) {
     const bool armAim = m_aiming && m_gun >= 0 && m_guns[m_gun].aimWithArm && !m_ducking && !std::getenv("GTA_NOAIMIK");
+    // the look pitch: the crosshair ray's (CCamera::Find3rdPersonQuickAimPitch), else the camera's
+    const float lookPitch = in.haveAimRay ? std::asin(std::clamp(in.aimDir[2], -1.0f, 1.0f)) : in.camPitch;
     {
-        // third-person free aim: a point far out along the camera's aim from the shoulder
-        const int fu = m_frameOfBone[22];
-        float tgt[3] = {0, 0, 0};
-        if (fu >= 0) {
-            const float a = std::clamp(in.camPitch, -1.4f, 1.4f);
-            for (int k = 0; k < 3; k++) tgt[k] = m_globals[fu].m[3][k];
-            tgt[1] += std::cos(a) * 20.0f;
-            tgt[2] += std::sin(a) * 20.0f;
+        // CTaskSimpleUseGun::AimGun free aim: CCamera::Find3rdPersonCamTargetVector(20, ped + (0, 0, 0.7))
+        // - the camera ray through the crosshair, from its point nearest the ped, 20 m out. Model space.
+        const float h = m_heading - kPi * 0.5f, c = std::cos(h), sn = std::sin(h);
+        auto toModelDir = [&](const float* w, float* o) { o[0] = w[0] * c + w[1] * sn; o[1] = -w[0] * sn + w[1] * c; o[2] = w[2]; };
+        float tgt[3] = {0.0f, std::cos(lookPitch) * 20.0f, 0.7f + std::sin(lookPitch) * 20.0f};
+        if (in.haveAimRay) {
+            float d[3], e[3];
+            toModelDir(in.aimDir, d);
+            const float rel[3] = {in.aimEye[0] - in.worldX, in.aimEye[1] - in.worldY, 0.0f};
+            toModelDir(rel, e);
+            e[2] = in.aimEye[2] - in.feetZ + m_bindMinZ;
+            const float muzzle[3] = {0.0f, 0.0f, 0.7f};
+            const float along = (muzzle[0] - e[0]) * d[0] + (muzzle[1] - e[1]) * d[1] + (muzzle[2] - e[2]) * d[2];
+            for (int k = 0; k < 3; k++) tgt[k] = e[k] + d[k] * (along + 20.0f);
         }
-        UpdateArmChain(0, armAim && fu >= 0, tgt, in.dt);
+        if (armAim) RotateTorsoForArm(tgt);
+        UpdateArmChain(0, armAim, tgt, in.dt);
     }
     if (armAim && std::getenv("GTA_AIMDBG") && m_frameOfBone[24] >= 0) {
         static int n = 0;
@@ -1285,7 +1316,7 @@ void PlayerPed::ApplyAimIK(const Input& in) {
     {
         const int spine = m_frameOfBone[3];   // BONE_SPINE1: the torso, arms and head hang off it
         if (spine < 0) return;
-        const float a = std::clamp(in.camPitch, -0.95993f, 1.04720f);   // ms_torsoInfo: pitch limits -55 .. +60 degrees
+        const float a = std::clamp(lookPitch, -0.95993f, 1.04720f);   // ms_torsoInfo: pitch limits -55 .. +60 degrees
         const float right[3] = {1, 0, 0}, up[3] = {0, 0, 1};
         auto turnTorso = [&](const float* axis, float ang) {
             if (std::fabs(ang) < 1e-4f) return;
@@ -1795,7 +1826,13 @@ void PlayerPed::ControlStance(const Input& in) {
     if (!m_ducking && !m_aiming) { LeaveStance(in.rewrite, false, false); return; }
     m_ratio = 0.0f;
 
-    if (m_aiming) m_aimHeading = in.camYaw;       // face where the camera looks
+    if (m_aiming) {
+        m_aimHeading = in.camYaw;   // face where the camera looks
+        // CCam::Process_AimWeapon: a gun aimed with the torso turns the ped to the crosshair ray,
+        // 0.05 rad further right (classic; the rewrite crosshair is centred)
+        if (!in.rewrite && in.haveAimRay && m_gun >= 0 && (!m_guns[m_gun].aimWithArm || m_ducking))
+            m_aimHeading = std::atan2(in.aimDir[1], in.aimDir[0]) - 0.05f;
+    }
     else if (mag > 0.0f) m_aimHeading = std::atan2(sy, sx);
 
     // stick in the ped's own frame: ly forward, lx right
