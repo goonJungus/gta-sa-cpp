@@ -505,6 +505,7 @@ void Hud::DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh) {
         Bar(g, hx(96.0f), by, 134.0f * ref, bh, d.health * 100.0f / d.maxHealth, hc, true);
         Bar(g, hx(233.0f), by, (d.showBreath ? 65.0f : 133.0f) * ref, bh, d.armor, 0xCD5E9FE0, true);
         if (d.showBreath) Bar(g, hx(301.0f), by, 65.0f * ref, bh, d.breath * 100.0f, 0xCDB8E4FF, true);
+        if (d.stamina < 0.995f) Bar(g, hx(96.0f), by - 8.0f * ref, 270.0f * ref, 4.0f * ref, d.stamina * 100.0f, 0xCDF2C94C, true);
     } else {
         const float bh = 9.0f * ref;
         Bar(g, hx(96.0f), hb(68.0f), 134.0f * ref, bh, d.health * 100.0f / d.maxHealth, 0xCD6CC46A, true);

@@ -43,6 +43,7 @@ struct HudData {
 
     float health = 100, maxHealth = 100, armor = 0;
     float breath = 1.0f;           // 0..1
+    float stamina = 1.0f;          // 0..1, shown when it is not full
     bool showBreath = false;
     float damageFlashAmount = 0.0f;
     int money = 0;

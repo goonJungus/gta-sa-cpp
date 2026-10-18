@@ -95,6 +95,7 @@ static bool g_devPaused    = false;
 static bool g_devLighting  = true;
 static int  g_devShotIdx   = 0;
 static bool g_autoWalk     = false;    // --walk: force-walk forward + log pos (headless collision probe)
+static float g_stamina     = 1.0f;     // sprint stamina 0..1
 static int  g_autoGait     = 0;        // --gait: 0 run, 1 walk, 2 sprint, 3 run + keep jumping (with --walk)
 static bool g_probeCollision = false;  // --probe-collision: dump a solidity report at --pos after streaming
 static bool g_keyState[256] = { false };
@@ -2565,7 +2566,25 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.stickX = mx;
                 pin.stickY = my;
                 pin.walk = (GameKey(VK_MENU) & 0x8000) || (g_autoWalk && g_autoGait == 1);
-                pin.sprint = (GameKey(VK_SPACE) & 0x8000) || (g_autoWalk && g_autoGait == 2);
+                {   // Sprint: tap the sprint key repeatedly; each tap charges a burst, sprinting drains stamina.
+                    static bool s_prevSprintKey = false;
+                    static float s_sprintCharge = 0.0f, s_tired = 0.0f;
+                    const bool sprintKey = (GameKey(VK_SPACE) & 0x8000) != 0;
+                    const bool auto2 = g_autoWalk && g_autoGait == 2;
+                    if (sprintKey && !s_prevSprintKey) s_sprintCharge = std::min(1.2f, s_sprintCharge + 0.55f);
+                    s_prevSprintKey = sprintKey;
+                    const bool moving = mlen > 0.001f;
+                    const bool wantSprint = (s_sprintCharge > 0.0f && moving && onGround) || auto2;
+                    if (wantSprint && s_tired <= 0.0f) {
+                        g_stamina = std::max(0.0f, g_stamina - dt / 22.0f);
+                        if (g_stamina <= 0.0f) s_tired = 1.0f;   // out of breath: a jog until it comes back
+                    } else {
+                        g_stamina = std::min(1.0f, g_stamina + dt / 10.0f);
+                        if (s_tired > 0.0f && g_stamina > 0.3f) s_tired = 0.0f;
+                    }
+                    s_sprintCharge = std::max(0.0f, s_sprintCharge - dt);
+                    pin.sprint = wantSprint && s_tired <= 0.0f;
+                }
                 pin.onGround = onGround;
                 pin.jumped = jumped;
                 pin.velZ = velZ;
@@ -3102,6 +3121,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.dt = dt;
             hd.rewrite = hs.movementStyle == 1;
             hd.scale = hs.hudScale;
+            hd.stamina = g_stamina;
             hd.showHud = hs.showHud;
             hd.radarOn = hs.radarMode == 0;
             hd.crosshairDot = hs.crosshairDot; hd.hitMarker = hs.hitMarker; hd.damageFlash = hs.damageFlash;

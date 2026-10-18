@@ -762,9 +762,32 @@ void PlayerPed::Land(const Input& in) {
         else busy("ko_skid_back", "getup_front", false);   // ends in getup_front's first pose
     } else {
         const float mag = std::sqrt(in.stickX * in.stickX + in.stickY * in.stickY);
-        if (m_ratio > 1.5f && mag > 0.0f) {   // running: land on the move
+        if (m_ratio > 1.5f && mag > 0.0f) {   // running: land on the move, keep the stride
+            for (const AnimClip* c : {launch, jumpGlide, fallGlide, fall}) {
+                if (Assoc* a = Get(c)) a->delta = -8.0f;
+            }
+            // Bring the move anims back at once: the air clips replaced them and the
+            // run would otherwise start again from a standstill.
+            const AnimClip *walk = Clip("walk_player"), *run = Clip("run_player"), *sprint = Clip("sprint_civi");
+            Assoc* aWalk = Get(walk);
+            Assoc* aRun = Get(run);
+            if (!aWalk) { aWalk = Add(walk, true, true); }
+            if (!aRun) { aRun = Add(run, true, true); }
+            if (aWalk && aRun) {
+                aWalk->blend = 0.0f; aWalk->delta = 0.0f; aWalk->playing = true;
+                aRun->blend = 1.0f; aRun->delta = 0.0f; aRun->playing = true;
+            }
+            if (Assoc* aSp = Get(sprint)) aSp->delta = -8.0f;
+            if (in.sprint && Clip("sprint_civi")) {
+                Assoc* sp = Add(sprint, true, true);
+                sp->blend = 1.0f;
+                if (aRun) aRun->blend = 0.0f;
+            }
             m_landClip = Clip("jump_land");
-            if (m_landClip) Blend(m_landClip, false, false, 8.0f);
+            if (m_landClip) {   // layered over the run, not replacing it
+                Assoc* l = Add(m_landClip, false, false);
+                l->blend = 0.5f;
+            }
         } else {
             busy("fall_land", nullptr, true);
         }
@@ -938,7 +961,10 @@ void PlayerPed::ProcessClimb(const Input& in) {
             else { m_cRel[0] = fx * 0.05f * 50.0f; m_cRel[1] = fy * 0.05f * 50.0f; m_cRel[2] = -0.01f * 50.0f; }
             m_airVelX = m_cRel[0]; m_airVelY = m_cRel[1];
             m_climbing = false; m_busy = false;
-            if (Assoc* c = Get(m_cClip)) c->delta = -8.0f;
+            // Everything fades out, not only the last climb clip: with the move keys held the
+            // walk/run clips come in at once and a clip left at full weight would freeze the body in its
+            // final (flat) pose.
+            for (Assoc& a : m_assocs) a.delta = -8.0f;
             m_cClip = nullptr;
             m_inAir = m_cHPos == CFINV;   // a vault lands through the fall
             return;

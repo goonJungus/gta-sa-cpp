@@ -2079,7 +2079,7 @@ bool GameWorld::HitsSolidCircle(float x, float y, float feetZ, float ox, float o
                 float nz = ux*vy - uy*vx;                    // z of cross(u,v)
                 float nlen = std::sqrt((uy*vz-uz*vy)*(uy*vz-uz*vy) +
                                        (uz*vx-ux*vz)*(uz*vx-ux*vz) + nz*nz);
-                if (nlen < 1e-6f) continue;
+                if (nlen < 0.02f) continue;                  // slivers (area < 1 cm2... paper-thin leftovers) never block
                 if (fabsf(nz) / nlen > 0.5f) continue;       // >~60deg from vertical = walkable
                 if (!CircleTriHit2D(x, y, radius, t)) continue;
                 if (MoveBlocked(TriClearance2D(ox, oy, t), TriClearance2D(x, y, t), radius)) return true;
