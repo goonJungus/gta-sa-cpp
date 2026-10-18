@@ -99,6 +99,12 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
         g.loopEnd = (float)std::atof((*row)[19].c_str()) * kFrame;
         g.fireTime = (float)std::atof((*row)[20].c_str()) * kFrame;
+        g.loop2Start = (float)std::atof((*row)[21].c_str()) * kFrame;
+        g.loop2End = (float)std::atof((*row)[22].c_str()) * kFrame;
+        g.fire2Time = (float)std::atof((*row)[23].c_str()) * kFrame;
+        g.moveSpeed = (float)std::atof((*row)[17].c_str());
+        // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
+        g.aimWithArm = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x2) != 0;
         g.reloadTime = 1.0f;
         g.fireOffset[0] = (float)std::atof((*row)[11].c_str());
         g.fireOffset[1] = (float)std::atof((*row)[12].c_str());
@@ -185,6 +191,8 @@ void PlayerPed::UpdateGun(const Input& in) {
     Gun& g = m_guns[m_gun];
     const GunSpec& sp = *g.spec;
     const bool crouch = m_ducking;
+    const float loopStart = crouch ? g.loop2Start : g.loopStart, loopEnd = crouch ? g.loop2End : g.loopEnd,
+                fireTime = crouch ? g.fire2Time : g.fireTime;
     const AnimClip* fireClip = Clip(crouch && sp.crouchFire && Clip(sp.crouchFire) ? sp.crouchFire : sp.fire);
     const AnimClip* relClip = Clip(crouch && sp.crouchReload && Clip(sp.crouchReload) ? sp.crouchReload
                                    : sp.reload ? sp.reload : "");
@@ -202,7 +210,7 @@ void PlayerPed::UpdateGun(const Input& in) {
         fa = Add(fireClip, false, false);
         fa->partial = true;
         fa->blend = 0.0f;
-        fa->time = g.loopStart;
+        fa->time = loopStart;
         fa->playing = false;
     }
     Assoc* ra = relClip ? Get(relClip) : nullptr;
@@ -241,7 +249,7 @@ void PlayerPed::UpdateGun(const Input& in) {
         if (done && ra) ra->playing = false;
         fa->delta = 0.0f;
         if (ra) ra->delta = 0.0f;
-        fa->time = g.loopStart;
+        fa->time = loopStart;
         fa->playing = false;
         return;
     }
@@ -252,7 +260,7 @@ void PlayerPed::UpdateGun(const Input& in) {
 
     const bool want = in.fireJust || (sp.continuous && in.fireHeld);
     if (!m_firing) {
-        fa->time = g.loopStart;
+        fa->time = loopStart;
         fa->playing = false;
         if (want && g.ammo == 0 && in.fireJust && g.total == 0) m_dryEvents++;
         if (want && g.ammo > 0 && fa->blend > 0.9f) {
@@ -262,16 +270,16 @@ void PlayerPed::UpdateGun(const Input& in) {
         }
     }
     if (m_firing) {
-        if (!m_shotDone && fa->time >= g.fireTime) {
+        if (!m_shotDone && fa->time >= fireTime) {
             m_shotDone = true;
             g.ammo--;
             m_shotEvents++;
             std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
         }
-        if (fa->time >= g.loopEnd || fa->finished) {
+        if (fa->time >= loopEnd || fa->finished) {
             m_firing = false;
             fa->finished = false;
-            fa->time = g.loopStart;
+            fa->time = loopStart;
             fa->playing = false;
         }
     }

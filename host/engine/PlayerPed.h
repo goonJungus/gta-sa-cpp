@@ -171,6 +171,7 @@ private:
         bool keepRoot = false;           // climb clips: root XY stays in the pose, not extracted
         bool dead = false;               // removed; erased at the next Advance
         bool partial = false;            // upper-body overlay: scales the other clips down, no root motion
+        bool autoRemove = false;         // ANIMATION_IS_FINISH_AUTO_REMOVE: gone once it has played through
     };
 
     const AnimClip* Clip(const char* name) const;
@@ -259,7 +260,10 @@ private:
         std::string name;
         int clipSize = 0, ammo = 0, total = 0;
         IDirect3DTexture9* icon = nullptr;
-        float loopStart = 0, loopEnd = 0, fireTime = 0, reloadTime = 1.0f;   // seconds
+        float loopStart = 0, loopEnd = 0, fireTime = 0, reloadTime = 1.0f;   // seconds (standing loop)
+        float loop2Start = 0, loop2End = 0, fire2Time = 0;                   // the crouched loop (weapon.dat anim loop 2)
+        float moveSpeed = 1.0f;                                              // weapon.dat move speed
+        bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
         float fireOffset[3] = {0, 0, 0};
         std::vector<D3DRenderMesh*> meshes;
         std::vector<IDirect3DTexture9*> textures;

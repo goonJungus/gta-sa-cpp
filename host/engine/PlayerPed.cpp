@@ -452,6 +452,7 @@ void PlayerPed::Advance(float dt) {
             } else if (t >= dur) {
                 t = dur;
                 a.finished = true;
+                if (a.autoRemove) a.dead = true;
             }
             a.time = t;
             if (totalBlend > 0.0f && a.blend > 0.0f && !a.keepRoot && !a.partial) {
@@ -1031,6 +1032,22 @@ void PlayerPed::ApplyRewritePose() {
 // (forward, tipped by the camera pitch).
 void PlayerPed::ApplyAimIK(const Input& in) {
     if (!m_aiming || m_gun < 0) return;
+    // CTaskSimpleUseGun::AimGun: a weapon without the arm flag (rifles,
+    // shotguns, SMGs) or any gun while ducking is aimed with the body
+    // (CPedIK::PointGunAtPosition tips the torso), the rest with the arm.
+    if (!m_guns[m_gun].aimWithArm || m_ducking) {
+        const int spine = m_frameOfBone[3];   // BONE_SPINE1: the torso, arms and head hang off it
+        if (spine < 0) return;
+        const float a = std::clamp(in.camPitch * 0.75f, -0.6f, 0.6f);
+        if (std::fabs(a) < 1e-3f) return;
+        const float right[3] = {1, 0, 0};
+        const float pv[3] = {m_globals[spine].m[3][0], m_globals[spine].m[3][1], m_globals[spine].m[3][2]};
+        const RwMat rot = AxisRotation(right, a, pv);
+        for (size_t f = 0; f < m_skeleton.size(); f++)
+            for (int p = (int)f; p >= 0; p = m_skeleton[p].parent)
+                if (p == spine) { m_globals[f] = m_globals[f] * rot; break; }
+        return;
+    }
     const int fs = m_frameOfBone[22], fh = m_frameOfBone[24];
     if (fs < 0 || fh < 0) return;
     const float* s = m_globals[fs].m[3];
@@ -1449,6 +1466,7 @@ void PlayerPed::StanceBlend(const StanceW* ws, int n, float dt, float expResp, f
 // exitMoving / exitSprint: PlayerControlDucked starts the walk or run at a
 // move blend ratio of 1.0 / 1.5 when the stick is held past 0.5.
 void PlayerPed::LeaveStance(bool rewrite, bool exitMoving, bool exitSprint) {
+    const bool wasAiming = m_aiming && m_gun >= 0;
     m_ducking = m_aiming = false;
     m_duckX = m_duckY = 0.0f;
     m_aimPitch = m_aimPitchVel = 0.0f;
@@ -1463,6 +1481,17 @@ void PlayerPed::LeaveStance(bool rewrite, bool exitMoving, bool exitSprint) {
         if (const AnimClip* idle = Clip("idle_stance")) {
             Assoc* i = Blend(idle, true, false, 4.0f);   // MakeAbortable: BlendAnimation IDLE at 4
             i->delta = 4.0f;
+        }
+    // CTaskSimpleUseGun::RemoveStanceAnims (END_LEISURE): the gun comes down
+    // through Gun_2_IDLE, blended in at 8.
+    if (wasAiming)
+        if (const AnimClip* g2i = Clip("gun_2_idle")) {
+            Assoc* a = Blend(g2i, false, false, 8.0f);
+            a->partial = true;
+            a->autoRemove = true;
+            a->time = 0.0f;
+            a->finished = false;
+            a->playing = true;
         }
 }
 
