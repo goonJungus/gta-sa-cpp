@@ -56,6 +56,24 @@ bool Water::Load(D3DRenderer& r, const std::string& gameDir) {
     return !m_polys.empty();
 }
 
+bool Water::GetWaterLevel(float x, float y, float* z) const {
+    for (const Poly& p : m_polys) {
+        bool in = false;
+        if (p.n == 4) {
+            const float x0 = std::min({p.x[0], p.x[1], p.x[2], p.x[3]}), x1 = std::max({p.x[0], p.x[1], p.x[2], p.x[3]});
+            const float y0 = std::min({p.y[0], p.y[1], p.y[2], p.y[3]}), y1 = std::max({p.y[0], p.y[1], p.y[2], p.y[3]});
+            in = x >= x0 && x <= x1 && y >= y0 && y <= y1;
+        } else {
+            auto side = [&](int a, int b) { return (p.x[b] - p.x[a]) * (y - p.y[a]) - (p.y[b] - p.y[a]) * (x - p.x[a]); };
+            const float s0 = side(0, 1), s1 = side(1, 2), s2 = side(2, 0);
+            in = (s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0);
+        }
+        if (in) { *z = p.z[0]; return true; }
+    }
+    if (std::fabs(x) > kWorldHalf || std::fabs(y) > kWorldHalf) { *z = 0.0f; return true; }
+    return false;
+}
+
 void Water::Shutdown(D3DRenderer& r) {
     r.DestroyTexture(m_tex);
     m_tex = nullptr;

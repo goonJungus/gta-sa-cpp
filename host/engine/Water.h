@@ -25,6 +25,10 @@ public:
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return !m_polys.empty(); }
 
+    // Surface height at (x,y). False when no water there. Visible and invisible
+    // polys both count; outside the map square the open sea is z = 0.
+    bool GetWaterLevel(float x, float y, float* z) const;
+
     // rgba: timecyc Water colour (0..255). range: how far from the camera the
     // open sea outside the map is drawn. wavyness: CWeather::Wavyness (0.3..1).
     void Render(D3DRenderer& r, float camX, float camY, float range, uint32_t timeMs,

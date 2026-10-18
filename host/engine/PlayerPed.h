@@ -58,6 +58,9 @@ public:
         bool footIk = false;                  // rewrite foot IK on
         bool jumpHeld = false;                // CPad::GetJump
         bool jumpDown = false;                // CPad::JumpJustDown
+        float waterZ = -1e9f;                 // water surface here (< -1e8: none)
+        bool diveDown = false, diveUp = false; // swimming: descend / ascend held
+        bool diveJust = false;                // swimming: dive pressed this frame
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
         ClimbScanFn climbScan;
     };
@@ -83,6 +86,17 @@ public:
     float ClimbVelZ() const { return m_cVelZ; }
     // Set when the task ended with a push (m/s) CJ keeps after letting go.
     bool TakeClimbRelease(float v[3]);
+    // CTaskSimpleSwim. The host decides when CJ is deep enough (ped origin + 0.6
+    // below the surface), starts the task, and moves CJ's height itself from
+    // SwimSubmerge (surface swimming) or SwimVelZ (underwater).
+    void StartSwim();
+    void StopSwim();                       // wading out, climbing out
+    void SwimSurface();                    // underwater swimmer reached the surface
+    bool Swimming() const { return m_swimming; }
+    bool Underwater() const { return m_swimming && m_swimState == SwimState::Under; }
+    bool SwimJumpOut() const { return m_swimming && m_swimState == SwimState::BackToSurface; }
+    float SwimSubmerge() const;            // how far below the surface the ped origin rides
+    float SwimVelZ() const { return m_swimVelZ; }
     // Horizontal velocity CJ's animation moves him at this frame (m/s, world).
     float VelX() const { return m_velX; }
     float VelY() const { return m_velY; }
@@ -134,6 +148,8 @@ private:
     void SetRealMoveAnim(bool sprintHeld);
     void ControlInAir(const Input& in);
     void Land(const Input& in);
+    void ControlSwim(const Input& in);
+    void SwimWant(const char* name, float rate, bool movement);
 
     bool m_ready = false;
     std::vector<SkinFrame> m_skeleton;
@@ -183,6 +199,14 @@ private:
     float m_bindMinZ = 0.0f;                   // feet in model space
     float m_stickX = 0.0f, m_stickY = 0.0f;    // the stick CJ is obeying (filtered in rewrite)
     float m_moveAngle = 0.0f;                  // first person: direction of travel
+
+    // CTaskSimpleSwim
+    enum class SwimState { Tread, Sprint, Sprinting, Dive, Under, BackToSurface };
+    bool m_swimming = false;
+    SwimState m_swimState = SwimState::Tread;
+    float m_swimPitch = 0.0f;                  // m_fRotationX: positive dives
+    float m_swimVelZ = 0.0f;
+    const AnimClip* m_swimClip = nullptr;
 
     Movement m_move;                           // rewrite handling
 };

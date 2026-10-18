@@ -2282,9 +2282,28 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (g_probeCollision && (frame % 25) == 0)
                 std::fprintf(stderr, "[ZTRACE] f%d feet=%.2f gz=%.2f onGround=%d velZ=%.2f\n",
                              frame, curFeetZ, gz, (int)onGround, velZ);
+            // ---- Swimming (CTaskSimpleSwim): in once the ped origin (feet + 1) is
+            // 0.6 m under the surface, out when the feet find shallow ground ----
+            float waterZ = -1e9f;
+            if (cjReady && g_water.Ready() && !g_devNoClip) {
+                float wz;
+                if (g_water.GetWaterLevel(playerX, playerY, &wz)) waterZ = wz;
+            }
+            if (cjReady && !g_devNoClip) {
+                const float origin = curFeetZ + 1.0f;
+                if (!g_cj.Swimming() && !g_cj.Climbing() && waterZ > -1e8f && origin + 0.6f < waterZ && gz < waterZ - 1.0f) {
+                    g_cj.StartSwim();
+                    Log("SWIM start at (%.2f, %.2f, %.2f) water %.2f", playerX, playerY, curFeetZ, waterZ);
+                } else if (g_cj.Swimming() && !g_cj.Underwater() && (waterZ < -1e8f || gz > waterZ - 1.4f)) {
+                    g_cj.StopSwim();
+                    Log("SWIM stop at (%.2f, %.2f, %.2f)", playerX, playerY, curFeetZ);
+                }
+            }
+            const bool swimming = cjReady && g_cj.Swimming();
+            if (swimming) { onGround = true; velZ = 0.0f; }
             // Step up onto higher ground (curbs) / start falling off edges.
             // Noclip skips the ground snap entirely so you can fly through it.
-            if (!g_devNoClip && !(cjReady && g_cj.Climbing())) {   // the climb task owns CJ's height
+            if (!g_devNoClip && !swimming && !(cjReady && g_cj.Climbing())) {   // the climb task owns CJ's height
                 if (onGround && gz > curFeetZ + 0.001f) {
                     playerZ = gz + EYE_HEIGHT;  // GetGroundHeight capped the step
                     curFeetZ = gz;
@@ -2384,7 +2403,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 return ClimbScan(g_world, mode, ped, rot, pos, orot);
             };
             bool climbStarted = false;
-            if (cjReady && !g_devNoClip && worldReady && !g_cj.Climbing()) {
+            if (swimming && worldReady && jumpJustDown) {   // BACK_TO_SURFACE: haul out onto a ledge
+                if (g_cj.TryStartClimb(playerX, playerY, playerZ - EYE_HEIGHT, false, climbScan)) {
+                    g_cj.StopSwim();
+                    climbStarted = true;
+                    Log("SWIM climb out at (%.2f, %.2f)", playerX, playerY);
+                }
+            }
+            if (cjReady && !g_devNoClip && worldReady && !g_cj.Climbing() && !swimming) {
                 const float feet = playerZ - EYE_HEIGHT;
                 if (onGround && !g_cj.Busy() && jumpJustDown)   // launch from the ground
                     climbStarted = g_cj.TryStartClimb(playerX, playerY, feet, true, climbScan);
@@ -2392,7 +2418,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     climbStarted = g_cj.TryStartClimb(playerX, playerY, feet, false, climbScan);   // grab mid-jump
                 if (climbStarted) { onGround = true; velZ = 0.0f; Log("CLIMB start at (%.2f, %.2f, %.2f) %s", playerX, playerY, feet, onGround ? "" : ""); }
             }
-            if (onGround && !(cjReady && g_cj.Busy()) && jumpJustDown && !climbStarted) {
+            if (onGround && !swimming && !(cjReady && g_cj.Busy()) && jumpJustDown && !climbStarted) {
                 velZ = JUMP_VEL;
                 onGround = false;
                 jumped = true;
@@ -2423,12 +2449,34 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.worldX = playerX; pin.worldY = playerY; pin.feetZ = playerZ - EYE_HEIGHT;
                 pin.jumpHeld = jumpKeyDown;
                 pin.jumpDown = jumpJustDown;
+                pin.waterZ = waterZ;
+                {
+                    static bool s_prevDive = false;
+                    const bool diveKey = (GameKey('C') & 0x8000) != 0;
+                    pin.diveJust = diveKey && !s_prevDive;
+                    s_prevDive = diveKey;
+                    pin.diveDown = diveKey;
+                    pin.diveUp = jumpKeyDown;
+                }
                 pin.exitPressed = (GameKey('F') & 0x8000) != 0;   // CPad::GetExitVehicle lets go
                 pin.climbScan = climbScan;
                 pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
                 if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
                 g_cj.Update(pin);
                 if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
+                if (g_cj.Swimming()) {   // ride the surface, or dive
+                    onGround = true; velZ = 0.0f;
+                    const float origin = playerZ - EYE_HEIGHT + 1.0f;
+                    if (g_cj.Underwater()) {
+                        const float vz = g_cj.SwimVelZ();
+                        playerZ += vz * dt;
+                        if (waterZ > -1e8f && vz > 0.0f && origin + 0.65f > waterZ) g_cj.SwimSurface();
+                    } else if (waterZ > -1e8f) {
+                        const float target = waterZ - g_cj.SwimSubmerge() + 0.7f;   // eye = origin + 0.7
+                        playerZ += std::clamp((target - playerZ) * 8.0f * dt, -6.0f * dt, 6.0f * dt);
+                    }
+                    if (gz > -1e5f && playerZ < gz + EYE_HEIGHT) playerZ = gz + EYE_HEIGHT;   // the sea floor
+                }
                 {   // CTaskSimpleClimb moves CJ itself
                     float sx, sy, sz, rv[3];
                     if (g_cj.TakeClimbSnap(sx, sy, sz)) { playerX = sx; playerY = sy; playerZ = sz + EYE_HEIGHT; }

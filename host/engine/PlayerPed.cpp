@@ -218,8 +218,10 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
     }
     {   // the skydive steering clips (parachute.ifp, in anim\anim.img)
         ImgLoader anims;
-        if (anims.Open(gameDir + "\\anim\\anim.img"))
+        if (anims.Open(gameDir + "\\anim\\anim.img")) {
             IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), m_clips, true);
+            IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
+        }
     }
     auto txd = [&](const char* name) {
         std::vector<uint8_t> b = img.Extract(std::string(name) + ".txd");
@@ -1018,6 +1020,21 @@ void PlayerPed::Update(const Input& in) {
             return;
         }
     }
+    if (m_swimming && !in.noclip) {
+        ControlSwim(in);
+        Advance(dt);
+        if (dt > 0.0f) {   // the extracted root shift, model space (+Y forward) to world
+            const float a = m_heading - kPi * 0.5f;
+            const float c = std::cos(a), s = std::sin(a);
+            const float k = m_swimState == SwimState::Under ? std::cos(m_swimPitch) : 1.0f;
+            m_velX = (m_rootDX * c - m_rootDY * s) / dt * k;
+            m_velY = (m_rootDX * s + m_rootDY * c) / dt * k;
+            m_swimVelZ = m_swimState == SwimState::Under ? -std::sin(m_swimPitch) * m_rootDY / dt : 0.0f;
+        }
+        BuildPose(); BuildGlobals(m_pose); ShoulderBoneRotation();
+        Skin();
+        return;
+    }
     if (in.noclip) {
         // F4 fly: CJ floats in the skydive pose, accelerating when moving.
         m_inAir = false;
@@ -1161,5 +1178,129 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
         if (!p.mesh || (hideHead && p.isHead)) continue;
         r.UpdateMeshVertices(p.mesh, p.skinned.data(), (uint32_t)p.skinned.size());
         r.DrawMesh(p.mesh);
+    }
+}
+
+// ---- CTaskSimpleSwim @ 00688930 -------------------------------------------
+
+void PlayerPed::StartSwim() {
+    if (m_swimming) return;
+    m_swimming = true;
+    m_swimState = SwimState::Tread;
+    m_swimPitch = 0.0f;
+    m_swimVelZ = 0.0f;
+    m_swimClip = nullptr;
+    m_inAir = false; m_jumping = false; m_busy = false;
+    m_landClip = nullptr;
+    m_ratio = 0.0f;
+    m_move.Reset();
+    SwimWant("swim_tread", 8.0f, false);
+}
+
+void PlayerPed::StopSwim() {
+    if (!m_swimming) return;
+    m_swimming = false;
+    m_swimClip = nullptr;
+    m_swimPitch = 0.0f;
+    m_swimVelZ = 0.0f;
+    m_ratio = 0.0f;
+    // back to the idle stance (CTaskSimpleSwim::~, BlendAnimation IDLE)
+    for (Assoc& a : m_assocs) a.delta = -8.0f;
+    if (const AnimClip* idle = Clip("idle_stance")) Blend(idle, true, false, 8.0f);
+}
+
+void PlayerPed::SwimSurface() {
+    if (!m_swimming || m_swimState != SwimState::Under) return;
+    m_swimState = SwimState::Tread;
+    m_swimPitch = 0.0f;
+    m_swimVelZ = 0.0f;
+}
+
+// ProcessSwimmingResistance: where the ped origin rides below the surface.
+float PlayerPed::SwimSubmerge() const {
+    float sum = 0.0f, diff = 1.0f;
+    for (const Assoc& a : m_assocs) {
+        if (a.dead || !a.clip) continue;
+        if (a.clip->name == "swim_breast") { sum += 0.4f * a.blend; diff -= a.blend; }
+        else if (a.clip->name == "swim_crawl") { sum += 0.2f * a.blend; diff -= a.blend; }
+    }
+    return std::max(diff, 0.0f) * 0.55f + sum;
+}
+
+// Make `name` the one swim clip playing; every other association fades out.
+void PlayerPed::SwimWant(const char* name, float rate, bool movement) {
+    const AnimClip* c = Clip(name);
+    if (!c || c == m_swimClip) return;
+    m_swimClip = c;
+    for (Assoc& a : m_assocs)
+        if (a.clip != c && !a.dead) a.delta = -std::abs(rate);
+    Assoc* a = Get(c);
+    if (a && a->delta < 0.0f) { a->delta = std::abs(rate); a->dead = false; }
+    else if (!a) { a = Add(c, name != std::string("swim_dive_under") && name != std::string("swim_jumpout"), movement); a->blend = 0.0f; a->delta = std::abs(rate); }
+    a->movement = movement;
+}
+
+// ProcessControlInput + ProcessSwimAnims, folded: the stick steers and sets
+// the stroke, dive / jump change the state.
+void PlayerPed::ControlSwim(const Input& in) {
+    const float sx = in.stickX, sy = in.stickY;
+    const float mag = std::min(1.0f, std::sqrt(sx * sx + sy * sy));
+    const float step = 0.07f * 50.0f * in.dt;   // move blend ratio ramp, 0.07 per 1/50 s
+    if (mag > 0.0f) {
+        m_aimHeading = std::atan2(sy, sx);
+        const float d = mag - m_ratio;
+        m_ratio = d > step ? m_ratio + step : d < -step ? m_ratio - step : mag;
+    } else {
+        m_ratio = std::max(0.0f, m_ratio - 0.05f * 50.0f * in.dt);
+    }
+    // turn toward the stick (retail: ~0.03 rad per 1/50 s at full lock)
+    if (mag > 0.1f) {
+        float d = m_aimHeading - m_heading;
+        while (d > kPi) d -= 2 * kPi;
+        while (d < -kPi) d += 2 * kPi;
+        const float rate = 2.2f * in.dt;
+        m_heading += std::clamp(d, -rate, rate);
+        while (m_heading > kPi) m_heading -= 2 * kPi;
+        while (m_heading < -kPi) m_heading += 2 * kPi;
+    }
+
+    const Assoc* cur = Get(m_swimClip);
+    switch (m_swimState) {
+    case SwimState::Tread:
+    case SwimState::Sprint:
+    case SwimState::Sprinting:
+        if (in.diveJust) {
+            m_swimState = SwimState::Dive;
+            m_ratio = 0.0f;
+            SwimWant("swim_dive_under", 8.0f, false);
+            break;
+        }
+        if (in.jumpDown) {   // BACK_TO_SURFACE: climb out; the host tries the ledge
+            m_swimState = SwimState::BackToSurface;
+            SwimWant("swim_jumpout", 8.0f, false);
+            break;
+        }
+        if (m_ratio < 0.1f) { m_swimState = SwimState::Tread; SwimWant("swim_tread", 8.0f, false); }
+        else if (in.sprint) { m_swimState = SwimState::Sprinting; SwimWant("swim_crawl", 2.0f, true); }
+        else { m_swimState = SwimState::Sprint; SwimWant("swim_breast", 2.0f, true); }
+        break;
+    case SwimState::Dive:
+        if (cur && cur->finished) {
+            m_swimState = SwimState::Under;
+            m_swimPitch = 0.7854f;   // SWIM_DIVE_UNDER_ANGLE: head first, down
+            m_swimClip = nullptr;
+        }
+        break;
+    case SwimState::Under: {
+        // descend / ascend held bend the swimmer; otherwise level out
+        const float want = in.diveUp ? -0.9f : in.diveDown ? 0.9f : 0.0f;
+        const float r = 1.2f * in.dt;
+        m_swimPitch += std::clamp(want - m_swimPitch, -r, r);
+        SwimWant(m_ratio > 0.1f ? "swim_under" : "swim_glide", 4.0f, m_ratio > 0.1f);
+        break;
+    }
+    case SwimState::BackToSurface:
+        if (cur && cur->finished) { m_swimState = SwimState::Tread; m_swimClip = nullptr; }
+        break;
     }
 }
