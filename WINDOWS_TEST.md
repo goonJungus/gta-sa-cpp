@@ -17,3 +17,5 @@ Build with MSVC (`cmake --build build/gta_sa --config Release --parallel 16`). `
 - [ ] Map legend: Options > Display > Map Legend ON, open the map, set a waypoint. A panel lists the waypoint and CJ.
 - [ ] Wayland: window size and resize behaviour with `scripts/run_wine.sh` notes (Linux/Wine only).
 - [ ] Vehicles: press B in game to spawn a car ahead of CJ. Each press spawns the next model. Check body, doors, plates and wheels look right and nothing is missing or inside out.
+- [ ] Driving: stand near a spawned car, press F to get in, W/S/A/D to drive, Space handbrake, F to get out. Check the car stops at walls and the front wheels turn with the steering.
+- [ ] Radio: get in a spawned car, a station should play. Q and E change station and show its name. Getting out stops it. Music volume slider changes the loudness. Listen for clicks or stutter at track changes.

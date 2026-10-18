@@ -308,7 +308,13 @@ void Vehicles::Draw(D3DRenderer& r) {
             const float side = (k % 2 == 0) ? -1.0f : 1.0f;   // left wheels are the mirrored model
             const float spin = c.wheelSpin, sc = std::cos(spin), ss = std::sin(spin);
             // Wheel model: x across, spin about x.
-            const float wm[16] = {side, 0, 0, 0, 0, sc, ss, 0, 0, -ss, sc, 0, vm.wheelPos[k][0], vm.wheelPos[k][1], vm.wheelPos[k][2], 1};
+            float wm[16] = {side, 0, 0, 0, 0, sc, ss, 0, 0, -ss, sc, 0, 0, 0, 0, 1};
+            if (k < 2) {   // front wheels turn about the vertical axis after they spin
+                const float a = -c.steer, ca = std::cos(a), sa = std::sin(a);
+                const float rz[16] = {ca, sa, 0, 0, -sa, ca, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+                Mul(wm, rz, wm);
+            }
+            wm[12] = vm.wheelPos[k][0]; wm[13] = vm.wheelPos[k][1]; wm[14] = vm.wheelPos[k][2];
             float t[16];
             Mul(wm, body, t);
             std::memcpy(&out._11, t, sizeof(t));
@@ -316,4 +322,54 @@ void Vehicles::Draw(D3DRenderer& r) {
             r.DrawMesh(vm.wheelMesh);
         }
     }
+}
+
+int Vehicles::Nearest(float x, float y, float range) const {
+    int best = -1;
+    float bd = range * range;
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        const float dx = m_cars[i].x - x, dy = m_cars[i].y - y, d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = (int)i; }
+    }
+    return best;
+}
+
+void Vehicles::Step(size_t i, float dt, float throttle, float brake, float steerIn, bool handbrake,
+                    const std::function<float(float, float, float)>& groundAt,
+                    const std::function<bool(float, float, float, float, float)>& blocked) {
+    if (i >= m_cars.size()) return;
+    VehicleInstance& c = m_cars[i];
+    const VehicleInfo* info = Info(c.model);
+    const HandlingData* h = info ? Handling(info->handling) : nullptr;
+    HandlingData def;
+    if (!h) h = &def;
+    const float vmax = h->maxVelocity / 3.6f * 0.85f;
+    const float accel = h->engineAccel * 0.55f;
+    // Throttle fades out towards top speed; reverse is slower.
+    if (throttle > 0.0f && c.speed > -0.5f) c.speed += throttle * accel * std::max(0.0f, 1.0f - c.speed / vmax) * dt;
+    if (brake > 0.0f) {
+        if (c.speed > 0.3f) c.speed -= brake * h->brakeDecel * 1.2f * dt;
+        else c.speed -= brake * accel * 0.5f * std::max(0.0f, 1.0f + c.speed / (vmax * 0.3f)) * dt;
+    }
+    if (handbrake) c.speed -= std::copysign(std::min(std::fabs(c.speed), 12.0f * dt), c.speed);
+    // Rolling and air drag.
+    const float drag = 0.15f + h->dragMult * 0.004f * std::fabs(c.speed);
+    if (throttle <= 0.0f && brake <= 0.0f) c.speed -= std::copysign(std::min(std::fabs(c.speed), drag * 4.0f * dt), c.speed);
+    // Steering eases towards the target and the lock narrows with speed.
+    const float lock = h->steeringLock * 0.0174533f / (1.0f + std::fabs(c.speed) * 0.045f);
+    c.steer += (steerIn * lock - c.steer) * std::min(1.0f, 8.0f * dt);
+    const float wheelbase = 2.8f;
+    c.heading -= std::tan(c.steer) * c.speed / wheelbase * dt;   // steer > 0 turns right (clockwise)
+    const float nx = c.x - std::sin(c.heading) * c.speed * dt, ny = c.y + std::cos(c.heading) * c.speed * dt;
+    // Heading 0 faces +y; a positive heading turns left, so the nose is (-sin, cos).
+    if (blocked && blocked(nx, ny, c.x, c.y, c.z)) {
+        c.speed *= -0.25f;
+    } else {
+        c.x = nx; c.y = ny;
+    }
+    if (groundAt) {
+        const float g = groundAt(c.x, c.y, c.z + 1.0f);
+        if (g > -1e5f) c.z += (g + 0.1f - c.z) * std::min(1.0f, 12.0f * dt);
+    }
+    c.wheelSpin += c.speed * dt / 0.35f;
 }

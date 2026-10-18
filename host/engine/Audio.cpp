@@ -258,6 +258,30 @@ void Audio::Mix(int16_t* out, int frames) {
             return !v.loop && (int)v.pos >= (int)v.snd->pcm.size();
         }), m_voices.end());
     }
+    {   // streamed music, resampled to the mixer rate
+        std::lock_guard<std::mutex> g(m_lock);
+        if (m_musPull) {
+            const double step = (double)m_musRate / kRate;
+            const float mv = m_musVol * m_master / 32768.0f;
+            for (int i = 0; i < frames; i++) {
+                size_t p = (size_t)m_musPos;
+                while ((p + 2) * 2 > m_musBuf.size() && !m_musEnded) {   // need frames p and p + 1
+                    if (p > 0) { m_musBuf.erase(m_musBuf.begin(), m_musBuf.begin() + (long)p * 2); m_musPos -= (double)p; p = 0; }
+                    int16_t tmp[2048];
+                    const size_t got = m_musPull(tmp, 1024);
+                    if (!got) { m_musEnded = true; break; }
+                    m_musBuf.insert(m_musBuf.end(), tmp, tmp + got * 2);
+                }
+                if ((p + 2) * 2 > m_musBuf.size()) break;
+                const float f = (float)(m_musPos - (double)p);
+                for (int c = 0; c < 2; c++) {
+                    const float a = m_musBuf[p * 2 + (size_t)c], b = m_musBuf[(p + 1) * 2 + (size_t)c];
+                    acc[(size_t)i * 2 + (size_t)c] += (a + (b - a) * f) * mv;
+                }
+                m_musPos += step;
+            }
+        }
+    }
     for (int i = 0; i < frames * 2; i++) {
         // Soft clip so stacked gunfire does not crackle.
         float x = acc[i];
@@ -397,4 +421,21 @@ void Audio::Ambient(float city, float rain, float wind) {
     bed(m_ambRain, 105, 0, rain * 0.6f, 0.0f);                       // GENRL_RAIN: RAINLONG
     bed(m_ambWindL, BANK_FRONTEND_GAME, 0x1D, wind * 0.7f, -0.4f);   // WIND_L
     bed(m_ambWindR, BANK_FRONTEND_GAME, 0x1E, wind * 0.7f, 0.4f);    // WIND_R
+}
+
+void Audio::SetMusic(std::function<size_t(int16_t*, size_t)> pull, int rate, float vol) {
+    std::lock_guard<std::mutex> g(m_lock);
+    m_musPull = std::move(pull);
+    m_musRate = rate;
+    m_musVol = vol;
+    m_musEnded = false;
+    m_musBuf.clear();
+    m_musPos = 0.0;
+}
+
+void Audio::StopMusic() {
+    std::lock_guard<std::mutex> g(m_lock);
+    m_musPull = nullptr;
+    m_musBuf.clear();
+    m_musEnded = false;
 }

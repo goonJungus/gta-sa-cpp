@@ -68,6 +68,9 @@ if(WIN32)
         host/engine/PlayerFootIK.cpp
         host/engine/PlayerWeapon.cpp
         host/engine/Vehicle.cpp
+        host/engine/Script.cpp
+        host/engine/VorbisDecoder.cpp
+        host/engine/Radio.cpp
         host/engine/Hud.cpp
         host/engine/Audio.cpp
         host/engine/Effects.cpp
