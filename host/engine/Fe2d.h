@@ -27,6 +27,13 @@ public:
                   float u0, float v0, float u1, float v1);
     void Flush(IDirect3DTexture9* tex);
 
+    // Arbitrary triangles (rotated sprites, discs, arcs, rounded shapes). Each
+    // vertex carries its own ARGB so bars and glows can fade.
+    struct Vert { float x, y, u, v; uint32_t c; };
+    void DrawTris(IDirect3DTexture9* tex, const Vert* v, int vertexCount);   // triangle list
+    void DrawFan(IDirect3DTexture9* tex, const Vert* v, int vertexCount);    // v[0] is the hub
+    IDirect3DDevice9* Device() const { return m_dev; }
+
 private:
     struct V { float x, y, z, rhw; DWORD c; float u, v; };
     static const DWORD kFvf = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;

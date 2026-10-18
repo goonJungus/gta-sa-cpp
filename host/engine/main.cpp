@@ -48,6 +48,7 @@
 #include "AuditCollision.h"
 #include "Profiler.h"
 #include "FeMenu.h"
+#include "Hud.h"
 #include "PlayerPed.h"
 #include "Camera.h"
 #include "CameraShake.h"
@@ -158,6 +159,8 @@ static bool g_running = true;
 
 // SA pause menu (FeMenu) + its persisted display settings.
 static FeMenu g_menu;
+static Hud g_hud;
+static bool g_hudReady = false;
 static bool g_menuReady = false;
 static bool g_escOpensMenu = false;      // play mode (not the capture modes)
 static int  g_keyQueue[64];              // WM_KEYDOWN -> main loop (menu input)
@@ -886,6 +889,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_menuReady = g_menu.Init(g_renderer, GameDir());
         Log("FRONTEND: pause menu %s", g_menuReady ? "ready" : "FAILED (fonts.txd / american.gxt?)");
         if (g_menuReady && startMenuScreen >= 0) { g_menu.Open(startMenuScreen); g_devPaused = true; }
+        g_hudReady = g_hud.Init(g_renderer, GameDir());
+        Log("HUD: %s", g_hudReady ? "ready" : "FAILED (fonts.txd / hud.txd?)");
     }
 
     ImgLoader img;
@@ -1924,6 +1929,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // Apply a pending window resize: match the backbuffer to the client
         // area (sharp 1:1 instead of a stretched 720p upscale) and refresh the
         // projection aspect so nothing is squashed.
+        if (g_pendingResize && getenv("GTA_NORESIZE")) g_pendingResize = false;   // dev: keep the --res/--window backbuffer under a tiling window manager
         if (g_pendingResize) {
             int rw = g_resizeW, rh = g_resizeH;
             g_pendingResize = false;
@@ -2513,6 +2519,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     pin.fireHeld = fireKey;
                     pin.fireJust = fireKey && !s_prevFire;
                     pin.reloadJust = relKey && !s_prevReload;
+                    pin.autoReload = pin.rewrite && g_menu.Settings().autoReload;
                     if (nextKey && !s_prevNext) g_cj.NextGun();
                     s_prevFire = fireKey; s_prevReload = relKey; s_prevNext = nextKey;
                 }
@@ -2845,6 +2852,37 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 (GameKey(VK_SPACE) & 0x8000) ? "sprint" : (GameKey(VK_MENU) & 0x8000) ? "walk" : "run",
                 g_cj.ClipName());
             DrawDebugText(dev, dbg, 12.0f, 12.0f, 1.4f, 0xFFFFFF00); // yellow
+        }
+
+        // ---- HUD (CHud::Draw): vitals, weapon, money, radar ----
+        if (g_hudReady && cjReady && !g_menu.IsOpen() && !g_devPaused) {
+            HudData hd;
+            const FeSettings& hs = g_menu.Settings();
+            hd.dt = dt;
+            hd.rewrite = hs.movementStyle == 1;
+            hd.scale = hs.hudScale;
+            hd.showHud = hs.showHud;
+            hd.radarOn = hs.radarMode == 0;
+            hd.crosshairDot = hs.crosshairDot; hd.hitMarker = hs.hitMarker; hd.damageFlash = hs.damageFlash;
+            hd.health = g_cj.Health(); hd.maxHealth = g_cj.MaxHealth(); hd.armor = g_cj.Armor();
+            hd.breath = g_cj.Breath(); hd.showBreath = g_cj.ShowBreath();
+            hd.damageFlashAmount = g_cj.DamageFlash();
+            static int s_money = getenv("GTA_MONEY") ? atoi(getenv("GTA_MONEY")) : 0;
+            static int s_wanted = getenv("GTA_WANTED") ? atoi(getenv("GTA_WANTED")) : 0;
+            hd.money = s_money; hd.wanted = s_wanted;
+            hd.hour = (int)clockHour; hd.minute = (int)((clockHour - floorf(clockHour)) * 60.0f);
+            hd.armed = g_cj.GunIndex() >= 0;
+            hd.weaponIcon = g_cj.GunIcon();
+            hd.ammoClip = g_cj.GunAmmo(); hd.ammoTotal = g_cj.GunTotalAmmo(); hd.clipSize = g_cj.GunClipSize();
+            hd.reloading = g_cj.Reloading();
+            hd.weaponName = g_cj.GunName();
+            hd.aiming = g_cj.Aiming();
+            hd.spread = std::min(1.0f, sqrtf(g_cj.VelX() * g_cj.VelX() + g_cj.VelY() * g_cj.VelY()) / 6.0f);
+            hd.firstPerson = g_playerCam.FirstPerson(hs.cameraStyle);
+            hd.x = playerX; hd.y = playerY; hd.z = playerZ - EYE_HEIGHT;
+            hd.camYaw = yaw; hd.heading = g_cj.Heading();
+            hd.zone = g_hud.ZoneAt(hd.x, hd.y, hd.z);
+            g_hud.Draw(g_renderer, hd);
         }
 
         // ---- SA pause menu + the dev key list beside it ----

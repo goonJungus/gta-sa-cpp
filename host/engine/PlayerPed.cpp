@@ -1058,6 +1058,13 @@ void PlayerPed::ApplyAimIK(const Input& in) {
 void PlayerPed::Update(const Input& in) {
     if (!m_ready) return;
     const float dt = in.dt;
+    m_damageFlash = std::max(0.0f, m_damageFlash - dt * 1.5f);
+    if (Underwater()) {   // air in the lungs; empty lungs drown CJ
+        m_breath = std::max(0.0f, m_breath - dt);
+        if (m_breath <= 0.0f) Hurt(dt * 12.0f);
+    } else {
+        m_breath = std::min(kBreathMax, m_breath + dt * 8.0f);
+    }
     m_stickX = in.stickX;
     m_stickY = in.stickY;
 

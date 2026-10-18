@@ -68,6 +68,7 @@ public:
         bool diveJust = false;                // swimming: dive pressed this frame
         bool fireJust = false, fireHeld = false;   // CPad::GetPedFire (fire button)
         bool reloadJust = false;              // CPad::ReloadJustDown
+        bool autoReload = false;              // rewrite: an emptied clip reloads by itself
         bool duckJust = false;                // CPad::DuckJustDown
         bool aim = false;                     // CPad::GetTarget (aim button held)
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
@@ -118,6 +119,23 @@ public:
     const char* GunName() const;
     int GunAmmo() const;
     int GunClipSize() const;
+    int GunTotalAmmo() const;           // rounds left outside the clip
+    bool GunMelee() const { return m_gun < 0; }
+    bool Reloading() const { return m_reloading; }
+    IDirect3DTexture9* GunIcon() const; // hud icon texture, or null (fists)
+    // One-shot events for sound and effects, taken by the host each frame.
+    int TakeShotEvents() { int n = m_shotEvents; m_shotEvents = 0; return n; }
+    int TakeReloadEvents() { int n = m_reloadEvents; m_reloadEvents = 0; return n; }
+    int TakeDryEvents() { int n = m_dryEvents; m_dryEvents = 0; return n; }
+    // Vitals (HUD). Damage sources arrive with combat; drowning works already.
+    float Health() const { return m_health; }
+    float MaxHealth() const { return m_maxHealth; }
+    float Armor() const { return m_armor; }
+    float Breath() const { return m_breath / kBreathMax; }   // 0..1
+    bool ShowBreath() const { return m_swimming && m_swimState == SwimState::Under || m_breath < kBreathMax * 0.999f; }
+    void Hurt(float amount);            // armor first, then health
+    float DamageFlash() const { return m_damageFlash; }       // 1 right after a hit, fades out
+    bool Dead() const { return m_health <= 0.0f; }
     bool Ducking() const { return m_ducking; }
     bool Aiming() const { return m_aiming; }
     // Horizontal velocity CJ's animation moves him at this frame (m/s, world).
@@ -237,7 +255,8 @@ private:
     struct Gun {
         const GunSpec* spec = nullptr;
         std::string name;
-        int clipSize = 0, ammo = 0;
+        int clipSize = 0, ammo = 0, total = 0;
+        IDirect3DTexture9* icon = nullptr;
         float loopStart = 0, loopEnd = 0, fireTime = 0, reloadTime = 1.0f;   // seconds
         float fireOffset[3] = {0, 0, 0};
         std::vector<D3DRenderMesh*> meshes;
@@ -245,6 +264,9 @@ private:
     };
     std::vector<Gun> m_guns;
     int m_gun = -1;
+    int m_shotEvents = 0, m_reloadEvents = 0, m_dryEvents = 0;
+    static constexpr float kBreathMax = 39.0f;   // seconds under water (CStats air in lung, untrained)
+    float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = kBreathMax, m_damageFlash = 0.0f;
     bool m_reloading = false, m_firing = false, m_shotDone = false;
     float m_reloadTime = 0.0f;
     const AnimClip* m_gunFireClip = nullptr;

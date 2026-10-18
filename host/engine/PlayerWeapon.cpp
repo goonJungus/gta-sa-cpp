@@ -110,6 +110,11 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
             const std::vector<uint8_t> txdData = gta3.Extract(it->second.txd + ".txd");
             std::vector<TxdTexture> txd;
             if (!txdData.empty()) txd = TxdLoader::LoadFromMemory(txdData.data(), txdData.size());
+            for (const TxdTexture& t : txd) {   // CHud::DrawWeaponIcon: <model>icon
+                if (TxdLoader::KeyOf(t.name) != it->second.dff + "icon") continue;
+                g.icon = r.CreateTexture(t.width, t.height, t.d3dFormat, t.mip0.data(), (uint32_t)t.mip0.size(), &t.extraMips);
+                break;
+            }
             DffModel m = dffData.empty() ? DffModel() : DffLoader::LoadFromMemory(dffData.data(), dffData.size());
             for (const DffMesh& dm : m.meshes) {
                 if (dm.vertices.empty() || dm.indices.empty()) continue;
@@ -129,6 +134,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
             }
         }
         g.ammo = g.clipSize;
+        g.total = g.clipSize * 6;
         m_guns.push_back(std::move(g));
     }
     std::fprintf(stderr, "[GUN] %zu weapons\n", m_guns.size());
@@ -138,6 +144,7 @@ void PlayerPed::ShutdownGuns(D3DRenderer& r) {
     for (Gun& g : m_guns) {
         for (D3DRenderMesh* m : g.meshes) r.DestroyMesh(m);
         for (IDirect3DTexture9* t : g.textures) if (t) r.DestroyTexture(t);
+        if (g.icon) r.DestroyTexture(g.icon);
     }
     m_guns.clear();
 }
@@ -156,6 +163,17 @@ void PlayerPed::NextGun() {
 const char* PlayerPed::GunName() const { return m_gun >= 0 ? m_guns[m_gun].name.c_str() : "Fists"; }
 int PlayerPed::GunAmmo() const { return m_gun >= 0 ? m_guns[m_gun].ammo : 0; }
 int PlayerPed::GunClipSize() const { return m_gun >= 0 ? m_guns[m_gun].clipSize : 0; }
+int PlayerPed::GunTotalAmmo() const { return m_gun >= 0 ? m_guns[m_gun].total : 0; }
+IDirect3DTexture9* PlayerPed::GunIcon() const { return m_gun >= 0 ? m_guns[m_gun].icon : nullptr; }
+
+// Armor soaks the hit first, like CPed::InflictDamage.
+void PlayerPed::Hurt(float amount) {
+    if (amount <= 0.0f || m_health <= 0.0f) return;
+    const float soak = std::min(m_armor, amount);
+    m_armor -= soak;
+    m_health = std::max(0.0f, m_health - (amount - soak));
+    m_damageFlash = 1.0f;
+}
 
 // The partial fire and reload clips while aiming (the animation half of
 // CTaskSimpleUseGun): the fire clip holds at its loop start, plays through
@@ -192,7 +210,8 @@ void PlayerPed::UpdateGun(const Input& in) {
     const float step = in.rewrite ? std::min(1.0f, in.dt / 0.16f) : 1.0f;   // AimReloadBlendSeconds
 
     // start a reload: R, or the empty gun asked to fire
-    if (!m_reloading && g.ammo < g.clipSize && (in.reloadJust || (g.ammo == 0 && in.fireJust))) {
+    if (!m_reloading && g.ammo < g.clipSize && g.total > 0 && (in.reloadJust || (g.ammo == 0 && (in.fireJust || in.autoReload)))) {
+        m_reloadEvents++;
         m_reloading = true;
         m_firing = false;
         m_reloadTime = 0.0f;
@@ -213,7 +232,9 @@ void PlayerPed::UpdateGun(const Input& in) {
         if (ra) ra->blend += std::clamp(wantReload - ra->blend, -step, step);
         if (done && (!ra || ra->blend <= 0.0f) && fa->blend >= 1.0f - 1e-4f) {
             m_reloading = false;
-            g.ammo = g.clipSize;
+            const int take = std::min(g.clipSize - g.ammo, g.total);
+            g.ammo += take;
+            g.total -= take;
             if (ra) { ra->dead = true; ra->blend = 0.0f; }
         }
         if (done && ra) ra->playing = false;
@@ -232,6 +253,7 @@ void PlayerPed::UpdateGun(const Input& in) {
     if (!m_firing) {
         fa->time = g.loopStart;
         fa->playing = false;
+        if (want && g.ammo == 0 && in.fireJust && g.total == 0) m_dryEvents++;
         if (want && g.ammo > 0 && fa->blend > 0.9f) {
             m_firing = true;
             m_shotDone = false;
@@ -242,6 +264,7 @@ void PlayerPed::UpdateGun(const Input& in) {
         if (!m_shotDone && fa->time >= g.fireTime) {
             m_shotDone = true;
             g.ammo--;
+            m_shotEvents++;
             std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
         }
         if (fa->time >= g.loopEnd || fa->finished) {

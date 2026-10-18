@@ -59,7 +59,7 @@ bool D3DRenderer::Init(HWND hwnd, int width, int height) {
     pp.BackBufferWidth = width;
     pp.BackBufferHeight = height;
     pp.EnableAutoDepthStencil = TRUE;
-    pp.AutoDepthStencilFormat = D3DFMT_D16;
+    pp.AutoDepthStencilFormat = D3DFMT_D24S8;   // stencil: the circular radar mask; D16 if unavailable
     // IMMEDIATE (no vsync) by default: it keeps headless captures fast and the
     // RDP/virtual presenters used for remote sessions behave better unpaced.
     // The menu VSync toggle paces Present to the display instead.
@@ -69,6 +69,8 @@ bool D3DRenderer::Init(HWND hwnd, int width, int height) {
     // Try every adapter in turn: virtual display drivers (RDP/vGPU shims)
     // may not support D3D9 HAL, so D3DADAPTER_DEFAULT is not reliable.
     UINT adapterCount = m_d3d->GetAdapterCount();
+    for (int attempt = 0; attempt < 2 && !m_device; attempt++) {
+    if (attempt == 1) pp.AutoDepthStencilFormat = D3DFMT_D16;
     for (UINT a = 0; a < adapterCount && !m_device; a++) {
         D3DADAPTER_IDENTIFIER9 ident = {};
         m_d3d->GetAdapterIdentifier(a, 0, &ident);
@@ -92,6 +94,7 @@ bool D3DRenderer::Init(HWND hwnd, int width, int height) {
             strncpy(m_adapterDesc, ident.Description, sizeof(m_adapterDesc) - 1);
             m_adapterDesc[sizeof(m_adapterDesc) - 1] = '\0';
         }
+    }
     }
     if (!m_device) {
         m_d3d->Release();
@@ -209,7 +212,7 @@ void D3DRenderer::BeginFrame(float r, float g, float b) {
     if (!m_device)
         return;
     DWORD clearColor = D3DCOLOR_COLORVALUE(r, g, b, 1.0f);
-    m_device->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clearColor, 1.0f, 0);
+    m_device->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, clearColor, 1.0f, 0);
     m_device->BeginScene();
     // World geometry is lit once SetWorldLighting has supplied the timecyc
     // colours; the sky and the overlay text turn lighting off for themselves.

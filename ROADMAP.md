@@ -29,7 +29,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 
 ## Frontend
 - [~] Pause menu and settings in the retail layout (display options work; centred layout for any aspect ratio; rewrite mode toggle, gameplay, HUD and field of view, audio sliders) (w 2)
-- [ ] HUD, radar and map (w 2)
+- [~] HUD, radar and map (classic retail HUD layout and a modern rewrite HUD: vitals, money, clock, wanted, weapon icon and ammo, area names, circular/rounded radar from the radar tiles; pause map screen and blips not yet) (w 2)
 - [ ] GXT text tables (w 1)
 
 ## Audio

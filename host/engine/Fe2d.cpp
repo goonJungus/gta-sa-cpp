@@ -78,3 +78,23 @@ void Fe2d::DrawTex(IDirect3DTexture9* tex, float x0, float y0, float x1, float y
     QueueTex(x0, y0, x1, y1, argb, u0, v0, u1, v1);
     Flush(tex);
 }
+
+void Fe2d::DrawTris(IDirect3DTexture9* tex, const Vert* v, int n) {
+    Flush(tex);   // never mix with a pending batch
+    for (int i = 0; i + 2 < n; i += 3) {
+        if (m_count + 3 > kMaxQuads * 6) Flush(tex);
+        for (int k = 0; k < 3; k++)
+            m_buf[m_count++] = V{v[i + k].x + m_ox - 0.5f, v[i + k].y + m_oy - 0.5f, 0, 1, v[i + k].c, v[i + k].u, v[i + k].v};
+    }
+    Flush(tex);
+}
+
+void Fe2d::DrawFan(IDirect3DTexture9* tex, const Vert* v, int n) {
+    Flush(tex);
+    for (int i = 1; i + 1 < n; i++) {
+        if (m_count + 3 > kMaxQuads * 6) Flush(tex);
+        const Vert* t[3] = {&v[0], &v[i], &v[i + 1]};
+        for (const Vert* p : t) m_buf[m_count++] = V{p->x + m_ox - 0.5f, p->y + m_oy - 0.5f, 0, 1, p->c, p->u, p->v};
+    }
+    Flush(tex);
+}
