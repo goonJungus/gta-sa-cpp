@@ -1790,6 +1790,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("SWEEP done");
     }
 
+    // Dev: GTA_STEPSCAN=x,y,r lists stair-like ground steps (0.12..0.25 m rise over 0.4 m) around a point.
+    if (const char* ss = getenv("GTA_STEPSCAN")) {
+        float cx = 0, cy = 0, cr = 40;
+        sscanf(ss, "%f,%f,%f", &cx, &cy, &cr);
+        int n = 0;
+        for (float x = cx - cr; x <= cx + cr && n < 40; x += 0.5f)
+            for (float y = cy - cr; y <= cy + cr && n < 40; y += 0.5f) {
+                const float a = g_world.GetGroundHeight(x, y, 2000.0f), b = g_world.GetGroundHeight(x + 0.4f, y, 2000.0f);
+                if (a > -900.0f && b > -900.0f && std::fabs(b - a) > 0.12f && std::fabs(b - a) < 0.25f) {
+                    Log("STEP at %.1f %.1f z=%.2f -> %.2f", x, y, a, b);
+                    n++;
+                }
+            }
+    }
     // Dev: GTA_GROUNDMAP=<metres per pixel> writes the top collision surface over the whole map to groundmap.pgm
     // (0 = nothing there, which is open sea or a hole in the land).
     if (const char* gm = getenv("GTA_GROUNDMAP")) {
@@ -2411,6 +2425,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.jumpDown = jumpJustDown;
                 pin.exitPressed = (GameKey('F') & 0x8000) != 0;   // CPad::GetExitVehicle lets go
                 pin.climbScan = climbScan;
+                pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
+                if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
                 g_cj.Update(pin);
                 if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
                 {   // CTaskSimpleClimb moves CJ itself
@@ -2420,8 +2436,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (g_cj.Climbing()) { onGround = true; velZ = 0.0f; playerZ += g_cj.ClimbVelZ() * dt; }
                 }
                 if (getenv("GTA_CJLOG")) {   // dev: per-frame animation trace
-                    char cd[160] = "";
+                    char cd[200] = "";
                     if (g_cj.Climbing()) g_cj.ClimbDebug(cd, sizeof cd);
+                    else g_cj.FootDebug(cd, sizeof cd);
                     Log("CJ f%d clip=%s xy=%.2f,%.2f v=%.2f ratio=%.2f ground=%d hag=%.2f z=%.2f %s", frame, g_cj.ClipName(), playerX, playerY,
                         sqrtf(vx * vx + vy * vy), g_cj.MoveBlendRatio(), (int)onGround, pin.heightAboveGround, playerZ - EYE_HEIGHT, cd);
                 }

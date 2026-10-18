@@ -1106,6 +1106,7 @@ void PlayerPed::Update(const Input& in) {
     BuildGlobals(m_pose);
     ShoulderBoneRotation();
     if (in.rewrite) ApplyRewritePose();
+    if (in.rewrite) ApplyFootIK(in);
     Skin();
 }
 

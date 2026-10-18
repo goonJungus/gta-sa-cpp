@@ -55,6 +55,7 @@ public:
         // returns < -1e5 when there is none.
         std::function<float(float, float, float)> groundAt;
         float worldX = 0.0f, worldY = 0.0f, feetZ = 0.0f;
+        bool footIk = false;                  // rewrite foot IK on
         bool jumpHeld = false;                // CPad::GetJump
         bool jumpDown = false;                // CPad::JumpJustDown
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
@@ -75,6 +76,7 @@ public:
     // TestForClimb: a handhold in front of CJ? launch = Shift pressed on the ground.
     bool TryStartClimb(float x, float y, float feetZ, bool launch, const ClimbScanFn& scan);
     bool Climbing() const { return m_climbing; }
+    void FootDebug(char* out, size_t n) const;   // dev trace: per-leg foot IK weight and offset
     void ClimbDebug(char* out, size_t n);   // dev trace: clip time/blend and climb state
     // The task moved CJ: world x, y and feet z to snap to (valid once, true).
     bool TakeClimbSnap(float& x, float& y, float& feetZ);
@@ -124,6 +126,8 @@ private:
     void BuildGlobals(const std::vector<Pose>& pose);
     void ShoulderBoneRotation();
     void ApplyRewritePose();
+    void ApplyFootIK(const Input& in);
+    void FootRestHeights();
     void Skin();
 
     void ControlOnFoot(const Input& in);
@@ -154,6 +158,10 @@ private:
     float m_airTime = 0.0f;
     bool m_inAir = false, m_jumping = false;
     bool m_busy = false;
+    struct FootLeg { float weight = 0, offset = 0, pitch = 0, prevSole = 0; bool contact = false, valid = false; };
+    FootLeg m_foot[2];                         // right, left
+    float m_footRest[2] = {0.08f, 0.08f};      // bind pose ankle height above the sole
+    bool m_footInit = false;
     bool m_busySoft = false;                   // FALL_land: the stick may cut it short
     const AnimClip* m_busyClip = nullptr;      // landing / collapse / get-up in progress
     const AnimClip* m_busyNext = nullptr;      // get-up after a KO skid
