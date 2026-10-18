@@ -59,6 +59,10 @@ public:
     void WeaponSwitch();
     // Background beds, call every frame: city murmur, rain and wind levels 0..1.
     void Ambient(float city, float rain, float wind);
+    // The player's car engine (retail vehicle audio banks): model id, throttle 0..1, speed in m/s,
+    // top speed in m/s, number of gears. Call every frame while driving, EngineStop on leaving.
+    void Engine(int model, float throttle, float speed, float maxSpeed, int numGears, float dt);
+    void EngineStop();
 
     // A streamed music source (the radio): `pull` fills interleaved stereo frames at `rate` Hz and
     // returns how many it wrote, 0 when the track is over. It runs on the mixer thread.
@@ -101,6 +105,8 @@ private:
     bool m_musEnded = false;
     std::vector<int16_t> m_musBuf;   // decoded stereo frames not yet played
     double m_musPos = 0.0;
+    int m_engModel = -1, m_engAC = 0, m_engCRZ = 0, m_engID = 0;
+    float m_engGainAC = 0.0f, m_engGainCRZ = 0.0f, m_engGainID = 0.0f;
     int m_ambCity = 0, m_ambRain = 0, m_ambWindL = 0, m_ambWindR = 0;
     int Rand(int n) { m_rng = m_rng * 1664525u + 1013904223u; return (int)((m_rng >> 8) % (unsigned)n); }
     std::string m_last;

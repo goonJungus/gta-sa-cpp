@@ -1,4 +1,5 @@
 #include "Audio.h"
+#include "VehAudioTable.h"
 
 #include <windows.h>
 #include <mmsystem.h>
@@ -453,4 +454,55 @@ void Audio::StopMusic() {
     m_musPull = nullptr;
     m_musBuf.clear();
     m_musEnded = false;
+}
+
+void Audio::EngineStop() {
+    for (int* v : {&m_engAC, &m_engCRZ, &m_engID}) { if (*v) Stop(*v); *v = 0; }
+    m_engModel = -1;
+    m_engGainAC = m_engGainCRZ = m_engGainID = 0.0f;
+}
+
+// Player engine after CAEVehicleAudioEntity: the player bank holds the acceleration loop (sound 0), the
+// cruise loop (1) and the lift-off sound (2), the dummy bank the idle loop (1). Levels are in dB.
+void Audio::Engine(int model, float throttle, float speed, float maxSpeed, int numGears, float dt) {
+    if (!m_ready) return;
+    const int idx = model - 400;
+    if (idx < 0 || idx >= (int)(sizeof(kVehAudio) / sizeof(kVehAudio[0]))) return;
+    const VehAudioRow& row = kVehAudio[idx];
+    if (row.type != 0 && row.type != 1) return;   // aircraft and bicycles have their own sounds
+    if (m_engModel != model) {
+        EngineStop();
+        m_engModel = model;
+        m_engAC = Play(row.player, 0, 0.0f, 0.0f, 1.0f, true);
+        m_engCRZ = Play(row.player, 1, 0.0f, 0.0f, 1.0f, true);
+        m_engID = Play(row.dummy, 1, 0.0f, 0.0f, 1.0f, true);
+    }
+    auto db = [](float d) { return std::pow(10.0f, d / 20.0f); };
+    const float ratio = std::clamp(std::fabs(speed) / std::max(1.0f, maxSpeed), 0.0f, 1.0f);
+    // gear and the revs inside it
+    numGears = std::clamp(numGears, 1, 5);
+    const float gearPos = ratio * (float)numGears;
+    const int gear = std::min(numGears, (int)gearPos + 1);
+    const float revs = std::clamp(gearPos - (float)(gear - 1), 0.0f, 1.0f);
+    static const float kPerGear[6] = {0.4f, 0.22f, 0.13f, 0.075f, 0.0f, -0.075f};
+    const float acPitch = (0.7f + 0.45f * revs + 0.5f * kPerGear[std::min(gear - 1, 5)]) * row.pitch;
+    const float crzPitch = (0.925f + (1.25f - 0.925f) * ratio) * row.pitch;
+    // idle frequency curve (GetFreqForIdle)
+    const float pts[5][2] = {{0.0f, 0.0f}, {0.075f, 0.7f}, {0.15f, 1.1f}, {0.25f, 1.25f}, {1.0f, 1.7f}};
+    float fi = 1.7f;
+    for (int i = 0; i < 4; i++) if (ratio <= pts[i + 1][0]) { fi = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * (ratio - pts[i][0]) / (pts[i + 1][0] - pts[i][0]); break; }
+    const float idPitch = (0.85f + (1.5f - 0.85f) * fi / 1.7f) * row.pitch;
+    const bool moving = std::fabs(speed) > 1.0f;
+    const bool pedal = throttle > 0.05f;
+    const float baseVol = 0.55f * db(row.volOffset);
+    const float tAC = pedal ? baseVol * db(-2.0f + 2.0f * (float)gear / (float)numGears) : 0.0f;
+    const float tCRZ = (!pedal && moving) ? baseVol * db(2.0f * ratio) : 0.0f;
+    const float tID = (moving && (pedal || ratio > 0.05f)) ? baseVol * db(-3.5f) * 0.4f : baseVol * db(-2.5f);
+    const float k = std::min(1.0f, 7.0f * dt);
+    m_engGainAC += (tAC - m_engGainAC) * k;
+    m_engGainCRZ += (tCRZ - m_engGainCRZ) * k;
+    m_engGainID += (tID - m_engGainID) * k;
+    SetVoice(m_engAC, m_engGainAC, 0.0f, acPitch);
+    SetVoice(m_engCRZ, m_engGainCRZ, 0.0f, crzPitch);
+    SetVoice(m_engID, m_engGainID, 0.0f, idPitch);
 }
