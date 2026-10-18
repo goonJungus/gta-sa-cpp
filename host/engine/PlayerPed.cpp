@@ -1061,6 +1061,7 @@ void PlayerPed::Update(const Input& in) {
         }
         m_move.Reset();
     } else if (!in.onGround) {
+        if (m_aiming || m_ducking) LeaveStance();
         ControlInAir(in);
     } else {
         if (m_inAir) Land(in);
@@ -1084,8 +1085,10 @@ void PlayerPed::Update(const Input& in) {
                 }
             }
         }
-        if (!m_busy) ControlOnFoot(in);
-        else m_ratio = 0.0f;
+        const bool wantStance = !m_busy && (m_ducking || in.aim || in.duckJust);
+        if (wantStance) ControlStance(in);
+        else if (!m_busy) { if (m_aiming || m_ducking) LeaveStance(); ControlOnFoot(in); }
+        else { if (m_aiming || m_ducking) LeaveStance(); m_ratio = 0.0f; }
     }
 
     // Dev: GTA_CJPOSE="clip:seconds" freezes CJ in one frame of one clip.
@@ -1107,7 +1110,7 @@ void PlayerPed::Update(const Input& in) {
         m_velX = m_velY = 0.0f;
     } else if (in.onGround && dt > 0.0f) {
         // First person moves along the stick while the body faces the view.
-        const float a = (in.firstPerson && !m_busy ? m_moveAngle : m_heading) - kPi * 0.5f;
+        const float a = (in.firstPerson && !m_busy && !m_aiming && !m_ducking ? m_moveAngle : m_heading) - kPi * 0.5f;
         const float c = std::cos(a), s = std::sin(a);
         m_velX = (m_rootDX * c - m_rootDY * s) / dt;
         m_velY = (m_rootDX * s + m_rootDY * c) / dt;
@@ -1131,7 +1134,7 @@ void PlayerPed::Update(const Input& in) {
     BuildGlobals(m_pose);
     ShoulderBoneRotation();
     if (in.rewrite) ApplyRewritePose();
-    if (in.rewrite) ApplyFootIK(in);
+    if (in.rewrite && !m_ducking) ApplyFootIK(in);
     Skin();
 }
 
@@ -1193,6 +1196,7 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
 
 void PlayerPed::StartSwim() {
     if (m_swimming) return;
+    m_ducking = m_aiming = false;
     m_swimming = true;
     m_swimState = SwimState::Tread;
     m_swimPitch = 0.0f;
@@ -1335,4 +1339,112 @@ void PlayerPed::SetBodyShape(float fat, float muscle) {
             if (n > 1e-6f) for (int k = 0; k < 3; k++) v.normal[k] /= n;
         }
     }
+}
+
+// ---- CTaskSimpleDuck @ 00691fc0 and the aiming stance ----------------------
+
+// Drive the stance clips to the given weights (they sum to 1); anything else
+// fades out.
+void PlayerPed::StanceBlend(const StanceW* ws, int n, float dt) {
+    for (Assoc& a : m_assocs) {
+        if (a.dead) continue;
+        bool listed = false;
+        for (int i = 0; i < n; i++) if (a.clip == Clip(ws[i].name)) listed = true;
+        if (!listed && a.delta >= 0.0f) a.delta = -8.0f;
+    }
+    for (int i = 0; i < n; i++) {
+        const AnimClip* c = Clip(ws[i].name);
+        if (!c) continue;
+        Assoc* a = Get(c);
+        if (!a && ws[i].w <= 0.0f) continue;
+        if (!a) { a = Add(c, ws[i].loop, ws[i].move); a->blend = 0.0f; }
+        a->delta = 0.0f;
+        const float step = 8.0f * dt;
+        a->blend = a->blend < ws[i].w ? std::min(ws[i].w, a->blend + step) : std::max(ws[i].w, a->blend - step);
+        a->playing = ws[i].w > 0.0f || ws[i].loop == false;
+        if (a->blend <= 0.0f && ws[i].w <= 0.0f) a->dead = true;
+    }
+}
+
+void PlayerPed::LeaveStance() {
+    m_ducking = m_aiming = false;
+    m_duckX = m_duckY = 0.0f;
+    m_ratio = 0.0f;
+    for (Assoc& a : m_assocs) a.delta = -8.0f;
+    if (const AnimClip* idle = Clip("idle_stance")) {
+        Assoc* i = Blend(idle, true, false, 4.0f);   // MakeAbortable: BlendAnimation IDLE at 4
+        i->delta = 4.0f;
+    }
+}
+
+void PlayerPed::ControlStance(const Input& in) {
+    // Duck on / off: DuckJustDown; sprint and jump also stand up. CanPedDuck:
+    // a player running or sprinting cannot start one.
+    if (in.duckJust && !m_ducking && m_ratio <= 1.0f && !in.sprint) {
+        m_ducking = true;
+        m_duckX = m_duckY = 0.0f;
+    } else if (m_ducking && (in.duckJust || in.sprint || in.jumpDown)) {
+        m_ducking = false;
+    }
+    m_aiming = in.aim;
+    if (!m_ducking && !m_aiming) { LeaveStance(); return; }
+    m_ratio = 0.0f;
+
+    const float sx = in.stickX, sy = in.stickY;
+    const float mag = std::min(1.0f, std::sqrt(sx * sx + sy * sy));
+    if (m_aiming) m_aimHeading = in.camYaw;       // face where the camera looks
+    else if (mag > 0.0f) m_aimHeading = std::atan2(sy, sx);
+
+    // stick in the ped's own frame: ly forward, lx right
+    const float ch = std::cos(m_heading), sh = std::sin(m_heading);
+    float ly = sx * ch + sy * sh, lx = sx * sh - sy * ch;
+    if (!m_aiming) { ly = mag; lx = 0.0f; }   // unaimed: he turns and walks forward
+
+    // ControlDuckMove: the command follows the stick at 0.07 per 1/50 s
+    const float step = 0.07f * 50.0f * in.dt;
+    if (m_ducking) {
+        const float tgtY = -ly;   // y < 0 is forward
+        const float dy = tgtY - m_duckY;
+        m_duckY = dy > step ? m_duckY + step : dy < -step ? m_duckY - step : tgtY;
+        m_duckX = (m_aiming && std::fabs(ly) < 0.1f && std::fabs(lx) >= 0.9f) ? (lx < 0 ? -1.0f : 1.0f) : 0.0f;
+    }
+
+    // clip weights
+    StanceW ws[6];
+    int n = 0;
+    float moveSum = 0.0f;
+    if (m_ducking) {
+        const float f = std::max(0.0f, -m_duckY), b = std::max(0.0f, m_duckY);
+        if (m_duckX != 0.0f) {
+            ws[n++] = {m_duckX > 0 ? "crouch_roll_r" : "crouch_roll_l", 1.0f, false, false};
+        } else {
+            ws[n++] = {"weapon_crouch", 1.0f - std::min(1.0f, f + b), false, false};
+            ws[n++] = {"guncrouchfwd", f, true, true};
+            ws[n++] = {"guncrouchbwd", b, true, true};
+            moveSum = f + b;
+        }
+        if (n == 3 && moveSum > 0.0f) {   // retail: speed max(0.6, |cmd|)
+            if (Assoc* a = Get(Clip("guncrouchfwd"))) a->speed = std::max(0.6f, f);
+            if (Assoc* a = Get(Clip("guncrouchbwd"))) a->speed = std::max(0.6f, b);
+        }
+    } else {
+        const float f = std::max(0.0f, ly), b = std::max(0.0f, -ly), r = std::max(0.0f, lx), l = std::max(0.0f, -lx);
+        const float tot = f + b + r + l;
+        const float k = tot > 1.0f ? 1.0f / tot : 1.0f;
+        ws[n++] = {"gun_stand", 1.0f - std::min(1.0f, tot * k), false, true};
+        ws[n++] = {"gunmove_fwd", f * k, true, true};
+        ws[n++] = {"gunmove_bwd", b * k, true, true};
+        ws[n++] = {"gunmove_r", r * k, true, true};
+        ws[n++] = {"gunmove_l", l * k, true, true};
+    }
+    StanceBlend(ws, n, in.dt);
+
+    // turn: aiming snaps to the camera, otherwise the classic rate
+    float d = m_aimHeading - m_heading;
+    while (d > kPi) d -= 2 * kPi;
+    while (d < -kPi) d += 2 * kPi;
+    const float rate = (m_aiming ? 12.0f : 9.0f * (kPi / 180.0f) * 50.0f) * in.dt;
+    m_heading += std::clamp(d, -rate, rate);
+    while (m_heading > kPi) m_heading -= 2 * kPi;
+    while (m_heading < -kPi) m_heading += 2 * kPi;
 }

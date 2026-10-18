@@ -113,7 +113,7 @@ static bool ScriptedKey(int vk) {
         while (*p && *p != ';') p++;
         if (g_scriptFrame >= a && g_scriptFrame <= b)
             for (const char* k = keys; k < p; k++) {
-                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4
+                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '~' ? VK_RBUTTON
                                : toupper((unsigned char)*k);
                 if (want == vk) return true;
             }
@@ -2456,6 +2456,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.worldX = playerX; pin.worldY = playerY; pin.feetZ = playerZ - EYE_HEIGHT;
                 pin.jumpHeld = jumpKeyDown;
                 pin.jumpDown = jumpJustDown;
+                {
+                    static bool s_prevDuck = false;
+                    const bool duckKey = (GameKey('C') & 0x8000) != 0;
+                    pin.duckJust = duckKey && !s_prevDuck;
+                    s_prevDuck = duckKey;
+                    pin.aim = (GameKey(VK_RBUTTON) & 0x8000) != 0;
+                }
                 pin.waterZ = waterZ;
                 {
                     static bool s_prevDive = false;

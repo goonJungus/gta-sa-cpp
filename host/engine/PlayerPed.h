@@ -61,6 +61,8 @@ public:
         float waterZ = -1e9f;                 // water surface here (< -1e8: none)
         bool diveDown = false, diveUp = false; // swimming: descend / ascend held
         bool diveJust = false;                // swimming: dive pressed this frame
+        bool duckJust = false;                // CPad::DuckJustDown
+        bool aim = false;                     // CPad::GetTarget (aim button held)
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
         ClimbScanFn climbScan;
     };
@@ -99,6 +101,10 @@ public:
     bool SwimJumpOut() const { return m_swimming && m_swimState == SwimState::BackToSurface; }
     float SwimSubmerge() const;            // how far below the surface the ped origin rides
     float SwimVelZ() const { return m_swimVelZ; }
+    // CTaskSimpleDuck (secondary task) and the aiming stance (the movement part
+    // of CTaskSimpleUseGun::ControlGunMove, without a weapon).
+    bool Ducking() const { return m_ducking; }
+    bool Aiming() const { return m_aiming; }
     // Horizontal velocity CJ's animation moves him at this frame (m/s, world).
     float VelX() const { return m_velX; }
     float VelY() const { return m_velY; }
@@ -152,6 +158,10 @@ private:
     void ControlInAir(const Input& in);
     void Land(const Input& in);
     void ControlSwim(const Input& in);
+    void ControlStance(const Input& in);
+    struct StanceW { const char* name; float w; bool move, loop; };
+    void StanceBlend(const StanceW* ws, int n, float dt);
+    void LeaveStance();
     void SwimWant(const char* name, float rate, bool movement);
 
     bool m_ready = false;
@@ -203,6 +213,8 @@ private:
     float m_stickX = 0.0f, m_stickY = 0.0f;    // the stick CJ is obeying (filtered in rewrite)
     float m_moveAngle = 0.0f;                  // first person: direction of travel
 
+    bool m_ducking = false, m_aiming = false;
+    float m_duckX = 0.0f, m_duckY = 0.0f;      // CTaskSimpleDuck::m_MoveCmd (x strafe, y: -1 forward)
     // CTaskSimpleSwim
     enum class SwimState { Tread, Sprint, Sprinting, Dive, Under, BackToSurface };
     bool m_swimming = false;
