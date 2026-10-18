@@ -51,6 +51,7 @@ struct FeSettings {
     int windowSize = 1;       // index into kWindowSizes (windowed mode)
     float brightness = 0.5f;  // screen overlay: below 0.5 darker, above lighter
     bool mipmaps = true;
+    int antiAlias = 0;        // 0 off, 1 = 2x, 2 = 4x
     int language = 0;         // index into kLanguageFiles: English, French, German, Italian, Spanish
 };
 
