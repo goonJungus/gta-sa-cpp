@@ -2,9 +2,8 @@
 // Grove Street with GTA SA-style controls (WASD + mouse), debug overlay.
 //
 // Modes:
-//   (no flag)     The game (WASD + mouse, debug info); --play is accepted and ignored
-//   --grove       Static Grove Street scene (original)
-//   --housetest   3-house test (original)
+//   (no flag)     The game (WASD + mouse, debug info)
+//   --flyover     Scripted camera flyover
 //
 // Play controls:
 //   W/A/S/D - move (camera-relative)
@@ -591,8 +590,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     float camYawOverride = 0.0f, camPitchOverride = 0.0f;
     float camPosOverrideX = 0.0f, camPosOverrideY = 0.0f, camPosOverrideZ = 0.0f;
     bool hasYawOverride = false, hasPitchOverride = false, hasPosOverride = false;
-    bool houseTest = false;
-    bool groveTest = false;
     bool playMode = true;   // the game is the default; --grove / --housetest are the old static scenes
     bool scripted = false;
     bool flyover = false;
@@ -624,12 +621,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 char p[512] = {};
                 WideToUtf8(argv[i + 1], p, sizeof(p));
                 logPath = p; i++;
-            } else if (a == "--housetest") {
-                houseTest = true; playMode = false;
-            } else if (a == "--grove") {
-                groveTest = true; playMode = false;
-            } else if (a == "--play") {
-                playMode = true;
+            } else if (a == "--play") {   // legacy no-op: the game is the default
             } else if (a == "--scripted") {
                 scripted = true;
                 playMode = true;  // scripted implies play mode
@@ -755,8 +747,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_menu.Settings().frameLimit, (int)g_menu.Settings().vsync, g_menu.Settings().drawDist);
 
     { char cwd[MAX_PATH] = {}; GetCurrentDirectoryA(sizeof(cwd), cwd);
-      Log("gtasa_cpp starting (cwd=%s) play=%d grove=%d housetest=%d shotDir=%s",
-          cwd, playMode, groveTest, houseTest, shotDir);
+      Log("gtasa_cpp starting (cwd=%s) play=%d shotDir=%s",
+          cwd, playMode, shotDir);
       Log("  startHour=%.2f weather=%s timeFlow=%d", startHour,
           weatherName.empty() ? "(default SUNNY_LA)" : weatherName.c_str(),
           (int)g_timeFlow); }
@@ -1728,39 +1720,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         POINT c = {(rc.right-rc.left)/2, (rc.bottom-rc.top)/2};
         ClientToScreen(g_hwnd, &c);
         SetCursorPos(c.x, c.y);
-    } else if (houseTest) {
-        Log("HOUSE TEST MODE");
-        struct HD { const char* dff; const char* txd; float x, y, z; };
-        HD houses[] = {
-            {"bdupshouse_lae.dff",    "bdupshouse_lae", 2480.0f, -1650.0f, 0.0f},
-            {"santahouse02_law2.dff", "bev_law2",       2510.0f, -1650.0f, 0.0f},
-            {"cehillhouse04.dff",     "lahillshilhse",  2540.0f, -1650.0f, 0.0f},
-        };
-        for (auto& h : houses) loadHouse(h.dff, h.txd, h.x, h.y, h.z, 0.0f, mapObjects);
-        D3DMATRIX view = MatrixLookAt(2510, -1710, 25, 2510, -1650, 8, 0, 0, 1);
-        D3DMATRIX proj = MatrixPerspectiveFov(60.0f*3.14159f/180.0f, (float)WIDTH/(float)HEIGHT, 1.0f, 2000.0f);
-        g_renderer.SetViewMatrix(view);
-        g_renderer.SetProjMatrix(proj);
-    } else if (groveTest) {
-        Log("GROVE STREET MODE (static)");
-        struct GH { const char* dff; const char* txd; float x, y, z, yaw; };
-        GH houses[] = {
-            {"bdupshouse_lae.dff",   "bdupshouse_lae", 2480.0f, -1635.0f, 0.0f, 3.14159f},
-            {"compmedhos1_lae.dff",  "comedhos1_la",   2500.0f, -1635.0f, 0.0f, 3.14159f},
-            {"compmedhos2_lae.dff",  "comedhos1_la",   2520.0f, -1635.0f, 0.0f, 3.14159f},
-            {"ganghous01_lax.dff",   "ganghouse1_lax", 2540.0f, -1635.0f, 0.0f, 3.14159f},
-            {"santahouse02_law2.dff", "bev_law2",      2490.0f, -1665.0f, 0.0f, 0.0f},
-            {"compmedhos3_lae.dff",   "comedhos1_la",  2510.0f, -1665.0f, 0.0f, 0.0f},
-            {"cehillhouse04.dff",     "lahillshilhse", 2530.0f, -1665.0f, 0.0f, 0.0f},
-            {"ganghous02_lax.dff",    "ganghouse1_lax",2550.0f, -1665.0f, 0.0f, 0.0f},
-        };
-        for (auto& h : houses) loadHouse(h.dff, h.txd, h.x, h.y, h.z, h.yaw, mapObjects);
-        D3DMATRIX view = MatrixLookAt(2460, -1650, 18, 2530, -1650, 6, 0, 0, 1);
-        D3DMATRIX proj = MatrixPerspectiveFov(60.0f*3.14159f/180.0f, (float)WIDTH/(float)HEIGHT, 1.0f, 2000.0f);
-        g_renderer.SetViewMatrix(view);
-        g_renderer.SetProjMatrix(proj);
-    } else {
-        Log("M4 map mode: use --play, --grove, or --housetest");
     }
 
     IDirect3DDevice9* dev = g_renderer.GetDevice();
