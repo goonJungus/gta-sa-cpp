@@ -65,6 +65,7 @@ static CameraShake g_shake;
 PlayerCamera g_playerCam;          // on-foot camera views (V)
 static bool g_hideCjHead = false;         // first-person view
 static float g_nearClip = 0.5f;
+static float g_fovDeg = 70.0f;           // vertical FOV in use (rewrite can change it)
 static int  g_forceStyle = -1;            // --classic / --rewrite (not saved)
 
 // Per-frame hitch profiler (shown in the F1 overlay; R resets the worst frame).
@@ -173,6 +174,27 @@ static void LoadSettings(FeSettings& s) {
     s.drawDist = dd < 0.925f ? 0.925f : (dd > 1.8f ? 1.8f : dd);
     s.movementStyle = GetPrivateProfileIntA("Gameplay", "MovementStyle", 0, g_iniPath) == 1 ? 1 : 0;
     s.cameraStyle = GetPrivateProfileIntA("Gameplay", "CameraStyle", 0, g_iniPath) == 1 ? 1 : 0;
+    auto flt = [&](const char* sec, const char* key, float def, float lo, float hi) {
+        char d[32], b[32] = {};
+        snprintf(d, sizeof(d), "%g", def);
+        GetPrivateProfileStringA(sec, key, d, b, sizeof(b), g_iniPath);
+        float v = (float)atof(b);
+        return v < lo ? lo : (v > hi ? hi : v);
+    };
+    auto flag = [&](const char* sec, const char* key, bool def) {
+        return GetPrivateProfileIntA(sec, key, def ? 1 : 0, g_iniPath) != 0;
+    };
+    s.fov = flt("Display", "FieldOfView", 70.0f, 50.0f, 110.0f);
+    s.hudScale = flt("Hud", "Scale", 1.0f, 0.6f, 1.6f);
+    s.showHud = flag("Hud", "Show", true);
+    s.radarMode = (int)GetPrivateProfileIntA("Hud", "RadarMode", 0, g_iniPath) == 1 ? 1 : 0;
+    s.masterVol = flt("Audio", "Master", 0.8f, 0.0f, 1.0f);
+    s.sfxVol = flt("Audio", "Sfx", 1.0f, 0.0f, 1.0f);
+    s.musicVol = flt("Audio", "Music", 0.7f, 0.0f, 1.0f);
+    s.hitMarker = flag("Rewrite", "HitMarker", true);
+    s.damageFlash = flag("Rewrite", "DamageFlash", true);
+    s.crosshairDot = flag("Rewrite", "CrosshairDot", true);
+    s.autoReload = flag("Rewrite", "AutoReload", true);
 }
 static void SaveSettings(const FeSettings& s) {
     char buf[32];
@@ -183,6 +205,25 @@ static void SaveSettings(const FeSettings& s) {
     WritePrivateProfileStringA("Display", "DrawDistance", buf, g_iniPath);
     WritePrivateProfileStringA("Gameplay", "MovementStyle", s.movementStyle ? "1" : "0", g_iniPath);
     WritePrivateProfileStringA("Gameplay", "CameraStyle", s.cameraStyle ? "1" : "0", g_iniPath);
+    auto flt = [&](const char* sec, const char* key, float v) {
+        snprintf(buf, sizeof(buf), "%.4f", v);
+        WritePrivateProfileStringA(sec, key, buf, g_iniPath);
+    };
+    auto flag = [&](const char* sec, const char* key, bool v) {
+        WritePrivateProfileStringA(sec, key, v ? "1" : "0", g_iniPath);
+    };
+    flt("Display", "FieldOfView", s.fov);
+    flt("Hud", "Scale", s.hudScale);
+    flag("Hud", "Show", s.showHud);
+    snprintf(buf, sizeof(buf), "%d", s.radarMode);
+    WritePrivateProfileStringA("Hud", "RadarMode", buf, g_iniPath);
+    flt("Audio", "Master", s.masterVol);
+    flt("Audio", "Sfx", s.sfxVol);
+    flt("Audio", "Music", s.musicVol);
+    flag("Rewrite", "HitMarker", s.hitMarker);
+    flag("Rewrite", "DamageFlash", s.damageFlash);
+    flag("Rewrite", "CrosshairDot", s.crosshairDot);
+    flag("Rewrite", "AutoReload", s.autoReload);
 }
 static HWND g_hwnd = nullptr;
 // Pending window resize (WndProc -> main loop): keep the backbuffer matched to
@@ -1733,7 +1774,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     }
 
     IDirect3DDevice9* dev = g_renderer.GetDevice();
-    D3DMATRIX proj = MatrixPerspectiveFov(70.0f*3.14159f/180.0f, (float)WIDTH/(float)HEIGHT, 0.5f, 3000.0f);
+    D3DMATRIX proj = MatrixPerspectiveFov(g_fovDeg*3.14159f/180.0f, (float)WIDTH/(float)HEIGHT, 0.5f, 3000.0f);
     g_renderer.SetProjMatrix(proj);
 
     Log("Entering render loop");
@@ -1888,7 +1929,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_pendingResize = false;
             if (g_renderer.Resize(rw, rh)) {
                 WIDTH = rw; HEIGHT = rh;
-                D3DMATRIX rproj = MatrixPerspectiveFov(70.0f*3.14159f/180.0f,
+                D3DMATRIX rproj = MatrixPerspectiveFov(g_fovDeg*3.14159f/180.0f,
                                     (float)WIDTH/(float)HEIGHT, g_nearClip, 3000.0f);
                 g_renderer.SetProjMatrix(rproj);
                 Log("RESIZE: backbuffer -> %dx%d", rw, rh);
@@ -2637,9 +2678,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_renderer.SetViewMatrix(view);
                 camPosX = cx; camPosY = cy; camPosZ = cz;
             }
-            if (nearClip != g_nearClip) {   // first person needs a near plane at the eyes
+            const float wantFov = g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f;
+            if (nearClip != g_nearClip || wantFov != g_fovDeg) {   // first person needs a near plane at the eyes
                 g_nearClip = nearClip;
-                g_renderer.SetProjMatrix(MatrixPerspectiveFov(70.0f * 3.14159f / 180.0f, (float)WIDTH / (float)HEIGHT,
+                g_fovDeg = wantFov;
+                g_renderer.SetProjMatrix(MatrixPerspectiveFov(g_fovDeg * 3.14159f / 180.0f, (float)WIDTH / (float)HEIGHT,
                                                               g_nearClip, 3000.0f));
             }
         }

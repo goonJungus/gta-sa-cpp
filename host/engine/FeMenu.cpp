@@ -11,6 +11,7 @@
 #include "TxdLoader.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -36,7 +37,7 @@ bool ScreenShown(int s) {
     case 33: case 35: case 36: case 41:
         return true;
     }
-    return false;
+    return s >= 43;   // ours
 }
 
 IDirect3DTexture9* LoadSprite(D3DRenderer& r, const std::vector<TxdTexture>& txd, const char* name) {
@@ -78,6 +79,36 @@ void FeMenu::Shutdown() {
     for (auto*& t : m_back) drop(t);
 }
 
+
+FeMenu::Entry FeMenu::MakeToggle(const char* name, bool* b, bool rewrite) {
+    Entry e; e.action = A_TOGGLE; e.name = name; e.type = 12; e.align = 1; e.b = b; e.needRewrite = rewrite; e.live = true;
+    return e;
+}
+FeMenu::Entry FeMenu::MakeChoice(const char* name, int* i, std::vector<std::string> ch, bool rewrite) {
+    Entry e; e.action = A_CHOICE; e.name = name; e.type = 12; e.align = 1; e.i = i; e.choices = std::move(ch);
+    e.needRewrite = rewrite; e.live = true;
+    return e;
+}
+FeMenu::Entry FeMenu::MakeSlider(const char* name, float* f, float lo, float hi, float step, bool rewrite) {
+    Entry e; e.action = A_SLIDER; e.name = name; e.type = 12; e.align = 1; e.f = f; e.lo = lo; e.hi = hi; e.step = step;
+    e.needRewrite = rewrite; e.live = true;
+    return e;
+}
+FeMenu::Entry FeMenu::MakeGoto(const char* name, int target) {
+    Entry e; e.action = A_GOTO; e.name = name; e.type = 11; e.target = target; e.align = 3; e.live = true;
+    return e;
+}
+void FeMenu::AddScreen(const char* title, int prev, std::vector<Entry> items) {
+    Screen sc;
+    sc.title = title; sc.prev = prev; sc.start = 0;
+    sc.items = std::move(items);
+    if (!sc.items.empty()) { sc.items[0].x = 57; sc.items[0].y = 127; }
+    Entry back;
+    back.action = A_BACK; back.name = "FEDS_TB"; back.type = 11; back.align = 3; back.x = 320; back.y = 380; back.live = true;
+    sc.items.push_back(back);
+    m_screens.push_back(std::move(sc));
+}
+
 void FeMenu::BuildScreens() {
     m_screens.assign(kFeScreenCount, Screen());
     for (int s = 0; s < kFeScreenCount; s++) {
@@ -104,6 +135,38 @@ void FeMenu::BuildScreens() {
         it.insert(it.begin() + 2, v);
         if (it.size() > 12) it.resize(12);
     }
+
+    // ---- Ours: extra screens and entries (index 42 is retail's "pause" alias) ----
+    {
+        Screen alias;
+        m_screens.push_back(alias);   // 42
+        // 43: Gameplay (rewrite master switch and its extras)
+        Entry rw; rw.action = A_REWRITE; rw.name = "REWRITE MODE"; rw.type = 12; rw.align = 1; rw.live = true;
+        AddScreen("GAMEPLAY", 33, {rw,
+            MakeToggle("HIT MARKERS", &m_set.hitMarker, true),
+            MakeToggle("DAMAGE FLASH", &m_set.damageFlash, true),
+            MakeToggle("CROSSHAIR DOT", &m_set.crosshairDot, true),
+            MakeToggle("AUTO RELOAD", &m_set.autoReload, true)});
+        // 44: HUD and view (rewrite)
+        AddScreen("HUD AND VIEW", 4, {
+            MakeToggle("SHOW HUD", &m_set.showHud, false),
+            MakeSlider("HUD SCALE", &m_set.hudScale, 0.6f, 1.6f, 0.05f, true),
+            MakeSlider("FIELD OF VIEW", &m_set.fov, 50.0f, 110.0f, 2.0f, true)});
+        // Options: Gameplay above Back. Pause root: quick rewrite switch above Quit.
+        std::vector<Entry>& op = m_screens[33].items;
+        op.insert(op.begin() + 4, MakeGoto("GAMEPLAY", 43));
+        std::vector<Entry>& ds = m_screens[4].items;
+        ds.insert(ds.begin() + 4, MakeGoto("HUD AND VIEW", 44));
+        if (ds.size() > 12) ds.resize(12);
+        std::vector<Entry>& pa = m_screens[41].items;
+        Entry q = rw; q.type = 11; q.align = 3;
+        pa.insert(pa.begin() + 6, q);
+        // Audio screen sliders: music and sound effects volume.
+        for (Entry& e : m_screens[3].items) {
+            if (e.action == 28) { e.action = A_SLIDER; e.f = &m_set.musicVol; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
+            if (e.action == 29) { e.action = A_SLIDER; e.f = &m_set.sfxVol; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
+        }
+    }
     for (Screen& sc : m_screens) {
         for (size_t i = 0; i < sc.items.size(); i++) {
             Entry& e = sc.items[i];
@@ -121,6 +184,7 @@ void FeMenu::BuildScreens() {
             switch (e.action) {
             case A_BACK: case A_RESUME: case A_NO: case A_YES_QUIT:
             case A_FRAME_LIMITER: case A_DRAW_DIST: case A_VSYNC:
+            case A_TOGGLE: case A_CHOICE: case A_SLIDER: case A_REWRITE:
                 e.live = true;
                 break;
             case A_GOTO:
@@ -132,7 +196,7 @@ void FeMenu::BuildScreens() {
 }
 
 void FeMenu::Open(int screen) {
-    if (screen < 0 || screen >= kFeScreenCount || !ScreenShown(screen)) screen = kPauseScreen;
+    if (screen < 0 || screen >= (int)m_screens.size() || !ScreenShown(screen)) screen = kPauseScreen;
     m_open = true;
     m_quit = false;
     m_mx = m_my = -1;
@@ -143,7 +207,7 @@ void FeMenu::Close() { m_open = false; }
 
 void FeMenu::SwitchTo(int screen, int fromChild) {
     if (screen == 42) screen = kPauseScreen;   // retail: "the menu you came from"
-    if (screen < 0 || screen >= kFeScreenCount) { Close(); return; }
+    if (screen < 0 || screen >= (int)m_screens.size()) { Close(); return; }
     m_screen = screen;
     const std::vector<Entry>& it = m_screens[screen].items;
     m_sel = -1;
@@ -151,13 +215,13 @@ void FeMenu::SwitchTo(int screen, int fromChild) {
     // (retail stores that index as the child's "start" entry).
     if (fromChild >= 0) {
         for (size_t i = 0; i < it.size(); i++)
-            if (it[i].live && it[i].action == A_GOTO && it[i].target == fromChild) { m_sel = (int)i; break; }
+            if (Live(it[i]) && it[i].action == A_GOTO && it[i].target == fromChild) { m_sel = (int)i; break; }
         int st = m_screens[fromChild].start;
-        if (m_sel < 0 && st >= 0 && st < (int)it.size() && it[st].live) m_sel = st;
+        if (m_sel < 0 && st >= 0 && st < (int)it.size() && Live(it[st])) m_sel = st;
     }
     if (m_sel < 0) {
         for (size_t i = 0; i < it.size(); i++)
-            if (it[i].live && Visible(it[i])) { m_sel = (int)i; break; }
+            if (Live(it[i]) && Visible(it[i])) { m_sel = (int)i; break; }
     }
     if (m_sel < 0) m_sel = 0;
 }
@@ -174,13 +238,13 @@ void FeMenu::Move(int dir) {
     int n = (int)it.size();
     for (int step = 1; step <= n; step++) {
         int i = ((m_sel + dir * step) % n + n) % n;   // retail wraps around
-        if (it[i].live && Visible(it[i])) { m_sel = i; return; }
+        if (Live(it[i]) && Visible(it[i])) { m_sel = i; return; }
     }
 }
 
 void FeMenu::Activate(int dir) {
     std::vector<Entry>& it = m_screens[m_screen].items;
-    if (m_sel < 0 || m_sel >= (int)it.size() || !it[m_sel].live) return;
+    if (m_sel < 0 || m_sel >= (int)it.size() || !Live(it[m_sel])) return;
     const Entry& e = it[m_sel];
     switch (e.action) {
     case A_BACK:      if (dir == 0) Back(); break;
@@ -199,6 +263,26 @@ void FeMenu::Activate(int dir) {
     }
     case A_VSYNC:
         m_set.vsync = !m_set.vsync;
+        m_changed = true;
+        break;
+    case A_TOGGLE:
+        if (e.b) { *e.b = !*e.b; m_changed = true; }
+        break;
+    case A_CHOICE:
+        if (e.i && !e.choices.empty()) {
+            const int n = (int)e.choices.size();
+            *e.i = (*e.i + (dir < 0 ? n - 1 : 1)) % n;
+            m_changed = true;
+        }
+        break;
+    case A_SLIDER:
+        if (e.f && dir != 0) {
+            *e.f = std::min(e.hi, std::max(e.lo, *e.f + dir * e.step * (e.hi - e.lo > 2.0f ? 1.0f : 1.0f)));
+            m_changed = true;
+        }
+        break;
+    case A_REWRITE:
+        m_set.movementStyle = m_set.cameraStyle = m_set.movementStyle ? 0 : 1;
         m_changed = true;
         break;
     case A_DRAW_DIST:
@@ -224,6 +308,7 @@ void FeMenu::OnKey(int vk) {
 
 void FeMenu::OnMouse(float x, float y, bool click, bool held) {
     if (!m_open) return;
+    x -= m_ox; y -= m_oy;   // into the centred layout
     m_mouseMoved = (x != m_mx || y != m_my);
     m_mx = x; m_my = y;
     std::vector<Entry>& it = m_screens[m_screen].items;
@@ -231,7 +316,7 @@ void FeMenu::OnMouse(float x, float y, bool click, bool held) {
     int hover = -1;
     for (size_t i = 0; i < it.size(); i++) {
         const Entry& e = it[i];
-        if (e.live && Visible(e) && x >= e.hx0 && x <= e.hx1 && y >= e.hy0 && y <= e.hy1) hover = (int)i;
+        if (Live(e) && Visible(e) && x >= e.hx0 && x <= e.hx1 && y >= e.hy0 && y <= e.hy1) hover = (int)i;
     }
     if (hover >= 0 && (m_mouseMoved || click)) m_sel = hover;
     // Draw distance: dragging on the slider sets it directly.
@@ -240,6 +325,12 @@ void FeMenu::OnMouse(float x, float y, bool click, bool held) {
         float v = std::min(1.0f, std::max(0.0f, (x - Sx(500)) / Sx(100)));
         float dd = kDrawDistMin + v * (kDrawDistMax - kDrawDistMin);
         if (dd != m_set.drawDist) { m_set.drawDist = dd; m_changed = true; }
+    } else if (held && m_sel >= 0 && m_sel < (int)it.size() && it[m_sel].action == A_SLIDER && it[m_sel].f &&
+               x >= Sx(500) && x <= Sx(603) && y >= it[m_sel].hy0 - Sy(6) && y <= it[m_sel].hy1 + Sy(6)) {
+        Entry& se = it[m_sel];
+        float v = std::min(1.0f, std::max(0.0f, (x - Sx(500)) / Sx(100)));
+        float nv = se.lo + v * (se.hi - se.lo);
+        if (nv != *se.f) { *se.f = nv; m_changed = true; }
     } else if (click && hover >= 0) {
         Activate(0);
     }
@@ -250,17 +341,24 @@ std::string FeMenu::ValueText(const Entry& e) const {
     case A_FRAME_LIMITER:
         if (m_set.frameLimit <= 0) return m_text.Get("FEM_OFF");
         return std::to_string(m_set.frameLimit) + " FPS";
+    case A_SLIDER: return std::string();
+    case A_TOGGLE:
+        return e.b ? std::string(*e.b ? "ON" : "OFF") : std::string();
+    case A_CHOICE:
+        return (e.i && *e.i >= 0 && *e.i < (int)e.choices.size()) ? e.choices[*e.i] : std::string();
+    case A_REWRITE:
+        return m_set.movementStyle == 1 ? "ON" : "OFF";
     case A_VSYNC:
         return m_text.Get(m_set.vsync ? "FEM_ON" : "FEM_OFF");
     }
     return std::string();
 }
 
-void FeMenu::DrawSlider(Fe2d& g, float value) {
+void FeMenu::DrawSlider(Fe2d& g, float value, float y125) {
     // CMenuManager::DisplaySlider(StretchX(500), StretchY(125), StretchY(4),
     // StretchY(20), StretchX(100), value, StretchX(3)): 16 bars growing from
     // h1 to h2, lit while value is past the bar's midpoint, with a shadow.
-    const float x = Sx(500), y = Sy(125), h1 = Sy(4), h2 = Sy(20), len = Sx(100), w = Sx(3);
+    const float x = Sx(500), y = Sy(y125), h1 = Sy(4), h2 = Sy(20), len = Sx(100), w = Sx(3);
     const float maxH = std::max(h1, h2);
     for (int i = 0; i < 16; i++) {
         float bx = len * (float)i * 0.0625f + x;
@@ -295,14 +393,22 @@ void FeMenu::DrawDevPanel(Fe2d& g) {
 
 void FeMenu::Draw(D3DRenderer& r) {
     if (!m_open || !r.GetDevice()) return;
-    m_w = (float)r.Width();
-    m_h = (float)r.Height();
+    // The 640x448 layout keeps its proportions and sits centred: any
+    // resolution or aspect ratio (4:3 to ultrawide) gets the same menu with
+    // black side bars instead of a stretched one.
+    const float sw = (float)r.Width(), sh = (float)r.Height();
+    const float s = std::min(sw / 640.0f, sh / 448.0f);
+    m_w = 640.0f * s;
+    m_h = 448.0f * s;
+    m_ox = std::floor((sw - m_w) * 0.5f);
+    m_oy = std::floor((sh - m_h) * 0.5f);
     m_font.SetScreen(m_w, m_h);
     Fe2d& g = m_2d;
     g.Begin(r.GetDevice());
 
     // ---- CMenuManager::DrawBackground ----
-    g.DrawRect(-5, -5, m_w + 5, m_h + 5, kBlack);
+    g.DrawRect(0, 0, sw, sh, kBlack);
+    g.SetOrigin(m_ox, m_oy);
     int bg = -1;          // fronten2 back2..back8 -> 0..6
     float bw = 256, bh = 256;
     bool centred = false;
@@ -338,7 +444,7 @@ void FeMenu::Draw(D3DRenderer& r) {
     // ---- Description (entry 0 with the text action) ----
     bool anyPorted = false;
     for (const Entry& e : sc.items)
-        if (e.live && e.action != A_BACK && Visible(e)) anyPorted = true;
+        if (Live(e) && e.action != A_BACK && Visible(e)) anyPorted = true;
     std::string desc;
     if (!sc.items.empty() && sc.items[0].action == A_TEXT && !sc.items[0].name.empty())
         desc = m_text.Get(sc.items[0].name.c_str());
@@ -366,26 +472,34 @@ void FeMenu::Draw(D3DRenderer& r) {
         m_font.SetScale(Sx(0.7f), Sy(1.0f));
         m_font.SetEdge(2);
         m_font.SetDropColor(kBlack);
-        uint32_t col = !e.live ? kDisabled : (sel ? kSelected : kNormal);
+        uint32_t col = Live(e) ? (sel ? kSelected : kNormal) : (e.needRewrite && e.live ? 0xFF3A4A5C : kDisabled);
         m_font.SetColor(col);
         FeFont::Align al = e.align == 1 ? FeFont::LEFT : e.align == 2 ? FeFont::RIGHT : FeFont::CENTER;
         m_font.SetAlign(al);
         std::string label = m_text.Get(e.name.c_str());
+        std::string value = e.live ? ValueText(e) : std::string();
+        if (!value.empty() && e.align == 3) {   // centred rows carry the value in the label
+            label += ": " + value;
+            value.clear();
+        }
         float px = Sx((float)e.x), py = Sy((float)e.y);
         m_font.Print(g, px, py, label);
         float tw = m_font.StringWidth(label);        float lx = al == FeFont::LEFT ? px : al == FeFont::RIGHT ? px - tw : px - tw * 0.5f;
         e.hx0 = lx; e.hx1 = lx + tw;
         e.hy0 = py; e.hy1 = py + m_font.LineHeight();
 
-        std::string value = e.live ? ValueText(e) : std::string();
         if (!value.empty()) {
             m_font.SetEdge(1);
             m_font.SetAlign(FeFont::RIGHT);
             m_font.Print(g, m_w - Sx(40), py, value);
             e.hx1 = m_w - Sx(40);    // the value is part of the row
         }
-        if (e.live && e.action == A_DRAW_DIST) {
-            DrawSlider(g, (m_set.drawDist - kDrawDistMin) * 1.1428572f);
+        if (Live(e) && e.action == A_SLIDER && e.f) {
+            DrawSlider(g, (*e.f - e.lo) / (e.hi - e.lo), (float)e.y - 2.0f);
+            e.hx1 = std::max(e.hx1, Sx(600));
+        }
+        if (Live(e) && e.action == A_DRAW_DIST) {
+            DrawSlider(g, (m_set.drawDist - kDrawDistMin) * 1.1428572f, 125.0f);
             e.hx1 = std::max(e.hx1, Sx(600));
         }
         // Selection arrow (fronten1 "arrow"), 40 units left of the label.

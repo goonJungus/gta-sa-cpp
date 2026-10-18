@@ -31,6 +31,18 @@ struct FeSettings {
     // modern shoulder cameras).
     int movementStyle = 0;
     int cameraStyle = 0;
+    // Display and HUD.
+    float fov = 70.0f;        // vertical degrees (rewrite only; retail is fixed)
+    float hudScale = 1.0f;
+    bool showHud = true;
+    int radarMode = 0;        // 0 = radar, 1 = off
+    // Audio.
+    float masterVol = 0.8f, sfxVol = 1.0f, musicVol = 0.7f;
+    // Rewrite extras.
+    bool hitMarker = true;
+    bool damageFlash = true;
+    bool crosshairDot = true;
+    bool autoReload = true;
 };
 
 class FeMenu {
@@ -64,12 +76,17 @@ private:
         A_TEXT = 1, A_BACK = 2, A_GOTO = 5, A_FRAME_LIMITER = 24, A_YES_QUIT = 53,
         A_RESUME = 54, A_NO = 55, A_DRAW_DIST = 61,
         A_VSYNC = 200,   // ours: not in retail
+        A_TOGGLE = 210, A_CHOICE = 211, A_SLIDER = 212, A_REWRITE = 213,
     };
     struct Entry {
         uint8_t action = 0;
         std::string name;
         int type = 0, target = 0, x = 0, y = 0, align = 0;
         bool live = false;               // ported: selectable
+        bool needRewrite = false;        // greyed out unless rewrite mode is on
+        bool* b = nullptr; int* i = nullptr; float* f = nullptr;
+        float lo = 0, hi = 1, step = 0.05f;
+        std::vector<std::string> choices;
         float hx0 = 0, hy0 = 0, hx1 = 0, hy1 = 0;   // last drawn hit box
     };
     struct Screen {
@@ -83,9 +100,15 @@ private:
     void Back();
     void Activate(int dir);              // dir 0 = Enter/click, -1/+1 = left/right
     void Move(int dir);
+    bool Live(const Entry& e) const { return e.live && (!e.needRewrite || m_set.movementStyle == 1); }
+    void AddScreen(const char* title, int prev, std::vector<Entry> items);
+    Entry MakeToggle(const char* name, bool* b, bool rewrite);
+    Entry MakeChoice(const char* name, int* i, std::vector<std::string> ch, bool rewrite);
+    Entry MakeSlider(const char* name, float* f, float lo, float hi, float step, bool rewrite);
+    Entry MakeGoto(const char* name, int target);
     bool Visible(const Entry& e) const { return e.action != 0 && e.action != A_TEXT && !e.name.empty(); }
     std::string ValueText(const Entry& e) const;
-    void DrawSlider(Fe2d& g, float value);
+    void DrawSlider(Fe2d& g, float value, float y125);
     void DrawDevPanel(Fe2d& g);
     float Sx(float v) const { return v * m_w / 640.0f; }
     float Sy(float v) const { return v * m_h / 448.0f; }
@@ -94,7 +117,7 @@ private:
     int m_screen = kPauseScreen, m_sel = 0;
     bool m_open = false, m_changed = false, m_quit = false;
     FeSettings m_set;
-    float m_w = 640, m_h = 448;
+    float m_w = 640, m_h = 448, m_ox = 0, m_oy = 0;
     float m_mx = -1, m_my = -1;
     bool m_mouseMoved = false, m_mouseClick = false, m_mouseHeld = false;
 

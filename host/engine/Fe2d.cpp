@@ -5,6 +5,7 @@
 void Fe2d::Begin(IDirect3DDevice9* dev) {
     m_dev = dev;
     m_count = 0;
+    m_ox = m_oy = 0;
     if (!m_dev) return;
     // State blocks must not survive a device Reset, so capture per Begin.
     if (FAILED(m_dev->CreateStateBlock(D3DSBT_ALL, &m_saved))) m_saved = nullptr;
@@ -43,7 +44,7 @@ void Fe2d::QueueTex(float x0, float y0, float x1, float y1, uint32_t argb,
                     float u0, float v0, float u1, float v1) {
     if (m_count + 6 > kMaxQuads * 6) return;   // caller flushes per string
     // -0.5: D3D9 pixel centres, so texels map 1:1 and edges stay crisp.
-    x0 -= 0.5f; y0 -= 0.5f; x1 -= 0.5f; y1 -= 0.5f;
+    x0 += m_ox - 0.5f; y0 += m_oy - 0.5f; x1 += m_ox - 0.5f; y1 += m_oy - 0.5f;
     V a{x0, y0, 0, 1, argb, u0, v0}, b{x1, y0, 0, 1, argb, u1, v0};
     V c{x0, y1, 0, 1, argb, u0, v1}, d{x1, y1, 0, 1, argb, u1, v1};
     V* p = &m_buf[m_count];

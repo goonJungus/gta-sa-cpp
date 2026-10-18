@@ -28,7 +28,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [~] Weapons and combat (13 firearms from weapon.dat: models in hand, Q cycles, LMB fire with ammo and fire anim, R reload with rewrite crossfade, crouch fire and reload; no projectiles, damage or muzzle flash yet) (w 2)
 
 ## Frontend
-- [~] Pause menu and settings in the retail layout (display options work) (w 2)
+- [~] Pause menu and settings in the retail layout (display options work; centred layout for any aspect ratio; rewrite mode toggle, gameplay, HUD and field of view, audio sliders) (w 2)
 - [ ] HUD, radar and map (w 2)
 - [ ] GXT text tables (w 1)
 

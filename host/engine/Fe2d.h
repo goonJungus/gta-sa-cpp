@@ -14,6 +14,8 @@ class Fe2d {
 public:
     void Begin(IDirect3DDevice9* dev);
     void End();
+    // Added to every vertex: lets a 640x448 layout sit centred on any screen.
+    void SetOrigin(float ox, float oy) { m_ox = ox; m_oy = oy; }
 
     // ARGB colours (D3DCOLOR). Rects are x0,y0 (top-left) .. x1,y1.
     void DrawRect(float x0, float y0, float x1, float y1, uint32_t argb);
@@ -33,4 +35,5 @@ private:
     IDirect3DStateBlock9* m_saved = nullptr;
     V m_buf[kMaxQuads * 6];
     int m_count = 0;   // vertices queued
+    float m_ox = 0, m_oy = 0;
 };
