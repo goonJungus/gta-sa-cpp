@@ -37,5 +37,5 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [~] Radio station playback (11 retail stations from the scrambled Ogg Vorbis stream packs, decoded by our own Vorbis decoder and streamed through the mixer; Q and E change station while driving; no DJ chatter, adverts or station-specific track order yet) (w 1)
 
 ## Scripts and missions
-- [~] SCM virtual machine (main.scm header chunks parsed; one thread runs the core language: variables, arithmetic, comparisons, AND/OR, jumps, subroutines, waits; stops at the first game command, none are wired yet) (w 4)
+- [~] SCM virtual machine (main.scm header chunks parsed; every thread runs the core language: variables, arrays, arithmetic, comparisons, AND/OR, jumps, subroutines, waits; game commands are skipped by argument count (662 opcodes settled against the compiled script, scripts/scm_args.py) and listed in the log; CREATE_PLAYER, coordinates and SET_TIME_OF_DAY are wired, GTA_SCM=1 runs the script in game and places CJ at the retail start) (w 4)
 - [~] Missions (mission table of main.scm read; the VM launches a mission script as its own thread with its own jump base, and START_NEW_SCRIPT passes locals; mission 1 runs 410 instructions before its first game command; nothing is playable yet) (w 6)

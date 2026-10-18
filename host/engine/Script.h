@@ -5,9 +5,11 @@
 //
 // The machine runs the core language: variables, arithmetic, comparisons, jumps, subroutines,
 // AND/OR condition groups, thread naming and waits. Game commands (the thousands of opcodes that
-// act on the world) are not wired yet: a thread stops with a log line at the first one.
+// act on the world) are skipped by argument count (ScmArgs.inc) unless the machine implements them.
 
 #include <cstdint>
+#include <functional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -51,8 +53,16 @@ struct ScmThread {
     uint64_t executed = 0;
 };
 
+// What the machine asks of the game; every member is optional.
+struct ScmHost {
+    std::function<void(float, float, float)> setPlayerPos;
+    std::function<void(float&, float&, float&)> playerPos;
+    std::function<void(int, int)> setTime;       // hour, minute
+};
+
 class ScmMachine {
 public:
+    ScmHost host;
     bool Init(const std::string& gameDir);
     bool Ready() const { return m_ready; }
     const ScmFile& File() const { return m_file; }
@@ -67,10 +77,12 @@ public:
     float GlobalFloat(uint32_t offset) const;
 
 private:
-    struct Arg { uint8_t type = 0; int32_t i = 0; float f = 0.0f; };
+    struct Arg { uint8_t type = 0; int32_t i = 0; float f = 0.0f; bool text = false; };
     bool ReadArg(ScmThread& t, Arg& a);
     int32_t& Var(ScmThread& t, const Arg& a);
     bool Step(ScmThread& t, int32_t nowMs);
+    // A game command the host implements; false = not implemented (the machine skips it).
+    bool Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool& result);
     void Compare(ScmThread& t, bool result);
     void Jump(ScmThread& t, int32_t target);
 
@@ -79,4 +91,5 @@ private:
     std::vector<uint8_t> m_space;        // the whole script image: variables are read and written in place
     std::vector<ScmThread> m_threads;
     std::vector<ScmThread> m_pending;    // threads started during a step
+    std::set<uint16_t> m_logged;         // opcodes already reported as not implemented
 };
