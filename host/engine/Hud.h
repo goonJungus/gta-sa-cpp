@@ -127,6 +127,9 @@ private:
     float m_hitTimer = 0.0f;
     bool m_hitKill = false;
     int m_lastMoney = 0, m_lastWanted = 0;
+    bool m_moneyInit = false, m_lastArmed = false;
+    int m_moneyDiff = 0, m_lastClip = -1, m_lastTotal = -1;
+    float m_diffTimer = 0.0f, m_ammoTimer = 0.0f, m_cashY = 0.0f;
     float m_lastHealth = 100.0f;
     std::string m_msg;
     float m_msgTimer = 0.0f, m_msgFade = 0.0f;
