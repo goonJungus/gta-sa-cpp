@@ -19,3 +19,4 @@ Build with MSVC (`cmake --build build/gta_sa --config Release --parallel 16`). `
 - [ ] Vehicles: press B in game to spawn a car ahead of CJ. Each press spawns the next model. Check body, doors, plates and wheels look right and nothing is missing or inside out.
 - [ ] Driving: stand near a spawned car, press F to get in, W/S/A/D to drive, Space handbrake, F to get out. Check the car stops at walls and the front wheels turn with the steering.
 - [ ] Radio: get in a spawned car, a station should play. Q and E change station and show its name. Getting out stops it. Music volume slider changes the loudness. Listen for clicks or stutter at track changes.
+- [ ] Peds: press P several times. Each spawn is a different civilian that wanders. Check the skin textures, the walk and idle animation, and that they stay on the ground and turn at walls.
