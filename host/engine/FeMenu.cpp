@@ -169,6 +169,7 @@ void FeMenu::BuildScreens() {
         }
         for (Entry& e : m_screens[27].items)
             if (e.action == 43) { e.action = A_TOGGLE; e.b = &m_set.mipmaps; }
+            else if (e.action == 44) { e.action = A_CHOICE; e.i = &m_set.antiAlias; e.choices = {"OFF", "2X", "4X"}; }
         for (Entry& e : m_screens[3].items)
             if (e.action == A_GOTO && (e.target == 23 || e.target == 24)) { e.action = A_DEFAULTS; e.target = 0; }
         // Audio screen sliders: music and sound effects volume.
@@ -339,7 +340,7 @@ void FeMenu::Activate(int dir) {
     case A_DEFAULTS:
         if (dir != 0) break;
         if (e.target == 0) { m_set.masterVol = 0.8f; m_set.sfxVol = 1.0f; m_set.musicVol = 0.7f; }
-        else { m_set.brightness = 0.5f; m_set.radarMode = 0; m_set.showHud = true; m_set.hudScale = 1.0f; m_set.fov = 70.0f; m_set.mipmaps = true; }
+        else { m_set.antiAlias = 0; m_set.brightness = 0.5f; m_set.radarMode = 0; m_set.showHud = true; m_set.hudScale = 1.0f; m_set.fov = 70.0f; m_set.mipmaps = true; }
         m_changed = true;
         break;
     case A_LANG:

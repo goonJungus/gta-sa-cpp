@@ -254,6 +254,7 @@ static void LoadSettings(FeSettings& s) {
     s.windowSize = (int)GetPrivateProfileIntA("Display", "WindowSize", 1, g_iniPath);
     s.language = (int)GetPrivateProfileIntA("Display", "Language", 0, g_iniPath);
     s.mipmaps = GetPrivateProfileIntA("Display", "MipMaps", 1, g_iniPath) != 0;
+    s.antiAlias = std::clamp((int)GetPrivateProfileIntA("Display", "AntiAlias", 0, g_iniPath), 0, 2);
     {
         char bb[32];
         GetPrivateProfileStringA("Display", "Brightness", "0.5", bb, sizeof(bb), g_iniPath);
@@ -297,6 +298,8 @@ static void SaveSettings(const FeSettings& s) {
     snprintf(buf, sizeof(buf), "%d", s.language);
     WritePrivateProfileStringA("Display", "Language", buf, g_iniPath);
     WritePrivateProfileStringA("Display", "MipMaps", s.mipmaps ? "1" : "0", g_iniPath);
+    snprintf(buf, sizeof(buf), "%d", s.antiAlias);
+    WritePrivateProfileStringA("Display", "AntiAlias", buf, g_iniPath);
     snprintf(buf, sizeof(buf), "%.4f", s.brightness);
     WritePrivateProfileStringA("Display", "Brightness", buf, g_iniPath);
 }
@@ -972,6 +975,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_menuReady && startMenuScreen >= 0) { g_menu.Open(startMenuScreen); g_devPaused = true; }
         g_hudReady = g_hud.Init(g_renderer, GameDir());
         if (g_hudReady && g_menu.Settings().language > 0) g_hud.SetLanguage(GameDir(), kLanguageFiles[g_menu.Settings().language]);
+        if (g_menu.Settings().antiAlias > 0) g_renderer.SetAntiAlias(g_menu.Settings().antiAlias);
         g_fx.Init(g_renderer);
         Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
         if (g_audio.Ready() && getenv("GTA_AUDIOTEST"))
@@ -2191,6 +2195,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         Log("SETTINGS: VSync reset failed");
                     g_world.SetHdDrawScale(s.drawDist);
                     g_renderer.SetMipmaps(s.mipmaps);
+                    if (s.antiAlias != g_renderer.AntiAlias() && !g_renderer.SetAntiAlias(s.antiAlias)) {
+                        Log("SETTINGS: anti aliasing %d refused", s.antiAlias);
+                        g_menu.Settings().antiAlias = g_renderer.AntiAlias();
+                    }
                     {
                         static int lastLang = -1;
                         if (lastLang < 0) lastLang = 0;

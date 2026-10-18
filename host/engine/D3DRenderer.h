@@ -133,8 +133,12 @@ public:
     // Pair Present to the display instead of presenting immediately. Works
     // before Init or at runtime (resets the device with the new interval).
     bool SetVsync(bool on);
+    // Display > Anti Aliasing: 0 off, 1 = 2x, 2 = 4x multisampling. Returns false when the
+    // card refuses the mode (the setting then stays where it was).
+    bool SetAntiAlias(int level);
+    int AntiAlias() const { return m_aa; }
     // Mip filtering of the world textures (the Display > Advanced MIP MAPPING switch).
-    void SetMipmaps(bool on) { if (m_device) m_device->SetSamplerState(0, D3DSAMP_MIPFILTER, on ? D3DTEXF_LINEAR : D3DTEXF_NONE); }
+    void SetMipmaps(bool on) { m_mips = on; if (m_device) m_device->SetSamplerState(0, D3DSAMP_MIPFILTER, on ? D3DTEXF_LINEAR : D3DTEXF_NONE); }
     bool Vsync() const { return m_vsync; }
 
     // Baked day/night prelit blend (M6). nightFactor 0 = day prelit colours
@@ -211,6 +215,9 @@ private:
     // World lighting (SetWorldLighting), in 0..1 device units.
     bool  m_lightingReady = false;
     bool  m_lightingAllowed = true;
+    bool  m_mips = true;
+    int   m_aa = 0;
+    IDirect3DSurface9* m_shotRT = nullptr;       // single-sample copy of the frame for screenshots while multisampling
     bool  m_vsync = false;                        // menu VSync toggle
     float m_lightAmb[3] = {0.4f, 0.4f, 0.4f};
     float m_lightDir[3] = {1.0f, 1.0f, 1.0f};

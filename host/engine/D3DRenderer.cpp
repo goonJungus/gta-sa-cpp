@@ -123,10 +123,11 @@ void D3DRenderer::ApplyDeviceState() {
     m_currentLit = true;        // force SetLightState to write the device
     SetLightState(false);
     m_device->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
+    m_device->SetRenderState(D3DRS_MULTISAMPLEANTIALIAS, TRUE);
     // M3: texture sampling for stage 0
     m_device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_ANISOTROPIC);
     m_device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_ANISOTROPIC);
-    m_device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+    m_device->SetSamplerState(0, D3DSAMP_MIPFILTER, m_mips ? D3DTEXF_LINEAR : D3DTEXF_NONE);
     m_device->SetSamplerState(0, D3DSAMP_MAXANISOTROPY, 4);
     m_device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
     m_device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
@@ -158,6 +159,7 @@ bool D3DRenderer::Resize(int width, int height) {
     if (width == m_width && height == m_height) return true;
     m_pp.BackBufferWidth = (UINT)width;
     m_pp.BackBufferHeight = (UINT)height;
+    if (m_shotRT) { m_shotRT->Release(); m_shotRT = nullptr; }
     HRESULT hr = m_device->Reset(&m_pp);
     if (FAILED(hr)) return false;
     m_width = width;
@@ -173,13 +175,42 @@ bool D3DRenderer::SetVsync(bool on) {
     m_vsync = on;
     if (!m_device) return true;   // picked up by Init
     m_pp.PresentationInterval = on ? D3DPRESENT_INTERVAL_ONE : D3DPRESENT_INTERVAL_IMMEDIATE;
+    if (m_shotRT) { m_shotRT->Release(); m_shotRT = nullptr; }
     HRESULT hr = m_device->Reset(&m_pp);
     if (FAILED(hr)) return false;
     ApplyDeviceState();
     return true;
 }
 
+bool D3DRenderer::SetAntiAlias(int level) {
+    level = level < 0 ? 0 : level > 2 ? 2 : level;
+    if (level == m_aa) return true;
+    if (!m_device) { m_aa = level; return true; }
+    const D3DMULTISAMPLE_TYPE types[3] = {D3DMULTISAMPLE_NONE, D3DMULTISAMPLE_2_SAMPLES, D3DMULTISAMPLE_4_SAMPLES};
+    if (level > 0) {
+        DWORD q1 = 0, q2 = 0;
+        if (FAILED(m_d3d->CheckDeviceMultiSampleType(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, D3DFMT_X8R8G8B8, TRUE, types[level], &q1)) ||
+            FAILED(m_d3d->CheckDeviceMultiSampleType(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, m_pp.AutoDepthStencilFormat, TRUE, types[level], &q2)))
+            return false;
+    }
+    const D3DPRESENT_PARAMETERS old = m_pp;
+    m_pp.MultiSampleType = types[level];
+    m_pp.MultiSampleQuality = 0;
+    m_pp.SwapEffect = level > 0 ? D3DSWAPEFFECT_DISCARD : D3DSWAPEFFECT_COPY;   // multisampling needs DISCARD
+    if (m_shotRT) { m_shotRT->Release(); m_shotRT = nullptr; }
+    if (FAILED(m_device->Reset(&m_pp))) {
+        m_pp = old;
+        m_device->Reset(&m_pp);
+        ApplyDeviceState();
+        return false;
+    }
+    m_aa = level;
+    ApplyDeviceState();
+    return true;
+}
+
 void D3DRenderer::Shutdown() {
+    if (m_shotRT) { m_shotRT->Release(); m_shotRT = nullptr; }
     if (m_sunTex) { m_sunTex->Release(); m_sunTex = nullptr; }
     if (m_device) {
         m_device->Release();
@@ -233,6 +264,17 @@ void D3DRenderer::EndFrame() {
     if (!m_device)
         return;
     m_device->EndScene();
+    if (m_pp.MultiSampleType != D3DMULTISAMPLE_NONE) {   // keep a resolved copy: DISCARD leaves the back buffer undefined
+        IDirect3DSurface9* rt = nullptr;
+        if (SUCCEEDED(m_device->GetRenderTarget(0, &rt)) && rt) {
+            D3DSURFACE_DESC d = {};
+            rt->GetDesc(&d);
+            if (!m_shotRT)
+                m_device->CreateRenderTarget(d.Width, d.Height, d.Format, D3DMULTISAMPLE_NONE, 0, FALSE, &m_shotRT, nullptr);
+            if (m_shotRT) m_device->StretchRect(rt, nullptr, m_shotRT, nullptr, D3DTEXF_NONE);
+            rt->Release();
+        }
+    }
     m_device->Present(nullptr, nullptr, nullptr, nullptr);
 }
 
@@ -503,7 +545,8 @@ bool D3DRenderer::SaveScreenshot(const char* path) {
     if (!m_device || !path)
         return false;
     IDirect3DSurface9* rt = nullptr;
-    if (FAILED(m_device->GetRenderTarget(0, &rt)) || !rt)
+    if (m_shotRT) { rt = m_shotRT; rt->AddRef(); }
+    else if (FAILED(m_device->GetRenderTarget(0, &rt)) || !rt)
         return false;
     D3DSURFACE_DESC desc = {};
     rt->GetDesc(&desc);
