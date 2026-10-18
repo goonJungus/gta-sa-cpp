@@ -120,7 +120,7 @@ static bool ScriptedKey(int vk) {
         while (*p && *p != ';') p++;
         if (g_scriptFrame >= a && g_scriptFrame <= b)
             for (const char* k = keys; k < p; k++) {
-                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON
+                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '`' ? VK_OEM_3 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON
                                : toupper((unsigned char)*k);
                 if (want == vk) return true;
             }
@@ -130,6 +130,8 @@ static bool ScriptedKey(int vk) {
 }
 static Gamepad g_pad;
 static bool g_wheelOpen = false;   // the weapon wheel is up
+static bool g_freeCam = false;     // dev free camera (` key): CJ stands still, the camera flies
+static float g_fcPos[3] = {0, 0, 0};
 static float g_wheelX = 0.0f, g_wheelY = 0.0f;   // pick vector on the wheel (screen axes, length 0..1)
 static int g_wheelSel = 0;         // highlighted slot (0 = fists)
 // A controller drives the same virtual keys the keyboard does: A sprint, X jump, B crouch, Y exit / use,
@@ -2033,6 +2035,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
 
         // ---- Dev/test keys (ignored in the scripted/flyover capture modes) ----
         if (playMode && !scripted && !flyover) {
+            if (DevKeyPressed(VK_OEM_3)) {   // ` free camera
+                g_freeCam = !g_freeCam;
+                g_fcPos[0] = camPosX; g_fcPos[1] = camPosY; g_fcPos[2] = camPosZ;
+                Log("DEV: free camera %s", g_freeCam ? "ON (WASD fly, Space up, Ctrl down, Shift fast)" : "off");
+            }
             if (DevKeyPressed(VK_F1)) {
                 g_devOverlay = !g_devOverlay;
                 Log("DEV: overlay %s", g_devOverlay ? "ON" : "OFF");
@@ -2462,7 +2469,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (GameKey('A') & 0x8000) { mx += rightX; my += rightY; }
             float mlen = sqrtf(mx*mx + my*my);
             if (mlen > 0.001f) { mx /= mlen; my /= mlen; }
-            if (g_pad.Connected() && g_hasFocus && !g_menu.IsOpen() && (g_pad.LX() != 0.0f || g_pad.LY() != 0.0f)) {
+            if (g_freeCam) { mx = my = 0.0f; mlen = 0.0f; }
+            if (!g_freeCam && g_pad.Connected() && g_hasFocus && !g_menu.IsOpen() && (g_pad.LX() != 0.0f || g_pad.LY() != 0.0f)) {
                 // analog: the stick's length is the pace (walk .. run), forward is up on the stick
                 const float ax = fwdX * g_pad.LY() - rightX * g_pad.LX(), ay = fwdY * g_pad.LY() - rightY * g_pad.LX();
                 mx = ax; my = ay;
@@ -2937,6 +2945,29 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 camPosX = cx; camPosY = cy; camPosZ = cz;
                 g_aimEye[0] = cx; g_aimEye[1] = cy; g_aimEye[2] = cz;
                 g_aimDir[0] = dirX; g_aimDir[1] = dirY; g_aimDir[2] = dirZ;
+            }
+            if (g_freeCam && !g_menu.IsOpen()) {
+                float fx = dirX, fy = dirY, fz = dirZ;
+                const float rx = fy, ry = -fx;   // right of the view, flat
+                const float rl = sqrtf(rx * rx + ry * ry) + 1e-6f;
+                float sp = (GameKey(VK_SHIFT) & 0x8000) ? 24.0f : (GameKey(VK_CONTROL) & 0x8000) ? 1.2f : 6.0f;
+                float mvx = 0, mvy = 0, mvz = 0;
+                if (GameKey('W') & 0x8000) { mvx += fx; mvy += fy; mvz += fz; }
+                if (GameKey('S') & 0x8000) { mvx -= fx; mvy -= fy; mvz -= fz; }
+                if (GameKey('D') & 0x8000) { mvx += rx / rl; mvy += ry / rl; }
+                if (GameKey('A') & 0x8000) { mvx -= rx / rl; mvy -= ry / rl; }
+                if (GameKey(VK_SPACE) & 0x8000) mvz += 1.0f;
+                if (g_pad.Connected()) {
+                    mvx += fx * g_pad.LY() + rx / rl * g_pad.LX(); mvy += fy * g_pad.LY() + ry / rl * g_pad.LX(); mvz += fz * g_pad.LY();
+                    if (g_pad.Down(Gamepad::A)) mvz += 1.0f;
+                    if (g_pad.Down(Gamepad::B)) mvz -= 1.0f;
+                }
+                g_fcPos[0] += mvx * sp * dt; g_fcPos[1] += mvy * sp * dt; g_fcPos[2] += mvz * sp * dt;
+                D3DMATRIX view = MatrixLookAt(g_fcPos[0], g_fcPos[1], g_fcPos[2], g_fcPos[0] + fx, g_fcPos[1] + fy, g_fcPos[2] + fz, 0, 0, 1);
+                g_renderer.SetViewMatrix(view);
+                camPosX = g_fcPos[0]; camPosY = g_fcPos[1]; camPosZ = g_fcPos[2];
+                nearClip = 0.1f;
+                g_hideCjHead = false;
             }
             const float wantFov = g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f;
             if (nearClip != g_nearClip || wantFov != g_fovDeg) {   // first person needs a near plane at the eyes

@@ -1647,11 +1647,19 @@ void PlayerPed::ControlStance(const Input& in) {
         const float f = std::max(0.0f, ly), b = std::max(0.0f, -ly), r = std::max(0.0f, lx), l = std::max(0.0f, -lx);
         const float tot = f + b + r + l;
         const float k = tot > 1.0f ? 1.0f / tot : 1.0f;
-        ws[n++] = {"gun_stand", 1.0f - std::min(1.0f, tot * k), false, true, 8.0f};
-        ws[n++] = {"gunmove_fwd", f * k, true, true, 8.0f};
-        ws[n++] = {"gunmove_bwd", b * k, true, true, 8.0f};
-        ws[n++] = {"gunmove_r", r * k, true, true, 8.0f};
-        ws[n++] = {"gunmove_l", l * k, true, true, 8.0f};
+        if (m_gun < 0 && Clip("fightidle")) {   // no gun in hand: the boxing stance, not a gun hold
+            ws[n++] = {"fightidle", 1.0f - std::min(1.0f, tot * k), false, true, 8.0f};
+            ws[n++] = {"fightsh_fwd", f * k, true, true, 8.0f};
+            ws[n++] = {"fightsh_bwd", b * k, true, true, 8.0f};
+            ws[n++] = {"fightsh_right", r * k, true, true, 8.0f};
+            ws[n++] = {"fightsh_left", l * k, true, true, 8.0f};
+        } else {
+            ws[n++] = {"gun_stand", 1.0f - std::min(1.0f, tot * k), false, true, 8.0f};
+            ws[n++] = {"gunmove_fwd", f * k, true, true, 8.0f};
+            ws[n++] = {"gunmove_bwd", b * k, true, true, 8.0f};
+            ws[n++] = {"gunmove_r", r * k, true, true, 8.0f};
+            ws[n++] = {"gunmove_l", l * k, true, true, 8.0f};
+        }
         // rewrite EnableAimStrafeBlend: AimStrafeBlendResponse 12.5
         StanceBlend(ws, n, in.dt, in.rewrite ? 12.5f : 0.0f, 8.0f);
         // weapon.dat move speed scales the aim strafe clips
