@@ -200,6 +200,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
             DffModel m = dffData.empty() ? DffModel() : DffLoader::LoadFromMemory(dffData.data(), dffData.size());
             const std::vector<GeomXf> gx = dffData.empty() ? std::vector<GeomXf>() : GeometryFrames(dffData);
             float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+            double fsum[3] = {0, 0, 0}; size_t fcount = 0;   // muzzle flash vertices: they sit at the muzzle
             for (DffMesh& dm : m.meshes) {
                 const size_t gi = (size_t)dm.geometry;
                 if (dm.vertices.empty() || dm.indices.empty()) continue;
@@ -233,6 +234,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
                     break;
                 }
                 const bool flash = TxdLoader::KeyOf(dm.textureName) == TxdLoader::KeyOf("muzzle_texture4");
+                if (flash) for (const DffVertex& v : dm.vertices) { fsum[0] += v.x; fsum[1] += v.y; fsum[2] += v.z; fcount++; }
                 (flash ? g.muzzle : g.meshes).push_back(mesh);
             }
             if (hi[0] >= lo[0]) {   // barrel: the model's long axis, pointing away from the grip
@@ -240,6 +242,15 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
                 for (int k = 1; k < 3; k++) if (hi[k] - lo[k] > hi[ax] - lo[ax]) ax = k;
                 g.barrel[0] = g.barrel[1] = g.barrel[2] = 0.0f;
                 g.barrel[ax] = (hi[ax] + lo[ax]) < 0.0f ? -1.0f : 1.0f;
+                if (fcount) {   // the flash sits in front of the muzzle: body centre -> flash picks the barrel axis and side
+                    float d[3];
+                    for (int k = 0; k < 3; k++) d[k] = (float)(fsum[k] / (double)fcount) - 0.5f * (hi[k] + lo[k]);
+                    int a2 = 0;
+                    for (int k = 1; k < 3; k++) if (std::fabs(d[k]) > std::fabs(d[a2])) a2 = k;
+                    g.barrel[0] = g.barrel[1] = g.barrel[2] = 0.0f;
+                    g.barrel[a2] = d[a2] < 0.0f ? -1.0f : 1.0f;
+                }
+                std::fprintf(stderr, "[GUN] %s barrel %.0f %.0f %.0f (flash %s)\n", g.name.c_str(), g.barrel[0], g.barrel[1], g.barrel[2], fcount ? "yes" : "no");
             }
         }
         g.ammo = g.clipSize;
