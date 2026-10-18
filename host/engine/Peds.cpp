@@ -297,3 +297,29 @@ void Peds::Draw(D3DRenderer& r) {
         r.DrawMesh(m.mesh);
     }
 }
+
+void Peds::Populate(D3DRenderer& r, float px, float py, float pz, int target,
+                    const std::function<float(float, float, float)>& groundAt) {
+    if (!m_ready) return;
+    // Despawn: far away, or the whole crowd when the target is zero (only crowd members, not dev spawns).
+    for (size_t i = m_actors.size(); i-- > 0;) {
+        Actor& a = m_actors[i];
+        if (!a.crowd) continue;
+        const float dx = a.x - px, dy = a.y - py;
+        if (target <= 0 || dx * dx + dy * dy > 90.0f * 90.0f) m_actors.erase(m_actors.begin() + (long)i);
+    }
+    int have = 0;
+    for (const Actor& a : m_actors) have += a.crowd ? 1 : 0;
+    // At most one spawn per call so a big gap fills over a few frames.
+    if (have < target) {
+        const float ang = (float)Rand(628) * 0.01f, dist = 12.0f + (float)Rand(250) * 0.1f;
+        const float x = px + std::cos(ang) * dist, y = py + std::sin(ang) * dist;
+        float g = groundAt ? groundAt(x, y, pz) : -1e9f;
+        // Where the player's own spot has no collision either (a scene without streamed ground) use the player's height.
+        if (g <= -1e5f && (!groundAt || groundAt(px, py, pz) <= -1e5f)) g = pz;
+        if (g > -1e5f && std::fabs(g - pz) < 15.0f) {
+            const int n = Spawn(r, -1, x, y, g, (float)Rand(628) * 0.01f);
+            if (n >= 0) m_actors[(size_t)n].crowd = true;
+        }
+    }
+}
