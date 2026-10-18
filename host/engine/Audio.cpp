@@ -352,6 +352,19 @@ void Audio::Ui(int cue) {
     }
 }
 
+void Audio::Splash(float vol) {
+    if (!m_ready) return;
+    const int n = SoundCount(BANK_SWIMMING);
+    if (n > 0) Play(BANK_SWIMMING, Rand(std::min(n, 5)), vol, 0.0f, 0.95f + Rand(11) * 0.01f);
+}
+
+void Audio::Land(bool afterFall, float vol) {
+    if (!m_ready) return;
+    const int n = SoundCount(BANK_FEET_GENERIC);
+    const int snd = afterFall ? 6 : 0;
+    if (n > snd) Play(BANK_FEET_GENERIC, snd, vol);
+}
+
 void Audio::Pain(float vol) {
     if (!m_ready) return;
     int n = SoundCount(BANK_PAIN_CARL);

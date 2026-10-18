@@ -979,8 +979,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_fx.Init(g_renderer);
         Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
         if (g_audio.Ready() && getenv("GTA_AUDIOTEST"))
-            Log("AUDIO: weapons bank %d sounds, menu bank %d, feet %d, pain %d", g_audio.SoundCount(BANK_WEAPONS),
-                g_audio.SoundCount(BANK_FRONTEND_MENU), g_audio.SoundCount(BANK_FEET_GENERIC), g_audio.SoundCount(BANK_PAIN_CARL));
+        {
+            Log("AUDIO: weapons bank %d sounds, menu bank %d, feet %d, pain %d, swimming %d", g_audio.SoundCount(BANK_WEAPONS),
+                g_audio.SoundCount(BANK_FRONTEND_MENU), g_audio.SoundCount(BANK_FEET_GENERIC), g_audio.SoundCount(BANK_PAIN_CARL),
+                g_audio.SoundCount(BANK_SWIMMING));
+        }
         Log("HUD: %s", g_hudReady ? "ready" : "FAILED (fonts.txd / hud.txd?)");
     }
 
@@ -3216,15 +3219,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const float moved = dt > 0.0f ? hypotf(playerX - s_pX, playerY - s_pY) / dt : 0.0f;
                     const bool inWater = wz > -1e8f && feet < wz && wz - feet < 1.1f;
                     s_ripple -= dt;
-                    if (swim && !s_pSwim && wz > -1e8f) { const float p[3] = {playerX, playerY, wz}; g_fx.Splash(p, 1.0f); }
+                    if (swim && !s_pSwim && wz > -1e8f) { const float p[3] = {playerX, playerY, wz}; g_fx.Splash(p, 1.0f); g_audio.Splash(1.0f); }
                     else if (onGround && !s_pGround && s_pVelZ < -4.0f && !swim) {
                         const float p[3] = {playerX, playerY, feet + 0.05f};
                         const float st = std::min(1.0f, -s_pVelZ / 14.0f);
-                        if (inWater) { const float w3[3] = {playerX, playerY, wz}; g_fx.Splash(w3, st); } else g_fx.Dust(p, st);
+                        if (inWater) { const float w3[3] = {playerX, playerY, wz}; g_fx.Splash(w3, st); g_audio.Splash(0.5f + 0.5f * st); } else { g_fx.Dust(p, st); g_audio.Land(s_pVelZ < -9.0f, 0.4f + 0.6f * st); }
                     } else if (s_ripple <= 0.0f && moved > 1.5f && (swim || (inWater && onGround))) {
                         s_ripple = swim ? 0.45f : 0.28f;
                         const float p[3] = {playerX, playerY, wz};
                         g_fx.Splash(p, swim ? 0.25f : 0.12f);
+                        g_audio.Splash(swim ? 0.35f : 0.2f);
                     }
                     s_pGround = onGround; s_pSwim = swim; s_pVelZ = velZ; s_pX = playerX; s_pY = playerY;
                 }
@@ -3339,7 +3343,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     s_stepDist += hypotf(playerX - s_prevX, playerY - s_prevY);
                     if (s_stepDist >= 1.25f) { s_stepDist = 0.0f; g_audio.Step(BANK_FEET_GENERIC, 0.5f); }
                 }
-                if (s_wasAir && !air) g_audio.Step(BANK_FEET_GENERIC, 0.8f);   // landing
                 if (!s_wasAir && air) g_audio.Step(BANK_FEET_GENERIC, 0.4f);   // take-off
                 s_wasAir = air; s_prevX = playerX; s_prevY = playerY; s_havePrev = true;
                 float fl = g_cj.DamageFlash();
