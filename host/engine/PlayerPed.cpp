@@ -1079,6 +1079,7 @@ void PlayerPed::ApplyAimIK(const Input& in) {
                 if (p == spine) { m_globals[f] = m_globals[f] * rot; break; }
         return;
     }
+    if (std::getenv("GTA_NOAIMIK")) return;   // dev: show the clip pose without the arm solve
     // The arm gun aim (CIKChain PointArm): a two-bone solve that reaches the arm out along the
     // aim direction, the clip only supplies the bend side and the hand pose.
     const int fs = m_frameOfBone[22], fe = m_frameOfBone[23], fh = m_frameOfBone[24];

@@ -5,7 +5,6 @@ Build with MSVC (`cmake --build build/gta_sa --config Release --parallel 16`). `
 - [ ] Sidewalk collisions: walk along curbs and thin edges. Any sticking?
 - [ ] Swim out: swim to a ledge and jump. Does CJ climb out and animate after?
 - [ ] Lay flat after a climb: canal vault at 2624.64, -1948.57 with W held. If it still happens, run with `GTA_CJLOG=1` and keep the log.
-- [ ] Trackpad and window on Wayland / Hyprland over VNC.
 - [ ] Spanish: Options > Language > Spanish; check menus and HUD. Check the French, German and Italian wording too.
 - [ ] Display page: Brightness, Radar Mode, HUD Mode, MIP Mapping, Anti Aliasing (2x, 4x: check screenshots with F5 still work), Restore Defaults.
 - [ ] Controller: menu navigation, weapon wheel on LB, analog movement, tap A to sprint.
@@ -15,9 +14,23 @@ Build with MSVC (`cmake --build build/gta_sa --config Release --parallel 16`). `
 - [ ] Sounds: splash on entering water, landing thud after a fall (rewrite and classic).
 - [ ] Gun barrels point along the aim line in third person (silenced pistol, sawn-off, rifles).
 - [ ] Map legend: Options > Display > Map Legend ON, open the map, set a waypoint. A panel lists the waypoint and CJ.
-- [ ] Wayland: window size and resize behaviour with `scripts/run_wine.sh` notes (Linux/Wine only).
 - [ ] Vehicles: press B in game to spawn a car ahead of CJ. Each press spawns the next model. Check the paint colours differ, body, doors, plates and wheels look right and nothing is missing or inside out.
 - [ ] Driving: stand near a spawned car, press F to get in, W/S/A/D to drive, Space handbrake, F to get out. Check the car stops at walls and the front wheels turn with the steering.
 - [ ] Radio: get in a spawned car, a station should play. Q and E change station and show its name. Getting out stops it. Music volume slider changes the loudness. Listen for clicks or stutter at track changes.
 - [ ] Peds: press K several times. Each spawn is a different civilian that wanders. Check the skin textures, the walk and idle animation, and that they stay on the ground and turn at walls.
 - [ ] Crowd: press O. About 12 civilians should appear around CJ, wander, and vanish when far behind. Press O again to clear. Check none float in the air or stand inside walls.
+
+# Linux (Wine, Wayland) test checklist
+
+- [ ] Mouse: look moves the view, left click fires, right click aims, wheel switches weapon (messages now drive the buttons and motion).
+- [ ] Window size, resize and fullscreen toggle under Hyprland.
+- [ ] Trackpad look.
+- [ ] Sidewalk and curb collisions: walk along kerbs and into corners, no snagging.
+- [ ] Anti-aliasing: compare off against 4x on a fence or wire at distance.
+- [ ] Sound: footsteps clean (no crunch), ambient wind and city beds loop without a seam, gunshots, rain.
+- [ ] Jump shows the jump clip, not the fall clip.
+- [ ] Cars (B spawns, F enters): sit on the ground, grip the road, handbrake slides.
+- [ ] Peds (K spawns, O crowd): normal size, correct skin textures, walk around walls and cars, stop and watch CJ close by, run when CJ aims a gun.
+- [ ] Guns: pistol, sawn-off, micro SMG, Tec-9 held straight, both standing and crouched.
+- [ ] Pause menu opens with Esc only.
+
