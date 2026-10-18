@@ -221,7 +221,7 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         if (anims.Open(gameDir + "\\anim\\anim.img")) {
             IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), m_clips, true);
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
-            for (const char* g : {"colt45", "silenced", "python", "shotgun", "buddy", "uzi", "rifle"})   // weapon groups
+            for (const char* g : {"colt45", "silenced", "python", "shotgun", "buddy", "uzi", "rifle", "sniper"})   // weapon groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
         }
     }
@@ -1048,26 +1048,79 @@ void PlayerPed::ApplyAimIK(const Input& in) {
                 if (p == spine) { m_globals[f] = m_globals[f] * rot; break; }
         return;
     }
-    const int fs = m_frameOfBone[22], fh = m_frameOfBone[24];
-    if (fs < 0 || fh < 0) return;
-    const float* s = m_globals[fs].m[3];
-    const float* h = m_globals[fh].m[3];
-    float d[3] = {h[0] - s[0], h[1] - s[1], h[2] - s[2]};
-    const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-    if (dl < 1e-4f) return;
-    for (float& v : d) v /= dl;
+    // The arm gun aim (CIKChain PointArm): a two-bone solve that reaches the arm out along the
+    // aim direction, the clip only supplies the bend side and the hand pose.
+    const int fs = m_frameOfBone[22], fe = m_frameOfBone[23], fh = m_frameOfBone[24];
+    if (fs < 0 || fe < 0 || fh < 0) return;
+    auto sub = [](const float* a, const float* b, float* o) { for (int k = 0; k < 3; k++) o[k] = a[k] - b[k]; };
+    auto len = [](const float* v) { return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); };
+    auto dotf = [](const float* a, const float* b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+    auto crossf = [](const float* a, const float* b, float* o) {
+        o[0] = a[1] * b[2] - a[2] * b[1]; o[1] = a[2] * b[0] - a[0] * b[2]; o[2] = a[0] * b[1] - a[1] * b[0];
+    };
+    auto rotateSubtree = [&](int root, const float* from, const float* to, const float* pivot) {
+        float ax[3];
+        crossf(from, to, ax);
+        const float al = len(ax);
+        if (al < 1e-6f) return;
+        for (float& v : ax) v /= al;
+        const float ang = std::acos(std::clamp(dotf(from, to), -1.0f, 1.0f));
+        const RwMat rot = AxisRotation(ax, ang, pivot);
+        for (size_t f = 0; f < m_skeleton.size(); f++)
+            for (int p = (int)f; p >= 0; p = m_skeleton[p].parent)
+                if (p == root) { m_globals[f] = m_globals[f] * rot; break; }
+    };
+    float S[3] = {m_globals[fs].m[3][0], m_globals[fs].m[3][1], m_globals[fs].m[3][2]};
+    float E[3] = {m_globals[fe].m[3][0], m_globals[fe].m[3][1], m_globals[fe].m[3][2]};
+    float H[3] = {m_globals[fh].m[3][0], m_globals[fh].m[3][1], m_globals[fh].m[3][2]};
+    float u1[3], u2[3];
+    sub(E, S, u1); sub(H, E, u2);
+    const float L1 = len(u1), L2 = len(u2);
+    if (L1 < 1e-4f || L2 < 1e-4f) return;
     const float a = std::clamp(in.camPitch, -1.2f, 1.2f);
-    const float t[3] = {0.0f, std::cos(a), std::sin(a)};
-    float ax[3] = {d[1] * t[2] - d[2] * t[1], d[2] * t[0] - d[0] * t[2], d[0] * t[1] - d[1] * t[0]};
-    const float al = std::sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
-    if (al < 1e-5f) return;
-    for (float& v : ax) v /= al;
-    const float dot = std::clamp(d[0] * t[0] + d[1] * t[1] + d[2] * t[2], -1.0f, 1.0f);
-    const float pv[3] = {s[0], s[1], s[2]};
-    const RwMat rot = AxisRotation(ax, std::acos(dot), pv);
-    for (size_t f = 0; f < m_skeleton.size(); f++)
-        for (int p = (int)f; p >= 0; p = m_skeleton[p].parent)
-            if (p == fs) { m_globals[f] = m_globals[f] * rot; break; }
+    const float dir[3] = {0.0f, std::cos(a), std::sin(a)};
+    const float reach = (L1 + L2) * 0.985f;
+    // bend side: the clip's elbow offset away from the shoulder -> target line
+    float sh[3];
+    sub(H, S, sh);
+    const float shl = len(sh);
+    if (shl < 1e-4f) return;
+    float pole[3] = {u1[0], u1[1], u1[2]};
+    {
+        const float sd[3] = {sh[0] / shl, sh[1] / shl, sh[2] / shl};
+        const float pd = dotf(pole, sd);
+        for (int k = 0; k < 3; k++) pole[k] -= sd[k] * pd;
+        const float pl = len(pole);
+        if (pl < 1e-4f) { pole[0] = 0; pole[1] = 0; pole[2] = -1; } else for (float& v : pole) v /= pl;
+    }
+    // keep the pole perpendicular to the new aim direction
+    {
+        const float pd = dotf(pole, dir);
+        for (int k = 0; k < 3; k++) pole[k] -= dir[k] * pd;
+        const float pl = len(pole);
+        if (pl < 1e-4f) return;
+        for (float& v : pole) v /= pl;
+    }
+    const float ca = (L1 * L1 - L2 * L2 + reach * reach) / (2.0f * reach);
+    const float hh = std::sqrt(std::max(0.0f, L1 * L1 - ca * ca));
+    float E2[3], T[3];
+    for (int k = 0; k < 3; k++) { E2[k] = S[k] + dir[k] * ca + pole[k] * hh; T[k] = S[k] + dir[k] * reach; }
+    // upper arm: current elbow direction -> new elbow direction, about the shoulder
+    float d0[3], d1[3];
+    sub(E, S, d0); sub(E2, S, d1);
+    for (float& v : d0) v /= L1;
+    for (float& v : d1) v /= L1;
+    rotateSubtree(fs, d0, d1, S);
+    // forearm: the moved hand -> the target, about the new elbow
+    const float H1[3] = {m_globals[fh].m[3][0], m_globals[fh].m[3][1], m_globals[fh].m[3][2]};
+    const float E1[3] = {m_globals[fe].m[3][0], m_globals[fe].m[3][1], m_globals[fe].m[3][2]};
+    float f0[3], f1[3];
+    sub(H1, E1, f0); sub(T, E1, f1);
+    const float l0 = len(f0), l1 = len(f1);
+    if (l0 < 1e-4f || l1 < 1e-4f) return;
+    for (float& v : f0) v /= l0;
+    for (float& v : f1) v /= l1;
+    rotateSubtree(fe, f0, f1, E1);
 }
 
 // ---- Frame update ----

@@ -70,6 +70,7 @@ if(WIN32)
         host/engine/Hud.cpp
         host/engine/Audio.cpp
         host/engine/Effects.cpp
+        host/engine/AimTest.cpp
         host/engine/Movement.cpp
         host/engine/Camera.cpp
         host/engine/CameraShake.cpp

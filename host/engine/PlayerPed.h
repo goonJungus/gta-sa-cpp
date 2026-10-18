@@ -122,6 +122,9 @@ public:
     int GunAmmo() const;
     int GunClipSize() const;
     int GunTotalAmmo() const;           // rounds left outside the clip
+    float GunDamage() const { return m_gun >= 0 ? m_guns[m_gun].damage : 5.0f; }
+    float GunRange() const { return m_gun >= 0 ? m_guns[m_gun].range : 2.0f; }
+    void RefillAmmo();                  // every gun back to a full stock (shooting range)
     bool GunMelee() const { return m_gun < 0; }
     bool Reloading() const { return m_reloading; }
     IDirect3DTexture9* GunIcon() const; // hud icon texture, or null (fists)
@@ -265,6 +268,7 @@ private:
         float loopStart = 0, loopEnd = 0, fireTime = 0, reloadTime = 1.0f;   // seconds (standing loop)
         float loop2Start = 0, loop2End = 0, fire2Time = 0;                   // the crouched loop (weapon.dat anim loop 2)
         float moveSpeed = 1.0f;                                              // weapon.dat move speed
+    float damage = 10.0f, range = 30.0f;                                 // weapon.dat damage and weapon range
         bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
         float fireOffset[3] = {0, 0, 0};
         std::vector<D3DRenderMesh*> meshes;

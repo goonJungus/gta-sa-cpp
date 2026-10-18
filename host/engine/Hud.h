@@ -23,6 +23,16 @@
 
 class D3DRenderer;
 
+// Text and bars anchored in the world or on the screen (shooting range, floating numbers).
+struct HudLabel {
+    float x = 0, y = 0;            // screen position, 0..1 of the width / height
+    std::string text;
+    uint32_t color = 0xFFFFFFFF;
+    float scale = 1.0f;
+    float bar = -1.0f;             // 0..100 draws a bar under the text, < 0 none
+    bool left = false;             // left aligned instead of centred
+};
+
 struct HudData {
     float dt = 0.016f;
     bool rewrite = false;
@@ -53,6 +63,7 @@ struct HudData {
     float camYaw = 0;              // radians, world yaw the camera looks along
     float heading = 0;             // radians, world yaw the player faces
     std::string zone;              // GXT text of the area name; empty = none
+    std::vector<HudLabel> labels;
     bool hasWaypoint = false;      // map waypoint blip
     float wpX = 0, wpY = 0;
 };

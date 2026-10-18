@@ -58,6 +58,18 @@ void Effects::Impact(const float p[3], float nz) {
     }
 }
 
+void Effects::Blood(const float p[3]) {
+    for (int i = 0; i < 7; i++) {
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k];
+        f.v[0] = Rnd(-1.2f, 1.2f); f.v[1] = Rnd(-1.2f, 1.2f); f.v[2] = Rnd(-0.2f, 1.2f);
+        f.life = Rnd(0.25f, 0.5f);
+        f.size0 = 0.05f; f.size1 = 0.12f;
+        f.rgb = 0xA01418; f.alpha = 0.9f; f.spark = true;   // falls like a spark, fades
+        m_puffs.push_back(f);
+    }
+}
+
 void Effects::Tracer(const float a[3], const float b[3]) {
     Trace t = {};
     for (int k = 0; k < 3; k++) { t.a[k] = a[k]; t.b[k] = b[k]; }

@@ -149,9 +149,18 @@ void Hud::Bar(Fe2d& g, float x, float y, float w, float h, float pct, uint32_t c
     pct = std::max(0.0f, std::min(100.0f, pct));
     const float b = std::max(1.0f, std::floor(h / 9.0f));
     if (!rewrite) {
-        g.DrawRect(x - b, y - b, x + w + b, y + h + b, Alpha(kBlack, 1.0f));
-        g.DrawRect(x, y, x + w, y + h, Mul(color, 0.35f));
-        g.DrawRect(x, y, x + w * pct / 100.0f, y + h, color);
+        // CSprite2d::DrawBarChart: lit part, the rest at half colour, then a black border
+        // drawn inside the bar. Edges snap to whole pixels so the bar stays crisp.
+        const float x0 = std::floor(x + 0.5f), y0 = std::floor(y + 0.5f);
+        const float x1 = std::floor(x + w + 0.5f), y1 = std::floor(y + h + 0.5f);
+        const float cx = std::floor(x0 + (x1 - x0) * pct / 100.0f + 0.5f);
+        const float t = std::max(1.0f, std::floor(2.0f * h / 9.0f + 0.5f));
+        g.DrawRect(x0, y0, cx, y1, color);
+        g.DrawRect(cx, y0, x1, y1, Mul(color, 0.5f));
+        g.DrawRect(x0, y0, x1, y0 + t, kBlack);
+        g.DrawRect(x0, y1 - t, x1, y1, kBlack);
+        g.DrawRect(x0, y0, x0 + t, y1, kBlack);
+        g.DrawRect(x1 - t, y0, x1, y1, kBlack);
         return;
     }
     g.DrawRect(x - b, y - b, x + w + b, y + h + b, 0x99000000);
@@ -354,6 +363,16 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
     Fe2d& g = m_2d;
     g.Begin(r.GetDevice());
     if (d.rewrite) DrawRewrite(g, d, sw, sh); else DrawClassic(g, d, sw, sh);
+    {
+        const float u = sh / 448.0f;
+        m_font.SetScreen(640.0f * u, 448.0f * u);
+        for (const HudLabel& l : d.labels) {
+            const float px = std::floor(l.x * sw + 0.5f), py = std::floor(l.y * sh + 0.5f);
+            Text(g, FeFont::SUBTITLES, px, py, l.text, 0.36f * l.scale, 0.8f * l.scale, l.color,
+                 l.left ? FeFont::LEFT : FeFont::CENTER, std::max(1, (int)(1 * u)));
+            if (l.bar >= 0.0f) Bar(g, px - 22.0f * u * l.scale, py + 15.0f * u * l.scale, 44.0f * u * l.scale, std::max(3.0f, 5.0f * u * l.scale), l.bar, 0xFFD23C3C, d.rewrite);
+        }
+    }
     g.End();
 }
 
@@ -370,6 +389,12 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
     std::snprintf(clk, sizeof(clk), "%02d:%02d", d.hour, d.minute);
     Text(g, FeFont::PRICEDOWN, right, 22.0f * u, clk, 0.55f, 1.1f, kLightGray, FeFont::RIGHT, (int)(2 * u));
 
+    // Bars: armour 62 wide, breath 62, health 109 (right aligned)
+    if (d.armor > 1.0f) Bar(g, right - 62.0f * u, (48.0f - 3.0f * off) * u, 62.0f * u, 9.0f * u, d.armor, kLightGray, false);
+    if (d.showBreath) Bar(g, right - 62.0f * u, (62.0f - 6.0f * off) * u, 62.0f * u, 9.0f * u, d.breath * 100.0f, kLightBlue, false);
+    const bool blink = ((int)(m_time * 8.0f) & 1) && d.health < 10.0f;
+    if (!blink) Bar(g, right - 109.0f * u, (77.0f - 10.0f * off) * u, 109.0f * u, 9.0f * u, d.health * 100.0f / d.maxHealth, kRed, false);
+
     // Weapon icon (47 x 58) and ammo
     {
         const float x = sw - (32.0f + 111.0f) * u, y = 20.0f * u;
@@ -382,12 +407,6 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
             Text(g, FeFont::SUBTITLES, x + 23.5f * u, 63.0f * u, a, 0.3f, 0.7f, kLightBlue, FeFont::CENTER, (int)(1 * u));
         }
     }
-
-    // Bars: armour 62 wide, breath 62, health 109 (right aligned)
-    if (d.armor > 1.0f) Bar(g, right - 62.0f * u, (48.0f - 3.0f * off) * u, 62.0f * u, 9.0f * u, d.armor, kLightGray, false);
-    if (d.showBreath) Bar(g, right - 62.0f * u, (62.0f - 6.0f * off) * u, 62.0f * u, 9.0f * u, d.breath * 100.0f, kLightBlue, false);
-    const bool blink = ((int)(m_time * 8.0f) & 1) && d.health < 10.0f;
-    if (!blink) Bar(g, right - 109.0f * u, (77.0f - 10.0f * off) * u, 109.0f * u, 9.0f * u, d.health * 100.0f / d.maxHealth, kRed, false);
 
     // Money: pricedown, green, y 89 - 12
     Text(g, FeFont::PRICEDOWN, right, (89.0f - 12.0f * off) * u, MoneyText(d.money, false), 0.55f, 1.1f,

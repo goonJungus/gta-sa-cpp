@@ -812,7 +812,7 @@ void FeMenu::DrawBrief(Fe2d& g) {
 void FeMenu::DrawControls(Fe2d& g) {
     static const char* kRows[][2] = {
         {"Move", "W A S D"}, {"Look", "Mouse"}, {"Walk", "Alt"}, {"Sprint", "Space (hold)"}, {"Jump", "Shift"},
-        {"Crouch", "C"}, {"Aim", "Right mouse button"}, {"Fire", "Left mouse button"}, {"Reload", "R"},
+        {"Crouch", "C"}, {"Aim", "Right mouse button / Z"}, {"Fire", "Left mouse button / Enter"}, {"Reload", "R"},
         {"Next weapon", "Q"}, {"Enter / exit vehicle", "F"}, {"Pause menu", "Esc"}};
     const int n = (int)(sizeof(kRows) / sizeof(kRows[0]));
     const float x0 = Sx(150), x1 = Sx(490), y0 = Sy(112), lh = Sy(21);

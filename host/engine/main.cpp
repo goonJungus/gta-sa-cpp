@@ -57,6 +57,7 @@
 #include "ClimbScan.h"
 #include "Audio.h"
 #include "Effects.h"
+#include "AimTest.h"
 
 static D3DRenderer g_renderer;
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
@@ -164,6 +165,9 @@ static FeMenu g_menu;
 static Hud g_hud;
 static Audio g_audio;
 static Effects g_fx;
+static bool g_aimTest = false;      // --aimtest: the shooting range
+static AimTest g_aim;
+static PlayerPed g_dummy;           // the pose every range dummy shares
 static float g_aimEye[3] = {0, 0, 0}, g_aimDir[3] = {0, 1, 0};   // the camera ray bullets follow
 static bool g_hudReady = false;
 static bool g_menuReady = false;
@@ -260,6 +264,7 @@ static const wchar_t* WINDOW_TITLE = L"GTA SA C++ (Playable)";
 static volatile long g_rawMouseDX = 0, g_rawMouseDY = 0;
 static bool g_rawMouseHaveAbs = false;
 static long g_rawMouseAbsX = 0, g_rawMouseAbsY = 0;
+static bool g_cursorCentred = false;   // the cursor was pinned to the window centre last frame
 static bool g_rawMouseOk = false;  // RegisterRawInputDevices succeeded
 
 static FILE* g_log = nullptr;
@@ -281,6 +286,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_ACTIVATE:
         g_hasFocus = LOWORD(wp) != WA_INACTIVE;
+        if (!g_hasFocus) ClipCursor(nullptr);
         if (g_hasFocus) SetFocus(hwnd);   // keyboard back to us on click/alt-tab return
         Log("WINDOW: %s (state %u, fg=%p self=%p focus=%p)", g_hasFocus ? "activated" : "deactivated",
             (unsigned)LOWORD(wp), (void*)GetForegroundWindow(), (void*)hwnd, (void*)GetFocus());
@@ -729,6 +735,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_forceStyle = 1;           // headless: rewrite movement + cameras
             } else if (a == "--classic") {
                 g_forceStyle = 0;
+            } else if (a == "--aimtest") {
+                g_aimTest = true;           // a shooting range with dummy peds in front of the spawn
             } else if (a == "--third") {
                 g_startThirdPerson = true;  // headless: start in the third-person camera
             } else if (a == "--walk") {
@@ -1121,6 +1129,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
     }
     Log("PLAYER: CJ model %s", cjReady ? "ready" : "FAILED (using the box)");
+    if (g_aimTest) {
+        if (cjReady && !getenv("GTA_GUN")) g_cj.SelectGun(0);
+        if (!g_dummy.Init(g_renderer, GameDir())) { Log("AIMTEST: dummy model failed"); g_aimTest = false; }
+    }
 
     // ---- Player state (first-person, real human scale) ----
     float playerX = 2505.0f, playerY = -1710.0f, playerZ = 13.7f; // eye
@@ -2276,19 +2288,34 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // ---- Mouse look ----
             if (mouseLook && !g_devPaused) {
                 int dx = 0, dy = 0;
-                if (g_rawMouseOk) {
-                    // Consume the accumulated raw deltas (relative, no cursor
-                    // warp, no acceleration bias -> no trackpad spin).
-                    dx = (int)g_rawMouseDX; dy = (int)g_rawMouseDY;
-                    g_rawMouseDX = 0; g_rawMouseDY = 0;
-                } else {
-                    // Fallback: old cursor-warp delta (plain mice only).
+                // Raw deltas first (no acceleration bias). Trackpads often send no raw
+                // mouse motion, only the cursor moving, so the cursor offset from the
+                // window centre is the fallback. The cursor is pinned to the window
+                // centre every frame either way, so it can never leave the window and
+                // clicks always land on the game.
+                dx = (int)g_rawMouseDX; dy = (int)g_rawMouseDY;
+                g_rawMouseDX = 0; g_rawMouseDY = 0;
+                if (g_hasFocus) {
                     POINT mp; GetCursorPos(&mp);
                     RECT rc; GetClientRect(g_hwnd, &rc);
                     POINT center = {(rc.right-rc.left)/2, (rc.bottom-rc.top)/2};
                     ClientToScreen(g_hwnd, &center);
-                    dx = mp.x - center.x; dy = mp.y - center.y;
-                    if (dx != 0 || dy != 0) SetCursorPos(center.x, center.y);
+                    static bool s_warpOk = true;   // false when the system ignores SetCursorPos (then no cursor look)
+                    // the cursor offset only counts when the last frame left it centred
+                    // (not on the first frame or after the menu moved it)
+                    if (dx == 0 && dy == 0 && s_warpOk && g_cursorCentred) { dx = mp.x - center.x; dy = mp.y - center.y; }
+                    if (mp.x != center.x || mp.y != center.y) {
+                        SetCursorPos(center.x, center.y);
+                        POINT chk; GetCursorPos(&chk);
+                        if (chk.x != center.x || chk.y != center.y) s_warpOk = false;
+                    }
+                    g_cursorCentred = true;
+                    // keep the pointer inside the window if something moves it away
+                    RECT cl = rc;
+                    POINT tl = {cl.left, cl.top}, br = {cl.right, cl.bottom};
+                    ClientToScreen(g_hwnd, &tl); ClientToScreen(g_hwnd, &br);
+                    RECT clip = {tl.x, tl.y, br.x, br.y};
+                    ClipCursor(&clip);
                 }
                 if (dx != 0 || dy != 0) {
                     // Post-mirror-fix sign: mouse right (dx>0) must turn the view right.
@@ -2302,6 +2329,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 // Not looking (paused / menu): drop any raw motion so it can't
                 // pile up and snap the view when control resumes.
                 g_rawMouseDX = 0; g_rawMouseDY = 0;
+                g_cursorCentred = false;
             }
             // Arrow keys as fallback look
             if (GameKey(VK_LEFT)  & 0x8000) yaw   += 2.5f * dt;
@@ -2559,11 +2587,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const bool duckKey = (GameKey('C') & 0x8000) != 0;
                     pin.duckJust = duckKey && !s_prevDuck;
                     s_prevDuck = duckKey;
-                    pin.aim = (GameKey(VK_RBUTTON) & 0x8000) != 0;
+                    // Right mouse or Z aims. The rewrite also aims while the fire button
+                    // is held (trackpads have no easy right click) and for a moment after.
+                    static float s_fireAim = 0.0f;
+                    const bool fireDown = ((GameKey(VK_LBUTTON) | GameKey(VK_RETURN)) & 0x8000) != 0;
+                    if (pin.rewrite && g_cj.GunIndex() >= 0 && fireDown) s_fireAim = 0.6f;
+                    else s_fireAim = std::max(0.0f, s_fireAim - dt);
+                    pin.aim = ((GameKey(VK_RBUTTON) | GameKey('Z')) & 0x8000) != 0 || s_fireAim > 0.0f;
                 }
                 {
                     static bool s_prevFire = false, s_prevReload = false, s_prevNext = false;
-                    const bool fireKey = (GameKey(VK_LBUTTON) & 0x8000) != 0 && !g_menu.IsOpen();
+                    const bool fireKey = ((GameKey(VK_LBUTTON) | GameKey(VK_RETURN)) & 0x8000) != 0 && !g_menu.IsOpen();
                     const bool relKey = (GameKey('R') & 0x8000) != 0, nextKey = (GameKey('Q') & 0x8000) != 0;
                     pin.fireHeld = fireKey;
                     pin.fireJust = fireKey && !s_prevFire;
@@ -2710,6 +2744,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 D3DMATRIX view = MatrixLookAt(co.eye[0], co.eye[1], co.eye[2], co.eye[0] + co.dir[0],
                                               co.eye[1] + co.dir[1], co.eye[2] + co.dir[2], 0, 0, 1);
+                if (const char* gc = getenv("GTA_GUNCAM")) {   // dev: look at the gun hand from the side (1), above (2) or the front (3)
+                    float hp[3];
+                    if (g_cj.BoneWorldPos(24, playerX, playerY, playerZ - EYE_HEIGHT, hp)) {
+                        const float hl = std::sqrt(co.dir[0] * co.dir[0] + co.dir[1] * co.dir[1]) + 1e-6f;
+                        const float fx = co.dir[0] / hl, fy = co.dir[1] / hl, rx = fy, ry = -fx;
+                        const int m = atoi(gc);
+                        float e[3] = {hp[0] + rx * 1.3f, hp[1] + ry * 1.3f, hp[2] + 0.1f};
+                        if (m == 2) { e[0] = hp[0] - fx * 0.3f; e[1] = hp[1] - fy * 0.3f; e[2] = hp[2] + 1.4f; }
+                        if (m == 3) { e[0] = hp[0] + fx * 1.5f + rx * 0.3f; e[1] = hp[1] + fy * 1.5f + ry * 0.3f; e[2] = hp[2] + 0.1f; }
+                        view = MatrixLookAt(e[0], e[1], e[2], hp[0], hp[1], hp[2], 0, 0, 1);
+                        co.eye[0] = e[0]; co.eye[1] = e[1]; co.eye[2] = e[2];
+                    }
+                }
                 g_renderer.SetViewMatrix(view);
                 camPosX = co.eye[0]; camPosY = co.eye[1]; camPosZ = co.eye[2];
                 for (int i = 0; i < 3; i++) { g_aimEye[i] = co.eye[i]; g_aimDir[i] = co.dir[i]; }
@@ -2779,6 +2826,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         auto drawPlayerBox = [&]() {
             if (!playMode) return;
             float feetZ = playerZ - EYE_HEIGHT;
+            if (g_aimTest && g_dummy.Ready()) {
+                for (const AimDummy& d : g_aim.Dummies()) {
+                    if (!d.alive()) continue;
+                    g_dummy.SetHeading(atan2f(playerY - d.y, playerX - d.x));
+                    g_dummy.Draw(g_renderer, d.x, d.y, d.z);
+                }
+            }
             if (cjReady && !scripted && !flyover) { g_cj.Draw(g_renderer, playerX, playerY, feetZ, g_hideCjHead); return; }
             if (!thirdPerson) return;
             if (!playerMesh) return;
@@ -2921,6 +2975,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
                 st.shots += evShots; st.reloads += evReload;
                 g_fx.Update(dt);
+                if (g_aimTest && worldReady) {
+                    static bool s_aimInit = false;
+                    if (!s_aimInit) {
+                        s_aimInit = true;
+                        const float rz = playerZ;
+                        g_aim.Setup(playerX, playerY, std::cos(yaw), std::sin(yaw),
+                                    [&](float x, float y) { return g_world.GetGroundHeight(x, y, rz); });
+                        Log("AIMTEST: %zu dummies", g_aim.Dummies().size());
+                    }
+                    g_aim.Update(dt);
+                    PlayerPed::Input di;
+                    di.dt = dt;
+                    g_dummy.Update(di);
+                    if (g_cj.GunTotalAmmo() < g_cj.GunClipSize() * 3) g_cj.RefillAmmo();
+                }
                 // Each shot is a hitscan down the camera ray: a tracer from the muzzle,
                 // dust and sparks and a hit sound where it lands.
                 for (int n = 0; n < evShots && worldReady; n++) {
@@ -2931,7 +3000,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const float t = g_world.RayCast(g_aimEye[0], g_aimEye[1], g_aimEye[2], farEnd[0], farEnd[1], farEnd[2], &kind, &hnz);
                     for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * range * t;
                     float mz[3];
+                    int dummyHit = -1;
+                    bool headHit = false;
+                    if (g_aimTest) {
+                        g_aim.shots++;
+                        float dt2 = 0.0f;
+                        const float reach = std::min(range * t, std::max(10.0f, g_cj.GunRange()));
+                        dummyHit = g_aim.Trace(g_aimEye, g_aimDir, reach, &dt2, &headHit);
+                        if (dummyHit >= 0) {
+                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * dt2;
+                            const bool kill = g_aim.Damage(dummyHit, g_cj.GunDamage(), headHit, hit);
+                            if (g_hudReady) g_hud.Hit(kill);
+                            g_fx.Blood(hit);
+                            g_audio.Impact(dt2);
+                        }
+                    }
                     if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, mz)) g_fx.Tracer(mz, hit);
+                    if (dummyHit >= 0) continue;
                     if (t < 1.0f) {
                         g_fx.Impact(hit, hnz);
                         const float dx = hit[0] - g_aimEye[0], dy = hit[1] - g_aimEye[1], dz = hit[2] - g_aimEye[2];
@@ -3036,6 +3121,49 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.spread = std::min(1.0f, sqrtf(g_cj.VelX() * g_cj.VelX() + g_cj.VelY() * g_cj.VelY()) / 6.0f);
             hd.firstPerson = g_playerCam.FirstPerson(hs.cameraStyle);
             hd.x = playerX; hd.y = playerY; hd.z = playerZ - EYE_HEIGHT;
+            if (g_aimTest) {
+                const D3DMATRIX& V = g_renderer.GetViewMatrix();
+                const D3DMATRIX& P = g_renderer.GetProjMatrix();
+                auto project = [&](float x, float y, float z, float& sx, float& sy) {
+                    const float vx = x * V._11 + y * V._21 + z * V._31 + V._41, vy = x * V._12 + y * V._22 + z * V._32 + V._42;
+                    const float vz = x * V._13 + y * V._23 + z * V._33 + V._43, vw = x * V._14 + y * V._24 + z * V._34 + V._44;
+                    const float cx = vx * P._11 + vy * P._21 + vz * P._31 + vw * P._41, cy = vx * P._12 + vy * P._22 + vz * P._32 + vw * P._42;
+                    const float cw = vx * P._14 + vy * P._24 + vz * P._34 + vw * P._44;
+                    if (cw <= 0.05f) return false;
+                    sx = (cx / cw) * 0.5f + 0.5f; sy = 0.5f - (cy / cw) * 0.5f;
+                    return sx > -0.1f && sx < 1.1f && sy > -0.1f && sy < 1.1f;
+                };
+                for (const AimDummy& d : g_aim.Dummies()) {
+                    if (!d.alive()) continue;
+                    float sx, sy;
+                    if (!project(d.x, d.y, d.z + 2.1f, sx, sy)) continue;
+                    HudLabel l;
+                    l.x = sx; l.y = sy - 0.03f;
+                    char b[24];
+                    std::snprintf(b, sizeof b, "%dm", (int)hypotf(d.x - playerX, d.y - playerY));
+                    l.text = b; l.bar = d.health * 100.0f / d.maxHealth;
+                    l.scale = std::min(1.0f, std::max(0.55f, 9.0f / std::max(1.0f, hypotf(d.x - playerX, d.y - playerY))));
+                    hd.labels.push_back(l);
+                }
+                for (const AimFloat& f : g_aim.Floats()) {
+                    float sx, sy;
+                    if (!project(f.x, f.y, f.z + f.age * 0.9f, sx, sy)) continue;
+                    HudLabel l;
+                    l.x = sx; l.y = sy;
+                    char b[24];
+                    std::snprintf(b, sizeof b, f.head ? "-%d HEAD" : "-%d", f.amount);
+                    l.text = b;
+                    l.color = ((uint32_t)(255.0f * std::max(0.0f, 1.0f - f.age / 0.9f)) << 24) | (f.head ? 0xFFD23C : 0xFFFFFF);
+                    l.scale = f.head ? 1.3f : 1.0f;
+                    hd.labels.push_back(l);
+                }
+                char sb[96];
+                std::snprintf(sb, sizeof sb, "AIM TEST   shots %d   hits %d   accuracy %d%%   headshots %d   kills %d",
+                              g_aim.shots, g_aim.hits, g_aim.shots ? g_aim.hits * 100 / g_aim.shots : 0, g_aim.headshots, g_aim.kills);
+                HudLabel sl;
+                sl.x = 0.02f; sl.y = 0.22f; sl.text = sb; sl.left = true; sl.color = 0xFFFFFFFF;
+                hd.labels.push_back(sl);
+            }
             hd.camYaw = yaw; hd.heading = g_cj.Heading();
             hd.zone = g_hud.ZoneAt(hd.x, hd.y, hd.z);
             hd.hasWaypoint = g_menu.Waypoint(hd.wpX, hd.wpY);
@@ -3158,7 +3286,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (maxFrames > 0 && frame >= maxFrames) { if (g_audio.Ready()) Log("AUDIO: %d sounds started, last %s", g_audio.Played(), g_audio.LastPlayed().c_str()); break; }
     }
 
-    if (playMode) ShowCursor(TRUE);
+    if (playMode) { ClipCursor(nullptr); ShowCursor(TRUE); }
 
     if (!shotPath.empty()) {
         // Relative screenshot paths go to shotDir

@@ -14,6 +14,8 @@ public:
     void Update(float dt);
     void Render(D3DRenderer& r);
 
+    // Blood spray where a bullet hit a ped.
+    void Blood(const float p[3]);
     // A bullet hit on a surface at p; nz = surface normal z (0 = wall).
     void Impact(const float p[3], float nz);
     // A tracer streak from a to b.

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -45,8 +46,8 @@ const GunSpec kSpecs[] = {
     {"MP5", "MP5", "uzi_fire", "uzi_crouchfire", "uzi_reload", "uzi_crouchreload", true},
     {"AK47", "AK-47", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true},
     {"M4", "M4", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true},
-    {"COUNTRYRIFLE", "Country rifle", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", false},
-    {"SNIPERRIFLE", "Sniper rifle", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", false},
+    {"COUNTRYRIFLE", "Country rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
+    {"SNIPERRIFLE", "Sniper rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
 };
 
 std::string LowerStr(std::string s) {
@@ -59,6 +60,78 @@ std::vector<std::string> Tokens(const std::string& line) {
     std::istringstream in(line);
     for (std::string s; in >> s;) t.push_back(s);
     return t;
+}
+
+
+// The frame matrix of every geometry in a weapon clump, from the atomic -> frame links and the
+// frame hierarchy. A gun's flash and its second barrel sit on their own frames, so each
+// geometry is moved by its frame before it is drawn. xf[g] = 3 x 3 rotation rows then position.
+struct GeomXf { float m[12]; bool valid = false; };
+std::vector<GeomXf> GeometryFrames(const std::vector<uint8_t>& b) {
+    std::vector<GeomXf> out;
+    struct Frame { float m[12]; int parent; };
+    std::vector<Frame> frames;
+    std::vector<std::pair<int, int>> atomics;   // frame, geometry
+    auto rd32 = [&](size_t o) { uint32_t v = 0; if (o + 4 <= b.size()) std::memcpy(&v, &b[o], 4); return v; };
+    // chunk walk: header = type, size, version
+    struct Walker {
+        const std::vector<uint8_t>& b;
+        std::vector<Frame>& frames;
+        std::vector<std::pair<int, int>>& atomics;
+        uint32_t Rd(size_t o) const { uint32_t v = 0; if (o + 4 <= b.size()) std::memcpy(&v, &b[o], 4); return v; }
+        void Walk(size_t o, size_t end) {
+            while (o + 12 <= end) {
+                const uint32_t t = Rd(o), sz = Rd(o + 4);
+                const size_t p = o + 12;
+                if (p + sz > end) return;
+                if (t == 0x10) Walk(p, p + sz);                                  // clump
+                else if (t == 0x0E) {                                            // frame list
+                    size_t q = p;
+                    while (q + 12 <= p + sz) {
+                        const uint32_t t2 = Rd(q), s2 = Rd(q + 4);
+                        if (t2 == 1) {
+                            const uint32_t n = Rd(q + 12);
+                            for (uint32_t i = 0; i < n && q + 16 + (i + 1) * 56 <= p + sz; i++) {
+                                Frame f;
+                                std::memcpy(f.m, &b[q + 16 + i * 56], 48);
+                                f.parent = (int)Rd(q + 16 + i * 56 + 48);
+                                frames.push_back(f);
+                            }
+                        }
+                        q += 12 + s2;
+                    }
+                } else if (t == 0x14) {                                          // atomic
+                    if (Rd(p) == 1 && Rd(p + 4) >= 12) atomics.push_back({(int)Rd(p + 12), (int)Rd(p + 16)});
+                }
+                o = p + sz;
+            }
+        }
+    } w{b, frames, atomics};
+    w.Walk(0, b.size());
+    (void)rd32;
+    int maxGeom = -1;
+    for (auto& a : atomics) maxGeom = std::max(maxGeom, a.second);
+    out.resize((size_t)(maxGeom + 1));
+    for (auto& a : atomics) {
+        if (a.first < 0 || a.first >= (int)frames.size() || a.second < 0) continue;
+        // compose up the parents: child * parent (row vectors)
+        float m[12] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
+        int f = a.first, guard = 0;
+        std::memcpy(m, frames[f].m, sizeof(m));
+        f = frames[f].parent;
+        while (f >= 0 && f < (int)frames.size() && guard++ < 16) {
+            const float* r = frames[f].m;
+            float n[12];
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++) n[i * 3 + j] = m[i * 3 + 0] * r[0 * 3 + j] + m[i * 3 + 1] * r[1 * 3 + j] + m[i * 3 + 2] * r[2 * 3 + j];
+            for (int j = 0; j < 3; j++) n[9 + j] = m[9] * r[j] + m[10] * r[3 + j] + m[11] * r[6 + j] + r[9 + j];
+            std::memcpy(m, n, sizeof(m));
+            f = frames[f].parent;
+        }
+        std::memcpy(out[(size_t)a.second].m, m, sizeof(m));
+        out[(size_t)a.second].valid = true;
+    }
+    return out;
 }
 
 }  // namespace
@@ -104,6 +177,8 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.loop2End = (float)std::atof((*row)[22].c_str()) * kFrame;
         g.fire2Time = (float)std::atof((*row)[23].c_str()) * kFrame;
         g.moveSpeed = (float)std::atof((*row)[17].c_str());
+        g.damage = (float)std::atof((*row)[10].c_str());
+        g.range = (float)std::atof((*row)[4].c_str());
         // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
         g.aimWithArm = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x2) != 0;
         g.reloadTime = 1.0f;
@@ -123,8 +198,23 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
                 break;
             }
             DffModel m = dffData.empty() ? DffModel() : DffLoader::LoadFromMemory(dffData.data(), dffData.size());
-            for (const DffMesh& dm : m.meshes) {
+            const std::vector<GeomXf> gx = dffData.empty() ? std::vector<GeomXf>() : GeometryFrames(dffData);
+            size_t geomIndex = 0;
+            for (DffMesh& dm : m.meshes) {
+                const size_t gi = geomIndex++;
                 if (dm.vertices.empty() || dm.indices.empty()) continue;
+                if (gi < gx.size() && gx[gi].valid) {   // move the geometry onto its frame
+                    const float* f = gx[gi].m;
+                    for (DffVertex& v : dm.vertices) {
+                        const float x = v.x, y = v.y, z = v.z, nx = v.nx, ny = v.ny, nz = v.nz;
+                        v.x = x * f[0] + y * f[3] + z * f[6] + f[9];
+                        v.y = x * f[1] + y * f[4] + z * f[7] + f[10];
+                        v.z = x * f[2] + y * f[5] + z * f[8] + f[11];
+                        v.nx = nx * f[0] + ny * f[3] + nz * f[6];
+                        v.ny = nx * f[1] + ny * f[4] + nz * f[7];
+                        v.nz = nx * f[2] + ny * f[5] + nz * f[8];
+                    }
+                }
                 D3DRenderMesh* mesh = r.CreateMesh(reinterpret_cast<const MeshVertex*>(dm.vertices.data()),
                                                    (uint32_t)dm.vertices.size(), dm.indices.data(),
                                                    (uint32_t)dm.indices.size());
@@ -167,6 +257,10 @@ void PlayerPed::SelectGun(int index) {
 
 void PlayerPed::NextGun() {
     SelectGun(m_gun + 1 >= (int)m_guns.size() ? -1 : m_gun + 1);
+}
+
+void PlayerPed::RefillAmmo() {
+    for (Gun& g : m_guns) { g.ammo = g.clipSize; g.total = g.clipSize * 60; }
 }
 
 const char* PlayerPed::GunName() const { return m_gun >= 0 ? m_guns[m_gun].name.c_str() : "Fists"; }
