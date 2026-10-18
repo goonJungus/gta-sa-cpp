@@ -71,6 +71,7 @@ if(WIN32)
         host/engine/Audio.cpp
         host/engine/Effects.cpp
         host/engine/AimTest.cpp
+        host/engine/Gamepad.cpp
         host/engine/Movement.cpp
         host/engine/Camera.cpp
         host/engine/CameraShake.cpp

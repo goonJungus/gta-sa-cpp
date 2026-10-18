@@ -58,6 +58,7 @@
 #include "Audio.h"
 #include "Effects.h"
 #include "AimTest.h"
+#include "Gamepad.h"
 
 static D3DRenderer g_renderer;
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
@@ -127,8 +128,30 @@ static bool ScriptedKey(int vk) {
     }
     return false;
 }
+static Gamepad g_pad;
+static bool g_wheelOpen = false;   // the weapon wheel is up
+static float g_wheelX = 0.0f, g_wheelY = 0.0f;   // pick vector on the wheel (screen axes, length 0..1)
+static int g_wheelSel = 0;         // highlighted slot (0 = fists)
+// A controller drives the same virtual keys the keyboard does: A sprint, X jump, B crouch, Y exit / use,
+// RB reload, LB weapon wheel, triggers aim (left) and fire (right).
+static bool PadKey(int vk) {
+    if (!g_pad.Connected()) return false;
+    switch (vk) {
+    case VK_SPACE:   return g_pad.Down(Gamepad::A);
+    case VK_SHIFT:   return g_pad.Down(Gamepad::X);
+    case 'C':        return g_pad.Down(Gamepad::B);
+    case 'F':        return g_pad.Down(Gamepad::Y);
+    case 'R':        return g_pad.Down(Gamepad::RB);
+    case 'Q':        return g_pad.Down(Gamepad::LB);
+    case VK_LBUTTON: return g_pad.RT() > 0.35f;
+    case VK_RBUTTON: return g_pad.LT() > 0.35f;
+    case VK_MENU:    return g_pad.Down(Gamepad::LTHUMB);
+    }
+    return false;
+}
 static SHORT GameKey(int vk) {
     if (ScriptedKey(vk)) return (SHORT)0x8000;
+    if (g_hasFocus && PadKey(vk)) return (SHORT)0x8000;
     return g_hasFocus ? GetAsyncKeyState(vk) : 0;
 }
 // Edge-triggered key read: true only on the frame the key goes down.
@@ -1995,6 +2018,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
         }
 
+        g_pad.Poll();
         DWORD now = GetTickCount();  // coarse ms clock: FPS counter only
         LARGE_INTEGER qpcNow;
         QueryPerformanceCounter(&qpcNow);
@@ -2100,6 +2124,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             int nk = g_keyQueueN;
             memcpy(keys, g_keyQueue, sizeof(int) * (size_t)nk);
             g_keyQueueN = 0;
+            if (g_pad.Connected() && g_hasFocus) {   // pad -> menu keys and the pause button
+                auto push = [&](int vk) { if (nk < 63) keys[nk++] = vk; };
+                static int s_stickDir = 0;
+                const int dir = g_pad.LY() > 0.6f ? 1 : g_pad.LY() < -0.6f ? 2 : g_pad.LX() < -0.6f ? 3 : g_pad.LX() > 0.6f ? 4 : 0;
+                if (dir != s_stickDir && dir) push(dir == 1 ? VK_UP : dir == 2 ? VK_DOWN : dir == 3 ? VK_LEFT : VK_RIGHT);
+                s_stickDir = dir;
+                if (g_pad.Pressed(Gamepad::DPAD_UP)) push(VK_UP);
+                if (g_pad.Pressed(Gamepad::DPAD_DOWN)) push(VK_DOWN);
+                if (g_pad.Pressed(Gamepad::DPAD_LEFT)) push(VK_LEFT);
+                if (g_pad.Pressed(Gamepad::DPAD_RIGHT)) push(VK_RIGHT);
+                if (g_pad.Pressed(Gamepad::START)) push(VK_ESCAPE);
+                if (g_menuReady && g_menu.IsOpen()) {
+                    if (g_pad.Pressed(Gamepad::A)) push(VK_RETURN);
+                    if (g_pad.Pressed(Gamepad::B)) push(VK_ESCAPE);
+                }
+            }
             if (g_escOpensMenu && g_menuReady) {
                 bool wasOpen = g_menu.IsOpen();
                 // Retail pauses when the game loses focus (alt-tab / click away).
@@ -2176,6 +2216,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
         // Pause menu = frozen simulation, rendering keeps running.
         if (g_devPaused) dt = 0.0f;
+        else if (g_wheelOpen) dt *= 0.2f;   // GTA V: the world crawls while you choose a weapon
 
         // ---- Time of day: sky colours, sun, fog + draw distance ----
         float fogStart = 400.0f, fogEnd = 2500.0f;
@@ -2368,7 +2409,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     RECT clip = {tl.x, tl.y, br.x, br.y};
                     ClipCursor(&clip);
                 }
-                if (dx != 0 || dy != 0) {
+                if (g_wheelOpen) {   // the weapon wheel takes the mouse
+                    g_wheelX += (float)dx * 0.012f; g_wheelY += (float)dy * 0.012f;
+                    const float wl = sqrtf(g_wheelX * g_wheelX + g_wheelY * g_wheelY);
+                    if (wl > 1.0f) { g_wheelX /= wl; g_wheelY /= wl; }
+                } else if (dx != 0 || dy != 0) {
                     // Post-mirror-fix sign: mouse right (dx>0) must turn the view right.
                     const FeSettings& ms = g_menu.Settings();
                     yaw   -= dx * MOUSE_SENS * ms.mouseSens;
@@ -2381,6 +2426,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 // pile up and snap the view when control resumes.
                 g_rawMouseDX = 0; g_rawMouseDY = 0;
                 g_cursorCentred = false;
+            }
+            if (g_pad.Connected() && g_hasFocus && !g_menu.IsOpen() && !g_wheelOpen) {   // right stick looks
+                const FeSettings& ps = g_menu.Settings();
+                yaw   -= g_pad.RX() * 3.1f * ps.mouseSens * dt;
+                pitch += g_pad.RY() * 2.2f * ps.mouseSens * dt * (ps.invertY ? -1.0f : 1.0f);
             }
             // Arrow keys as fallback look
             if (GameKey(VK_LEFT)  & 0x8000) yaw   += 2.5f * dt;
@@ -2412,6 +2462,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (GameKey('A') & 0x8000) { mx += rightX; my += rightY; }
             float mlen = sqrtf(mx*mx + my*my);
             if (mlen > 0.001f) { mx /= mlen; my /= mlen; }
+            if (g_pad.Connected() && g_hasFocus && !g_menu.IsOpen() && (g_pad.LX() != 0.0f || g_pad.LY() != 0.0f)) {
+                // analog: the stick's length is the pace (walk .. run), forward is up on the stick
+                const float ax = fwdX * g_pad.LY() - rightX * g_pad.LX(), ay = fwdY * g_pad.LY() - rightY * g_pad.LX();
+                mx = ax; my = ay;
+                mlen = std::min(1.0f, sqrtf(ax * ax + ay * ay));
+            }
             if (scripted) {
                 // Scripted path: 5 legs x 4s, loop around Grove Street.
                 scriptedTime += dt;
@@ -2666,13 +2722,40 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 {
                     static bool s_prevFire = false, s_prevReload = false, s_prevNext = false;
-                    const bool fireKey = ((GameKey(VK_LBUTTON) | GameKey(VK_RETURN)) & 0x8000) != 0 && !g_menu.IsOpen();
+                    const bool fireKey = ((GameKey(VK_LBUTTON) | GameKey(VK_RETURN)) & 0x8000) != 0 && !g_menu.IsOpen() && !g_wheelOpen;
                     const bool relKey = (GameKey('R') & 0x8000) != 0, nextKey = (GameKey('Q') & 0x8000) != 0;
                     pin.fireHeld = fireKey;
                     pin.fireJust = fireKey && !s_prevFire;
                     pin.reloadJust = relKey && !s_prevReload;
                     pin.autoReload = pin.rewrite && g_menu.Settings().autoReload;
-                    if (nextKey && !s_prevNext) g_cj.NextGun();
+                    // Q: a tap cycles the guns, holding it brings up the weapon wheel.
+                    static float s_qHeld = 0.0f;
+                    if (nextKey) {
+                        s_qHeld += dt / (g_wheelOpen ? 0.2f : 1.0f);   // dt is slowed while the wheel is up
+                        if (!g_wheelOpen && s_qHeld > 0.18f && g_cj.GunCount() > 0 && !g_menu.IsOpen()) {
+                            g_wheelOpen = true;
+                            g_wheelX = g_wheelY = 0.0f;
+                            g_wheelSel = g_cj.GunIndex() + 1;
+                        }
+                    } else {
+                        if (g_wheelOpen) {
+                            g_cj.SelectGun(g_wheelSel - 1);
+                            g_wheelOpen = false;
+                        } else if (s_prevNext && s_qHeld <= 0.18f) {
+                            g_cj.NextGun();
+                        }
+                        s_qHeld = 0.0f;
+                    }
+                    if (g_wheelOpen) {
+                        if (g_pad.Connected() && (g_pad.RX() != 0.0f || g_pad.RY() != 0.0f)) { g_wheelX = g_pad.RX(); g_wheelY = -g_pad.RY(); }
+                        const float wl = sqrtf(g_wheelX * g_wheelX + g_wheelY * g_wheelY);
+                        if (wl > 0.3f) {
+                            const int n = g_cj.GunCount() + 1;
+                            float ang = atan2f(g_wheelY, g_wheelX) + 1.5707963f;   // 0 = up, clockwise
+                            while (ang < 0.0f) ang += 6.2831853f;
+                            g_wheelSel = (int)(ang / 6.2831853f * (float)n + 0.5f) % n;
+                        }
+                    }
                     s_prevFire = fireKey; s_prevReload = relKey; s_prevNext = nextKey;
                 }
                 pin.waterZ = waterZ;
@@ -3172,6 +3255,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.rewrite = hs.movementStyle == 1;
             hd.scale = hs.hudScale;
             hd.stamina = g_stamina;
+            hd.wheel = g_wheelOpen;
+            if (g_wheelOpen) {
+                hd.wheelSel = g_wheelSel;
+                WheelItem f; f.name = "Fists"; f.melee = true;
+                hd.wheelItems.push_back(f);
+                for (int i = 0; i < g_cj.GunCount(); i++) {
+                    WheelItem w;
+                    w.name = g_cj.GunNameAt(i); w.icon = g_cj.GunIconAt(i);
+                    w.clip = g_cj.GunClipAt(i); w.total = g_cj.GunTotalAt(i); w.clipSize = g_cj.GunClipSizeAt(i);
+                    hd.wheelItems.push_back(w);
+                }
+            }
             hd.showHud = hs.showHud;
             hd.radarOn = hs.radarMode == 0;
             hd.crosshairDot = hs.crosshairDot; hd.hitMarker = hs.hitMarker; hd.damageFlash = hs.damageFlash;

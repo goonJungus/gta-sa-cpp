@@ -263,6 +263,12 @@ void PlayerPed::RefillAmmo() {
     for (Gun& g : m_guns) { g.ammo = g.clipSize; g.total = g.clipSize * 60; }
 }
 
+int PlayerPed::GunCount() const { return (int)m_guns.size(); }
+const char* PlayerPed::GunNameAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].name.c_str() : "Fists"; }
+IDirect3DTexture9* PlayerPed::GunIconAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].icon : nullptr; }
+int PlayerPed::GunClipAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].ammo : 0; }
+int PlayerPed::GunTotalAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].total : 0; }
+int PlayerPed::GunClipSizeAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].clipSize : 0; }
 const char* PlayerPed::GunName() const { return m_gun >= 0 ? m_guns[m_gun].name.c_str() : "Fists"; }
 const char* PlayerPed::GunId() const { return m_gun >= 0 && m_guns[m_gun].spec ? m_guns[m_gun].spec->name : ""; }
 int PlayerPed::GunAmmo() const { return m_gun >= 0 ? m_guns[m_gun].ammo : 0; }

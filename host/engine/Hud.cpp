@@ -335,6 +335,50 @@ void Hud::DrawRadar(Fe2d& g, const HudData& d, float cx, float cy, float hw, flo
     }
 }
 
+// Weapon wheel: a ring of slots around the centre (fists at the top, then clockwise), the
+// highlighted slot lit white, its name and ammo in the middle.
+void Hud::DrawWheel(Fe2d& g, const HudData& d, float sw, float sh) {
+    const int n = (int)d.wheelItems.size();
+    if (n <= 0) return;
+    const float ref = sh / 1080.0f, cx = sw * 0.5f, cy = sh * 0.5f;
+    const float r0 = 150.0f * ref, r1 = 300.0f * ref;
+    g.DrawRect(0, 0, sw, sh, 0x78000000);
+    const float span = 2.0f * kPi / n, gap = 0.035f;
+    for (int i = 0; i < n; i++) {
+        const bool sel = i == d.wheelSel;
+        const float a0 = -kPi / 2 + span * (i - 0.5f) + gap, a1 = -kPi / 2 + span * (i + 0.5f) - gap;
+        const uint32_t col = sel ? 0xF0FFFFFF : 0x99000000;
+        const int seg = 14;
+        std::vector<Fe2d::Vert> v;
+        const float ro = sel ? r1 + 10.0f * ref : r1;
+        for (int k = 0; k < seg; k++) {
+            const float t0 = a0 + (a1 - a0) * k / seg, t1 = a0 + (a1 - a0) * (k + 1) / seg;
+            const Fe2d::Vert p00 = {cx + std::cos(t0) * r0, cy + std::sin(t0) * r0, 0, 0, col};
+            const Fe2d::Vert p01 = {cx + std::cos(t0) * ro, cy + std::sin(t0) * ro, 0, 0, col};
+            const Fe2d::Vert p10 = {cx + std::cos(t1) * r0, cy + std::sin(t1) * r0, 0, 0, col};
+            const Fe2d::Vert p11 = {cx + std::cos(t1) * ro, cy + std::sin(t1) * ro, 0, 0, col};
+            v.push_back(p00); v.push_back(p01); v.push_back(p10);
+            v.push_back(p10); v.push_back(p01); v.push_back(p11);
+        }
+        g.DrawTris(nullptr, v.data(), (int)v.size());
+        const WheelItem& it = d.wheelItems[i];
+        const float am = (a0 + a1) * 0.5f, rm = (r0 + r1) * 0.5f + (sel ? 5.0f * ref : 0.0f);
+        IDirect3DTexture9* icon = it.icon ? it.icon : Sprite("fist");
+        const float iw = (sel ? 118.0f : 100.0f) * ref, ih = iw * 0.66f;
+        const float ix = cx + std::cos(am) * rm, iy = cy + std::sin(am) * rm;
+        if (icon) g.DrawTex(icon, ix - iw / 2, iy - ih / 2, ix + iw / 2, iy + ih / 2, sel ? 0xFF000000 : 0xFFFFFFFF);
+        else Text(g, FeFont::SUBTITLES, ix, iy - 8.0f * ref, it.name, 0.4f, 0.9f, sel ? 0xFF000000 : 0xFFFFFFFF, FeFont::CENTER, 0);
+    }
+    const WheelItem& cur = d.wheelItems[std::max(0, std::min(n - 1, d.wheelSel))];
+    Text(g, FeFont::PRICEDOWN, cx, cy - 54.0f * ref, Upper(cur.name), 0.75f, 1.5f, 0xFFFFFFFF, FeFont::CENTER, 2);
+    if (!cur.melee) {
+        char b[48];
+        if (cur.clipSize > 1) std::snprintf(b, sizeof(b), "%d / %d", cur.clip, cur.total);
+        else std::snprintf(b, sizeof(b), "%d", cur.clip + cur.total);
+        Text(g, FeFont::SUBTITLES, cx, cy + 6.0f * ref, b, 0.55f, 1.2f, 0xFFC8D4E0, FeFont::CENTER, 1);
+    }
+}
+
 void Hud::Draw(D3DRenderer& r, const HudData& d) {
     if (!m_ready || !r.GetDevice() || !d.showHud) return;
     const float sw = (float)r.Width(), sh = (float)r.Height();
@@ -374,6 +418,7 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
     Fe2d& g = m_2d;
     g.Begin(r.GetDevice());
     if (d.rewrite) DrawRewrite(g, d, sw, sh); else DrawClassic(g, d, sw, sh);
+    if (d.wheel) { m_font.SetScreen(640.0f * (sh / 448.0f), 448.0f * (sh / 448.0f)); DrawWheel(g, d, sw, sh); }
     {
         const float u = sh / 448.0f;
         m_font.SetScreen(640.0f * u, 448.0f * u);

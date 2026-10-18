@@ -116,6 +116,12 @@ public:
     void SelectGun(int index);          // -1 = fists
     void NextGun();                     // cycles through the list, then fists
     int GunIndex() const { return m_gun; }
+    int GunCount() const;                 // guns carried (the wheel lists these plus the fists)
+    const char* GunNameAt(int i) const;
+    IDirect3DTexture9* GunIconAt(int i) const;
+    int GunClipAt(int i) const;           // rounds in the clip
+    int GunTotalAt(int i) const;          // rounds left outside the clip
+    int GunClipSizeAt(int i) const;
     const char* GunId() const;            // weapon.dat name, or ""
     bool InAir() const { return m_inAir; }
     const char* GunName() const;

@@ -33,6 +33,14 @@ struct HudLabel {
     bool left = false;             // left aligned instead of centred
 };
 
+// One slot of the weapon wheel; the fists are slot 0.
+struct WheelItem {
+    std::string name;
+    IDirect3DTexture9* icon = nullptr;
+    int clip = 0, total = 0, clipSize = 0;
+    bool melee = false;
+};
+
 struct HudData {
     float dt = 0.016f;
     bool rewrite = false;
@@ -65,6 +73,9 @@ struct HudData {
     float heading = 0;             // radians, world yaw the player faces
     std::string zone;              // GXT text of the area name; empty = none
     std::vector<HudLabel> labels;
+    bool wheel = false;            // weapon wheel up
+    std::vector<WheelItem> wheelItems;
+    int wheelSel = 0;              // highlighted slot
     bool hasWaypoint = false;      // map waypoint blip
     float wpX = 0, wpY = 0;
 };
@@ -101,6 +112,7 @@ private:
 
     void DrawClassic(Fe2d& g, const HudData& d, float sw, float sh);
     void DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh);
+    void DrawWheel(Fe2d& g, const HudData& d, float sw, float sh);
     void DrawRadar(Fe2d& g, const HudData& d, float cx, float cy, float hw, float hh, float corner,
                    float range, float alpha, bool rewrite);
     void Bar(Fe2d& g, float x, float y, float w, float h, float pct, uint32_t color, bool rewrite);
