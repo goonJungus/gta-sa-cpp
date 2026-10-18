@@ -1138,7 +1138,7 @@ void QuatMul(const float a[4], const float b[4], float o[4]) {
 }
 }  // namespace
 
-// CTaskSimpleIKPointArm / IKChain_c: an arm chain from the hand (effector offset 0, 0.05, 0) up
+// CTaskSimpleIKPointArm / IKChain_c: an arm chain from the hand (effector offset 0.05, 0, 0) up
 // to the clavicle under the neck (pivot). Each frame one sweep (MoveBonesToTarget @ 006178b0)
 // turns every bone, hand first, by half (chain speed 0.5) of the angle between "bone -> hand tip"
 // and "bone -> target", clamps it to its Euler limits (BoneNode_c::Limit), and the animated
@@ -1195,7 +1195,7 @@ void PlayerPed::UpdateArmChain(int side, bool want, const float target[3], float
         }
     };
     calcFrom(count - 1);
-    const float eff[3] = {0.0f, 0.05f, 0.0f};
+    const float eff[3] = {0.05f, 0.0f, 0.0f};   // CTaskSimpleIKPointArm ctor @ 00634150: m_EffectorOffset (0.05, 0, 0)
     for (int i = 0; i < count; i++) {
         IkNode& n = c.nodes[i];
         float tip[3];
@@ -1226,8 +1226,14 @@ void PlayerPed::UpdateArmChain(int side, bool want, const float target[3], float
         // BoneNode_c::Limit
         float e[3];
         IkQuatToEuler(q, e);
-        for (int k = 0; k < 3; k++) e[k] = std::clamp(e[k], n.lmin[k], n.lmax[k]);
-        IkEulerToQuat(e, n.q);
+        // BoneNode_c::Limit runs only when the byte at 008d2bd2 is set; retail ships it 0, so the
+        // chain turns freely (GTA_IKLIMIT=1 applies the ms_boneInfos limits anyway).
+        static const bool useLimits = std::getenv("GTA_IKLIMIT") != nullptr;
+        if (!useLimits) std::memcpy(n.q, q, sizeof(q));
+        else {
+            for (int k = 0; k < 3; k++) e[k] = std::clamp(e[k], n.lmin[k], n.lmax[k]);
+            IkEulerToQuat(e, n.q);
+        }
         calcFrom(i);
     }
     if (std::getenv("GTA_IKDBG")) {
@@ -1287,6 +1293,17 @@ void PlayerPed::RotateTorsoForArm(const float target[3]) {
 // CTaskSimpleUseGun::AimGun @ 0061ed10: a gun with the arm flag (0x2) is pointed by the right
 // arm chain; any other gun, or any gun while ducking, by the torso (CPedIK::PointGunInDirection).
 void PlayerPed::ApplyAimIK(const Input& in) {
+    if (std::getenv("GTA_POSEDBG") && m_aiming) {
+        static int n = 0;
+        if (++n == 90)
+            for (int id : {21, 22, 23, 24}) {
+                const int f = m_frameOfBone[id];
+                if (f < 0) continue;
+                float pe[3];
+                IkQuatToEuler(m_pose[f].q, pe);
+                std::fprintf(stderr, "[POSEDBG] bone %d clip pose (%.1f %.1f %.1f)\n", id, pe[0], pe[1], pe[2]);
+            }
+    }
     const bool armAim = m_aiming && m_gun >= 0 && m_guns[m_gun].aimWithArm && !m_ducking && !std::getenv("GTA_NOAIMIK");
     // the look pitch: the crosshair ray's (CCamera::Find3rdPersonQuickAimPitch), else the camera's
     const float lookPitch = in.haveAimRay ? std::asin(std::clamp(in.aimDir[2], -1.0f, 1.0f)) : in.camPitch;
