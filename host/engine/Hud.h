@@ -53,6 +53,8 @@ struct HudData {
     float camYaw = 0;              // radians, world yaw the camera looks along
     float heading = 0;             // radians, world yaw the player faces
     std::string zone;              // GXT text of the area name; empty = none
+    bool hasWaypoint = false;      // map waypoint blip
+    float wpX = 0, wpY = 0;
 };
 
 class Hud {
@@ -68,6 +70,10 @@ public:
     void Hit(bool kill) { m_hitTimer = 0.25f; m_hitKill = kill; }
     // A line of text above the radar (zone / street names, pick-ups, help).
     void ShowMessage(const std::string& text, float seconds);
+
+    // Rotated textured quad (blips, arrows), angle in radians clockwise.
+    void RotatedSprite(Fe2d& g, IDirect3DTexture9* tex, float cx, float cy, float w, float h, float angle,
+                       uint32_t color);
 
     // World -> tile texture for the radar and the pause map.
     IDirect3DTexture9* RadarTile(int tx, int ty);   // tx east 0..11, ty south 0..11
@@ -89,8 +95,6 @@ private:
     void Text(Fe2d& g, FeFont::Style style, float x, float y, const std::string& s, float scaleX, float scaleY,
               uint32_t color, FeFont::Align align, int edge);
     void Vignette(Fe2d& g, float sw, float sh, uint32_t rgb, float strength);
-    void RotatedSprite(Fe2d& g, IDirect3DTexture9* tex, float cx, float cy, float w, float h, float angle,
-                       uint32_t color);
     void RoundedRect(std::vector<Fe2d::Vert>& out, float x0, float y0, float x1, float y1, float r,
                      uint32_t color) const;
 

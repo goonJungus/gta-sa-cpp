@@ -22,6 +22,7 @@
 #include "FeText.h"
 
 class D3DRenderer;
+class Hud;
 
 struct FeSettings {
     int frameLimit = 0;       // 0 = off (unlimited), else frames per second
@@ -56,6 +57,7 @@ public:
 
     // WM_KEYDOWN virtual keys (auto-repeat included).
     void OnKey(int vk);
+    void OnWheel(int steps);   // mouse wheel notches, positive = away from the user
     // Menu sound cue since the last call: 0 none, 1 highlight, 2 select, 3 back.
     int TakeUiEvent() { int e = m_uiEvent; m_uiEvent = 0; return e; }
     // Mouse in backbuffer pixels; `click` = left button went down this frame,
@@ -63,6 +65,21 @@ public:
     void OnMouse(float x, float y, bool click, bool held);
 
     void Draw(D3DRenderer& r);
+
+    // What the Map, Stats and Brief pages show; the host refreshes it each frame.
+    struct PlayerInfo {
+        float x = 0, y = 0, z = 0, heading = 0;
+        std::string zone, weapon;
+        int money = 0, wanted = 0, hour = 12, minute = 0;
+        float health = 100, maxHealth = 100, armor = 0;
+        double playSec = 0;
+        float distFoot = 0;
+        int shots = 0, reloads = 0, jumps = 0, hurt = 0, ammoClip = 0, ammoTotal = 0;
+    };
+    void SetHud(Hud* h) { m_hud = h; }
+    void SetInfo(const PlayerInfo& i) { m_info = i; }
+    // Map waypoint set on the Map page (Enter / click); false when none.
+    bool Waypoint(float& x, float& y) const { x = m_wpX; y = m_wpY; return m_wpSet; }
 
     FeSettings& Settings() { return m_set; }
     bool TakeSettingsChanged() { bool c = m_changed; m_changed = false; return c; }
@@ -78,7 +95,7 @@ private:
         A_TEXT = 1, A_BACK = 2, A_GOTO = 5, A_FRAME_LIMITER = 24, A_YES_QUIT = 53,
         A_RESUME = 54, A_NO = 55, A_DRAW_DIST = 61,
         A_VSYNC = 200,   // ours: not in retail
-        A_TOGGLE = 210, A_CHOICE = 211, A_SLIDER = 212, A_REWRITE = 213,
+        A_STAT = 21, A_TOGGLE = 210, A_CHOICE = 211, A_SLIDER = 212, A_REWRITE = 213,
     };
     struct Entry {
         uint8_t action = 0;
@@ -112,6 +129,12 @@ private:
     std::string ValueText(const Entry& e) const;
     void DrawSlider(Fe2d& g, float value, float y125);
     void DrawDevPanel(Fe2d& g);
+    void DrawMap(Fe2d& g);
+    void DrawStats(Fe2d& g);
+    void DrawBrief(Fe2d& g);
+    void MapReset();
+    void MapZoom(float factor, float fx, float fy);
+    void MapSetWaypoint(float sx, float sy);
     float Sx(float v) const { return v * m_w / 640.0f; }
     float Sy(float v) const { return v * m_h / 448.0f; }
 
@@ -122,6 +145,13 @@ private:
     float m_w = 640, m_h = 448, m_ox = 0, m_oy = 0;
     float m_mx = -1, m_my = -1;
     int m_uiEvent = 0;
+    Hud* m_hud = nullptr;
+    PlayerInfo m_info;
+    float m_mapCx = 0, m_mapCy = 0, m_mapPx = 0.1f;   // world centre, pixels per world unit
+    bool m_mapFresh = true;                           // recentre on CJ at the next draw
+    bool m_wpSet = false; float m_wpX = 0, m_wpY = 0;
+    bool m_dragging = false; float m_dragLastX = 0, m_dragLastY = 0, m_dragMoved = 0;
+    float m_mapBack[4] = {0, 0, 0, 0};                // Back button hit box
     bool m_mouseMoved = false, m_mouseClick = false, m_mouseHeld = false;
 
     Fe2d m_2d;

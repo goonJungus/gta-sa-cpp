@@ -167,6 +167,7 @@ static bool g_menuReady = false;
 static bool g_escOpensMenu = false;      // play mode (not the capture modes)
 static int  g_keyQueue[64];              // WM_KEYDOWN -> main loop (menu input)
 static int  g_keyQueueN = 0;
+static int  g_wheelSteps = 0;   // mouse wheel notches since the last frame
 static char g_iniPath[MAX_PATH] = {};    // <exe_dir>\gtasa_cpp.ini
 
 static void LoadSettings(FeSettings& s) {
@@ -312,6 +313,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
     }
+    case WM_MOUSEWHEEL:
+        g_wheelSteps += GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA;
+        return 0;
     case WM_SIZE:
         // Defer the device Reset to the render loop (WM_SIZE can fire many
         // times during a drag); ignore minimize (0x0 client).
@@ -2060,6 +2064,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (g_menu.IsOpen()) g_menu.OnKey(keys[k]);
                     else if (keys[k] == VK_ESCAPE || keys[k] == 'P') g_menu.Open();
                 }
+                if (g_menu.IsOpen() && g_wheelSteps) g_menu.OnWheel(g_wheelSteps);
+                g_wheelSteps = 0;
                 if (g_menu.IsOpen()) {
                     // Pointer in backbuffer pixels (the client may differ from
                     // the render size when --res is used borderless).
@@ -2860,6 +2866,39 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             DrawDebugText(dev, dbg, 12.0f, 12.0f, 1.4f, 0xFFFFFF00); // yellow
         }
 
+        // ---- Player statistics (pause menu pages) and the events they share with audio ----
+        static struct {
+            double playSec = 0; float dist = 0;
+            int shots = 0, reloads = 0, jumps = 0, hurt = 0;
+            bool wasAir = false, havePrev = false; float px = 0, py = 0, lastFlash = 0;
+        } st;
+        int evShots = 0, evDry = 0, evReload = 0;
+        if (g_menuReady && cjReady) {
+            if (!g_menu.IsOpen() && !g_devPaused) {
+                evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
+                st.shots += evShots; st.reloads += evReload;
+                st.playSec += dt;
+                const bool air = g_cj.InAir();
+                if (st.havePrev && !air && !g_cj.Swimming()) st.dist += hypotf(playerX - st.px, playerY - st.py);
+                if (air && !st.wasAir) st.jumps++;
+                st.wasAir = air; st.px = playerX; st.py = playerY; st.havePrev = true;
+                const float fl = g_cj.DamageFlash();
+                if (fl > 0.95f && st.lastFlash <= 0.95f) st.hurt++;
+                st.lastFlash = fl;
+            }
+            FeMenu::PlayerInfo pi;
+            pi.x = playerX; pi.y = playerY; pi.z = playerZ - EYE_HEIGHT; pi.heading = g_cj.Heading();
+            pi.zone = g_hud.ZoneAt(pi.x, pi.y, pi.z);
+            pi.weapon = g_cj.GunIndex() >= 0 ? g_cj.GunName() : "";
+            pi.health = g_cj.Health(); pi.maxHealth = g_cj.MaxHealth(); pi.armor = g_cj.Armor();
+            pi.hour = (int)clockHour; pi.minute = (int)((clockHour - floorf(clockHour)) * 60.0f);
+            pi.playSec = st.playSec; pi.distFoot = st.dist;
+            pi.shots = st.shots; pi.reloads = st.reloads; pi.jumps = st.jumps; pi.hurt = st.hurt;
+            pi.ammoClip = g_cj.GunAmmo(); pi.ammoTotal = g_cj.GunTotalAmmo();
+            g_menu.SetHud(&g_hud);
+            g_menu.SetInfo(pi);
+        }
+
         // ---- Audio cues: menu, guns, footsteps, jumps, pain ----
         if (g_audio.Ready()) {
             const FeSettings& as = g_menu.Settings();
@@ -2871,9 +2910,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             static bool s_wasAir = false, s_havePrev = false;
             if (cjReady && !g_menu.IsOpen() && !g_devPaused) {
                 const char* gid = g_cj.GunId();
-                for (int n = g_cj.TakeShotEvents(); n > 0; n--) g_audio.Gun(gid, 0);
-                for (int n = g_cj.TakeDryEvents(); n > 0; n--) g_audio.Gun(gid, 1);
-                for (int n = g_cj.TakeReloadEvents(); n > 0; n--) {
+                for (int n = evShots; n > 0; n--) g_audio.Gun(gid, 0);
+                for (int n = evDry; n > 0; n--) g_audio.Gun(gid, 1);
+                for (int n = evReload; n > 0; n--) {
                     g_audio.Gun(gid, 2);
                     s_pending.push_back({ 0.9f, gid, 3 });
                 }
@@ -2925,6 +2964,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.x = playerX; hd.y = playerY; hd.z = playerZ - EYE_HEIGHT;
             hd.camYaw = yaw; hd.heading = g_cj.Heading();
             hd.zone = g_hud.ZoneAt(hd.x, hd.y, hd.z);
+            hd.hasWaypoint = g_menu.Waypoint(hd.wpX, hd.wpY);
             g_hud.Draw(g_renderer, hd);
         }
 

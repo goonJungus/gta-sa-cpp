@@ -294,6 +294,20 @@ void Hud::DrawRadar(Fe2d& g, const HudData& d, float cx, float cy, float hw, flo
     }
     g.DrawTris(nullptr, ring.data(), (int)ring.size());
 
+    // Waypoint blip, pinned to the rim when it is out of range.
+    if (d.hasWaypoint) {
+        float bx, by;
+        toScreen(d.wpX, d.wpY, bx, by);
+        float ox = bx - cx, oy = by - cy;
+        const float fx = std::fabs(ox) > 1e-3f ? 0.86f * hw / std::fabs(ox) : 1e9f;
+        const float fy = std::fabs(oy) > 1e-3f ? 0.86f * hh / std::fabs(oy) : 1e9f;
+        const float f = std::min(1.0f, std::min(fx, fy));
+        if (IDirect3DTexture9* wp = Sprite("radar_waypoint")) {
+            const float s = std::min(hw, hh) * 0.2f;
+            RotatedSprite(g, wp, cx + ox * f, cy + oy * f, s, s, 0.0f, Alpha(0xFFFFFFFF, alpha));
+        }
+    }
+
     // 4. north marker on the rim, then the player arrow (radar_centre)
     {
         // north in screen space: world (0,1) -> (-cos, -sin of camYaw)
