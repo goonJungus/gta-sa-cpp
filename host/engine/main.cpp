@@ -2434,6 +2434,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 ci.yaw = yaw;
                 ci.pitch = pitch;
                 ci.feet[0] = playerX; ci.feet[1] = playerY; ci.feet[2] = playerZ - EYE_HEIGHT;
+                ci.climbing = g_cj.Climbing();
                 ci.haveSpine = g_cj.BoneWorldPos(3, playerX, playerY, playerZ - EYE_HEIGHT, ci.spine);
                 ci.haveHead = g_cj.BoneWorldPos(5, playerX, playerY, playerZ - EYE_HEIGHT, ci.head);
                 if (worldReady && !g_devNoClip)

@@ -31,6 +31,7 @@ public:
         float head[3] = {0, 0, 0};          // bone 5 (head), world
         // Collision: fraction of a -> b that is clear (1 = nothing hit).
         std::function<float(const float a[3], const float b[3])> ray;
+        bool climbing = false;   // on a ledge: the ledge itself must not pull the camera in
     };
     struct Output {
         float eye[3] = {0, 0, 0};
@@ -64,6 +65,7 @@ private:
     float m_side = 0.45f;                   // current shoulder offset (+ right)
     float m_dist = 2.3f;
     float m_colDist = -1.0f;                // collision-limited distance (eases out)
+    float m_climbGrace = 0.0f;              // seconds left of looking past the ledge just climbed
     // first person
     float m_eyeZ = 0.0f;
     bool m_eyeValid = false;

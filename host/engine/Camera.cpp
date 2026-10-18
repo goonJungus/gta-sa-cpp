@@ -42,9 +42,30 @@ PlayerCamera::Output PlayerCamera::Update(const Input& in) {
         m_anchorValid = m_eyeValid = false;
         m_colDist = -1.0f;
     }
+    // Fraction along a->b to the first hit. While climbing, a hit close to the
+    // start is the ledge or fence being climbed (or just climbed over), so the
+    // ray carries on past it.
+    m_climbGrace = in.climbing ? 1.5f : std::max(0.0f, m_climbGrace - in.dt);
+    auto cast = [&](const float a[3], const float b[3]) {
+        const float f = in.ray(a, b);
+        if (m_climbGrace <= 0.0f || f >= 1.0f) return f;
+        const float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (len < 1e-4f) return f;
+        float hit = f;   // fraction of the whole segment
+        for (int i = 0; i < 4 && hit * len < 2.5f; i++) {
+            const float st = hit + 0.05f / len;
+            if (st >= 1.0f) return 1.0f;
+            const float from[3] = {a[0] + d[0] * st, a[1] + d[1] * st, a[2] + d[2] * st};
+            const float g = in.ray(from, b);
+            if (g >= 1.0f) return 1.0f;
+            hit = st + g * (1.0f - st);
+        }
+        return hit;
+    };
     auto clipToWorld = [&](const float a[3], float b[3], float pad) {
         if (!in.ray) return;
-        const float f = in.ray(a, b);
+        const float f = cast(a, b);
         if (f >= 1.0f) return;
         const float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
         const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
@@ -148,7 +169,7 @@ PlayerCamera::Output PlayerCamera::Update(const Input& in) {
         for (const auto& o : offs) {
             const float a[3] = {m_anchor[0] + o[0], m_anchor[1] + o[1], m_anchor[2] + o[2]};
             const float b[3] = {desired[0] + o[0], desired[1] + o[1], desired[2] + o[2]};
-            frac = std::min(frac, in.ray(a, b));
+            frac = std::min(frac, cast(a, b));
         }
     }
     const float allowed = frac >= 1.0f ? fullLen : std::max(0.03f, frac * fullLen - kColPadding);
