@@ -47,6 +47,10 @@ public:
     // Menu cue from FeMenu::TakeUiEvent: 1 highlight, 2 select, 3 back.
     void Ui(int cue);
     void Pain(float vol = 1.0f);
+    // Weapon change cue (frontend weapon sound).
+    void WeaponSwitch();
+    // Background beds, call every frame: city murmur, rain and wind levels 0..1.
+    void Ambient(float city, float rain, float wind);
 
     // Counters for tests: sounds started so far.
     int Played() const { return m_played; }
@@ -76,6 +80,7 @@ private:
     float m_master = 0.8f, m_sfx = 1.0f;
     int m_played = 0;
     unsigned m_rng = 12345;
+    int m_ambCity = 0, m_ambRain = 0, m_ambWindL = 0, m_ambWindR = 0;
     int Rand(int n) { m_rng = m_rng * 1664525u + 1013904223u; return (int)((m_rng >> 8) % (unsigned)n); }
     std::string m_last;
 

@@ -2908,6 +2908,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             static std::vector<Pending> s_pending;
             static float s_stepDist = 0.0f, s_prevX = 0, s_prevY = 0, s_lastFlash = 0.0f;
             static bool s_wasAir = false, s_havePrev = false;
+            static int s_lastGun = -2;
+            {   // ambience: city murmur always, rain by the weather, wind while falling fast
+                const char* wn = g_timecycOk ? g_timecyc.WeatherName(g_weatherIdx).c_str() : "";
+                const bool rainy = strstr(wn, "RAIN") || strstr(wn, "STORM");
+                static float s_wind = 0.0f;
+                const float fall = cjReady && g_cj.InAir() ? std::min(1.0f, std::max(0.0f, (-velZ - 8.0f) / 14.0f)) : 0.0f;
+                s_wind += (fall - s_wind) * std::min(1.0f, dt * 3.0f);
+                g_audio.Ambient(g_menu.IsOpen() ? 0.4f : 1.0f, rainy ? 1.0f : 0.0f, s_wind);
+            }
+            if (cjReady && g_cj.GunIndex() != s_lastGun) {
+                if (s_lastGun != -2) g_audio.WeaponSwitch();
+                s_lastGun = g_cj.GunIndex();
+            }
             if (cjReady && !g_menu.IsOpen() && !g_devPaused) {
                 const char* gid = g_cj.GunId();
                 for (int n = evShots; n > 0; n--) g_audio.Gun(gid, 0);

@@ -357,3 +357,23 @@ void Audio::Pain(float vol) {
     int n = SoundCount(BANK_PAIN_CARL);
     if (n > 0) Play(BANK_PAIN_CARL, Rand(n), vol);
 }
+
+void Audio::WeaponSwitch() {
+    // FRONTEND_GAME weapon (L 0x1B, R 0x1C)
+    Play(BANK_FRONTEND_GAME, 0x1B, 0.8f, -0.3f);
+    Play(BANK_FRONTEND_GAME, 0x1C, 0.8f, 0.3f);
+}
+
+void Audio::Ambient(float city, float rain, float wind) {
+    if (!m_ready) return;
+    // The loops are started once and then only their levels move.
+    auto bed = [&](int& voice, int bank, int sound, float vol, float pan) {
+        if (vol <= 0.002f) { if (voice) { Stop(voice); voice = 0; } return; }
+        if (!voice) voice = Play(bank, sound, vol, pan, 1.0f, true);
+        else SetVoice(voice, vol, pan, 1.0f);
+    };
+    bed(m_ambCity, BANK_FRONTEND_GAME, 0, city * 0.35f, 0.0f);       // CITY_NOISE_L
+    bed(m_ambRain, 105, 0, rain * 0.6f, 0.0f);                       // GENRL_RAIN: RAINLONG
+    bed(m_ambWindL, BANK_FRONTEND_GAME, 0x1D, wind * 0.7f, -0.4f);   // WIND_L
+    bed(m_ambWindR, BANK_FRONTEND_GAME, 0x1E, wind * 0.7f, 0.4f);    // WIND_R
+}
