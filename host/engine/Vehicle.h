@@ -63,6 +63,9 @@ struct VehicleInstance {
     int paint[4] = {0, 0, 0, 0};      // carcols.dat colour indices: primary, secondary, tertiary, quaternary
     float speed = 0.0f;               // m/s along the heading, negative in reverse
     float steer = 0.0f;               // current front wheel angle, radians
+    float health = 1000.0f;           // below 250 it smokes, at 0 it burns and blows up
+    float burnTime = 0.0f;
+    bool wrecked = false;
     float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
 };
 
@@ -91,6 +94,12 @@ public:
               const std::function<float(float, float, float)>& groundAt,
               const std::function<bool(float, float, float, float, float)>& blocked);
     // The nearest car within `range` metres of a point, or -1.
+    // Ray against the car bodies; returns the car index or -1, *t is the distance along dir.
+    int Trace(const float* eye, const float* dir, float reach, float* t) const;
+    // Damage a car; returns true when this shot started the burn. Burning cars blow up after a few seconds (true in *exploded).
+    bool Damage(int car, float damage);
+    // Advance fire and smoke; calls onSmoke(pos, dark), onFire(pos) and onExplode(pos).
+    void UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire, const std::function<void(const float*)>& onExplode);
     int Nearest(float x, float y, float range) const;
 
 private:

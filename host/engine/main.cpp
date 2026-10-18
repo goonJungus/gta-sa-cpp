@@ -1236,6 +1236,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("PLAYER MESH: CJ_HEIGHT=%.4fm orange box (%s)", CJ_HEIGHT, playerMesh ? "OK" : "FAIL");
     }
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
+    {   // [Player] WeaponSkill: 0 poor (retail new game), 1 standard; GTA_SKILL overrides
+        int skill = GetPrivateProfileIntA("Player", "WeaponSkill", 0, g_iniPath);
+        if (const char* e = getenv("GTA_SKILL")) skill = atoi(e);
+        PlayerPed::SetWeaponSkill(skill > 0 ? 1 : 0);
+    }
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
     g_vehicles.Init(g_renderer, GameDir());
     g_peds.Init(g_renderer, GameDir());
@@ -3001,6 +3006,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                               if (g_vehicles.Nearest(x, y, 2.4f) >= 0) return true;   // keep clear of cars
                               return g_world.HitsSolidCircle(x, y, z, ox, oy, 0.4f, 0.3f, 1.8f); },
                           [&] { Peds::Player pl; pl.x = playerX; pl.y = playerY; pl.threat = cjReady && g_cj.GunIndex() >= 0 && g_cj.Aiming(); return pl; }());
+            g_vehicles.UpdateDamage(dt, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
+                                    [](const float* p) { g_fx.Explosion(p); g_audio.Impact(0.0f); });
+            if (g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).wrecked) {   // thrown out of a car that blew up
+                const VehicleInstance& wc = g_vehicles.Car((size_t)g_driveCar);
+                playerX = wc.x + 2.5f; playerY = wc.y; playerZ = wc.z + EYE_HEIGHT; velZ = 3.0f; onGround = false;
+                g_driveCar = -1; g_audio.EngineStop(); g_radio.Tune(-1);
+                g_cj.Hurt(60.0f);
+            }
             // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
             {
                 static bool s_prevF = false;
@@ -3009,7 +3022,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 s_prevF = fDown;
                 if (fJust && g_driveCar < 0) {
                     const int n = g_vehicles.Nearest(playerX, playerY, 6.5f);
-                    if (n >= 0) { g_driveCar = n; Log("DRIVE: got in car %d", n); g_radio.Tune(g_radioStation); }
+                    if (n >= 0 && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) { g_driveCar = n; Log("DRIVE: got in car %d", n); g_radio.Tune(g_radioStation); }
                 } else if (fJust && g_driveCar >= 0) {
                     VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
                     playerX = c.x + std::cos(c.heading) * 2.4f; playerY = c.y + std::sin(c.heading) * 2.4f;
@@ -3433,6 +3446,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             if (g_hudReady) g_hud.Hit(kill);
                             g_fx.Blood(hit);
                             g_audio.Impact(pt);
+                            dummyHit = 0;
+                        }
+                    }
+                    if (dummyHit < 0 && g_vehicles.Ready()) {   // cars
+                        float vt = 0.0f;
+                        const float reach = std::min(range * t, std::max(10.0f, g_cj.GunRange()));
+                        const int vi2 = g_vehicles.Trace(g_aimEye, g_aimDir, reach, &vt);
+                        if (getenv("GTA_PEDDBG")) Log("CAR SHOT eye %.1f %.1f %.1f dir %.2f %.2f %.2f reach %.1f -> %d car0 %.1f %.1f %.1f cars %zu", g_aimEye[0], g_aimEye[1], g_aimEye[2], g_aimDir[0], g_aimDir[1], g_aimDir[2], reach, vi2, g_vehicles.Count() ? g_vehicles.Car(0).x : 0.f, g_vehicles.Count() ? g_vehicles.Car(0).y : 0.f, g_vehicles.Count() ? g_vehicles.Car(0).z : 0.f, g_vehicles.Count());
+                        if (vi2 >= 0 && vi2 != g_driveCar) {
+                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * vt;
+                            g_vehicles.Damage(vi2, g_cj.GunDamage() * 3.0f);
+                            Log("CAR HIT %d health %.0f at %.1f", vi2, g_vehicles.Car((size_t)vi2).health, vt);
+                            g_fx.Impact(hit, 0.0f);
+                            g_audio.Impact(vt);
                             dummyHit = 0;
                         }
                     }

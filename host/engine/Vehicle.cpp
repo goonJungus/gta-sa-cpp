@@ -463,3 +463,69 @@ void Vehicles::Step(size_t i, float dt, float throttle, float brake, float steer
     }
     c.wheelSpin += c.speed * dt / std::max(0.2f, mi != m_models.end() ? mi->second.wheelRadius : 0.35f);
 }
+
+int Vehicles::Trace(const float* eye, const float* dir, float reach, float* t) const {
+    int best = -1;
+    float bt = reach;
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        const VehicleInstance& c = m_cars[i];
+        auto mi = m_models.find(c.model);
+        const float wb = mi != m_models.end() ? mi->second.wheelBase : 2.8f;
+        const float ride = mi != m_models.end() ? mi->second.rideHeight : 0.7f;
+        const float hx = 0.95f, hy = wb * 0.5f + 1.1f, z0 = -ride, z1 = -ride + 1.5f;
+        // into car space: right = (cos h, sin h), nose = (-sin h, cos h)
+        const float cs = std::cos(c.heading), sn = std::sin(c.heading);
+        const float ox = eye[0] - c.x, oy = eye[1] - c.y, oz = eye[2] - c.z;
+        const float o[3] = {ox * cs + oy * sn, -ox * sn + oy * cs, oz};
+        const float d[3] = {dir[0] * cs + dir[1] * sn, -dir[0] * sn + dir[1] * cs, dir[2]};
+        const float lo[3] = {-hx, -hy, z0}, hi[3] = {hx, hy, z1};
+        float t0 = 0.0f, t1 = bt;
+        bool ok = true;
+        for (int k = 0; k < 3 && ok; k++) {
+            if (std::fabs(d[k]) < 1e-7f) { if (o[k] < lo[k] || o[k] > hi[k]) ok = false; continue; }
+            float a = (lo[k] - o[k]) / d[k], b = (hi[k] - o[k]) / d[k];
+            if (a > b) std::swap(a, b);
+            t0 = std::max(t0, a); t1 = std::min(t1, b);
+            if (t0 > t1) ok = false;
+        }
+        if (ok && t0 < bt) { bt = t0; best = (int)i; }
+    }
+    if (best >= 0 && t) *t = bt;
+    return best;
+}
+
+bool Vehicles::Damage(int car, float damage) {
+    if (car < 0 || (size_t)car >= m_cars.size()) return false;
+    VehicleInstance& c = m_cars[(size_t)car];
+    if (c.wrecked || c.health <= 0.0f) return false;
+    c.health -= damage;
+    if (c.health <= 0.0f) { c.health = 0.0f; return true; }
+    return false;
+}
+
+void Vehicles::UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire,
+                            const std::function<void(const float*)>& onExplode) {
+    for (VehicleInstance& c : m_cars) {
+        if (c.wrecked) {   // a burnt out shell keeps smoking
+            const float p[3] = {c.x, c.y, c.z + 0.6f};
+            if (std::fmod(c.burnTime += dt, 0.12f) < dt) onSmoke(p, 1.0f);
+            continue;
+        }
+        const float p[3] = {c.x - std::sin(c.heading) * 1.4f, c.y + std::cos(c.heading) * 1.4f, c.z + 0.6f};   // the bonnet
+        if (c.health <= 0.0f) {
+            c.burnTime += dt;
+            onFire(p);
+            onSmoke(p, 0.9f);
+            c.vx *= 1.0f - std::min(1.0f, 2.0f * dt); c.vy *= 1.0f - std::min(1.0f, 2.0f * dt);
+            if (c.burnTime > 5.0f) {
+                c.wrecked = true; c.burnTime = 0.0f;
+                for (int k = 0; k < 4; k++) c.paint[k] = 0;   // burnt black
+                c.speed = 0.0f; c.vx = c.vy = 0.0f;
+                onExplode(p);
+            }
+        } else if (c.health < 250.0f) {
+            c.burnTime += dt;
+            if (std::fmod(c.burnTime, 0.15f) < dt) onSmoke(p, 0.3f + 0.5f * (1.0f - c.health / 250.0f));
+        }
+    }
+}
