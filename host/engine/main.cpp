@@ -201,6 +201,10 @@ static void LoadSettings(FeSettings& s) {
     s.damageFlash = flag("Rewrite", "DamageFlash", true);
     s.crosshairDot = flag("Rewrite", "CrosshairDot", true);
     s.autoReload = flag("Rewrite", "AutoReload", true);
+    s.mouseSens = flt("Controls", "MouseSensitivity", 1.0f, 0.25f, 3.0f);
+    s.invertY = flag("Controls", "InvertY", false);
+    s.windowSize = (int)GetPrivateProfileIntA("Display", "WindowSize", 1, g_iniPath);
+    if (s.windowSize < 0 || s.windowSize >= kWindowSizeCount) s.windowSize = 1;
 }
 static void SaveSettings(const FeSettings& s) {
     char buf[32];
@@ -230,6 +234,10 @@ static void SaveSettings(const FeSettings& s) {
     flag("Rewrite", "DamageFlash", s.damageFlash);
     flag("Rewrite", "CrosshairDot", s.crosshairDot);
     flag("Rewrite", "AutoReload", s.autoReload);
+    flt("Controls", "MouseSensitivity", s.mouseSens);
+    flag("Controls", "InvertY", s.invertY);
+    snprintf(buf, sizeof(buf), "%d", s.windowSize);
+    WritePrivateProfileStringA("Display", "WindowSize", buf, g_iniPath);
 }
 static HWND g_hwnd = nullptr;
 // Pending window resize (WndProc -> main loop): keep the backbuffer matched to
@@ -843,6 +851,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     // client area so the image is crisp 1:1; WM_SIZE -> device Reset keeps it
     // matched if the window is moved/resized.
     const bool windowed = (WIN_W > 0 && WIN_H > 0);
+    g_menu.Settings().displayMode = windowed ? 1 : 0;
     if (windowed) {
         g_hwnd = CreateWindowExW(0, WINDOW_CLASS, WINDOW_TITLE,
             WS_OVERLAPPEDWINDOW | WS_VISIBLE, 100, 100, WIN_W, WIN_H,
@@ -2084,6 +2093,29 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (s.vsync != g_renderer.Vsync() && !g_renderer.SetVsync(s.vsync))
                         Log("SETTINGS: VSync reset failed");
                     g_world.SetHdDrawScale(s.drawDist);
+                    {
+                        // Borderless <-> windowed, and the windowed size.
+                        static int lastMode = -1, lastSize = -1;
+                        if (lastMode < 0) { lastMode = windowed ? 1 : 0; lastSize = -2; }
+                        if (s.displayMode != lastMode || (s.displayMode == 1 && s.windowSize != lastSize)) {
+                            if (s.displayMode == 1) {
+                                const int cw = kWindowSizes[s.windowSize][0], ch = kWindowSizes[s.windowSize][1];
+                                RECT rc = { 0, 0, cw, ch };
+                                AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+                                SetWindowLongPtrW(g_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+                                int sw = GetSystemMetrics(SM_CXSCREEN), sh = GetSystemMetrics(SM_CYSCREEN);
+                                int ow = rc.right - rc.left, oh = rc.bottom - rc.top;
+                                SetWindowPos(g_hwnd, nullptr, (sw - ow) / 2 > 0 ? (sw - ow) / 2 : 0,
+                                             (sh - oh) / 2 > 0 ? (sh - oh) / 2 : 0, ow, oh,
+                                             SWP_NOZORDER | SWP_FRAMECHANGED);
+                            } else {
+                                SetWindowLongPtrW(g_hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+                                SetWindowPos(g_hwnd, nullptr, 0, 0, GetSystemMetrics(SM_CXSCREEN),
+                                             GetSystemMetrics(SM_CYSCREEN), SWP_NOZORDER | SWP_FRAMECHANGED);
+                            }
+                            lastMode = s.displayMode; lastSize = s.windowSize;
+                        }
+                    }
                     SaveSettings(s);
                     Log("SETTINGS: frameLimit=%d vsync=%d drawDist=%.3f",
                         s.frameLimit, (int)s.vsync, s.drawDist);
@@ -2256,8 +2288,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 if (dx != 0 || dy != 0) {
                     // Post-mirror-fix sign: mouse right (dx>0) must turn the view right.
-                    yaw   -= dx * MOUSE_SENS;
-                    pitch -= dy * MOUSE_SENS;
+                    const FeSettings& ms = g_menu.Settings();
+                    yaw   -= dx * MOUSE_SENS * ms.mouseSens;
+                    pitch -= dy * MOUSE_SENS * ms.mouseSens * (ms.invertY ? -1.0f : 1.0f);
                     if (pitch >  1.5f) pitch =  1.5f;
                     if (pitch < -1.5f) pitch = -1.5f;
                 }

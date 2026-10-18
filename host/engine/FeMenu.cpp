@@ -35,7 +35,7 @@ const float kDrawDistMin = 0.925f, kDrawDistMax = 1.8f, kDrawDistStep = 7.0f / 1
 bool ScreenShown(int s) {
     switch (s) {
     case 0: case 1: case 2: case 3: case 4: case 5: case 27: case 28:
-    case 33: case 35: case 36: case 41:
+    case 33: case 35: case 36: case 37: case 39: case 41:
         return true;
     }
     return s >= 43;   // ours
@@ -166,6 +166,33 @@ void FeMenu::BuildScreens() {
         for (Entry& e : m_screens[3].items) {
             if (e.action == 28) { e.action = A_SLIDER; e.f = &m_set.musicVol; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
             if (e.action == 29) { e.action = A_SLIDER; e.f = &m_set.sfxVol; e.lo = 0; e.hi = 1; e.step = 0.0625f; }
+        }
+    }
+    // Ours: mouse look settings, the controls list, display mode and window size.
+    {
+        for (Entry& e : m_screens[39].items) {
+            if (e.action == 62) { e.action = A_SLIDER; e.f = &m_set.mouseSens; e.lo = 0.25f; e.hi = 3.0f; e.step = 0.125f; }
+            else if (e.action == 46) { e.action = A_TOGGLE; e.b = &m_set.invertY; }
+            else if (e.action == 59 || e.action == 60) { e.action = 0; e.name.clear(); }
+        }
+        std::vector<Entry>& ct = m_screens[36].items;
+        Entry back;
+        for (const Entry& e : ct) if (e.action == A_BACK) back = e;
+        ct.clear();
+        Entry red = MakeGoto("FEC_RED", 37), mou = MakeGoto("FEC_MOU", 39);
+        red.x = 320; red.y = 150; mou.x = 0; mou.y = 0;
+        ct.push_back(red); ct.push_back(mou); ct.push_back(back);
+        std::vector<Entry>& cl = m_screens[37].items;   // read-only list of the bindings
+        cl.clear();
+        Entry b2 = back; b2.target = 36; b2.x = 320; b2.y = 380; b2.align = 3;
+        cl.push_back(b2);
+        m_screens[37].prev = 36;
+        std::vector<std::string> sizes;
+        for (int i = 0; i < kWindowSizeCount; i++)
+            sizes.push_back(std::to_string(kWindowSizes[i][0]) + "x" + std::to_string(kWindowSizes[i][1]));
+        for (Entry& e : m_screens[27].items) {
+            if (e.action == 26) { Entry n = MakeChoice("DISPLAY MODE", &m_set.displayMode, {"BORDERLESS", "WINDOWED"}, false); n.x = e.x; n.y = e.y; e = n; }
+            else if (e.action == 56) { Entry n = MakeChoice("WINDOW SIZE", &m_set.windowSize, sizes, false); n.x = e.x; n.y = e.y; e = n; }
         }
     }
     for (Screen& sc : m_screens) {
@@ -489,7 +516,7 @@ void FeMenu::Draw(D3DRenderer& r) {
     std::string desc;
     if (!sc.items.empty() && sc.items[0].action == A_TEXT && !sc.items[0].name.empty())
         desc = m_text.Get(sc.items[0].name.c_str());
-    else if (!anyPorted)
+    else if (!anyPorted && m_screen != 37)
         desc = "This page is not ported yet.";
     if (!desc.empty()) {
         m_font.SetStyle(FeFont::SUBTITLES);
@@ -553,6 +580,7 @@ void FeMenu::Draw(D3DRenderer& r) {
     if (m_screen == kPauseScreen) DrawDevPanel(g);
     if (m_screen == 0) DrawStats(g);
     if (m_screen == 2) DrawBrief(g);
+    if (m_screen == 37) DrawControls(g);
 
     // ---- Mouse pointer: grey shadow, then the pointer ----
     if (m_mouse && m_mx >= 0 && m_my >= 0) {
@@ -777,4 +805,28 @@ void FeMenu::DrawBrief(Fe2d& g) {
     m_font.Print(g, Sx(60), Sy(150), m_wpSet ? "A waypoint is set on the map. Follow the marker on the radar."
                                              : "Open the Map page and press Enter to drop a waypoint.");
     m_font.SetWrapWidth(0);
+}
+
+// ---- Controls list (read-only) ----------------------------------------------
+
+void FeMenu::DrawControls(Fe2d& g) {
+    static const char* kRows[][2] = {
+        {"Move", "W A S D"}, {"Look", "Mouse"}, {"Walk", "Alt"}, {"Sprint", "Space (hold)"}, {"Jump", "Shift"},
+        {"Crouch", "C"}, {"Aim", "Right mouse button"}, {"Fire", "Left mouse button"}, {"Reload", "R"},
+        {"Next weapon", "Q"}, {"Enter / exit vehicle", "F"}, {"Pause menu", "Esc"}};
+    const int n = (int)(sizeof(kRows) / sizeof(kRows[0]));
+    const float x0 = Sx(150), x1 = Sx(490), y0 = Sy(112), lh = Sy(21);
+    g.DrawRect(x0 - Sx(14), y0 - Sy(8), x1 + Sx(14), y0 + lh * (float)n + Sy(4), 0xA0000000);
+    m_font.SetStyle(FeFont::SUBTITLES);
+    m_font.SetScale(Sx(0.4f), Sy(0.9f));
+    m_font.SetEdge(1);
+    m_font.SetDropColor(kBlack);
+    for (int i = 0; i < n; i++) {
+        m_font.SetAlign(FeFont::LEFT);
+        m_font.SetColor(kSelected);
+        m_font.Print(g, x0, y0 + lh * (float)i, kRows[i][0]);
+        m_font.SetAlign(FeFont::RIGHT);
+        m_font.SetColor(0xFFE1E1E1);
+        m_font.Print(g, x1, y0 + lh * (float)i, kRows[i][1]);
+    }
 }

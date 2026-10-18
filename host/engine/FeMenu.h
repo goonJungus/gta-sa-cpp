@@ -44,7 +44,17 @@ struct FeSettings {
     bool damageFlash = true;
     bool crosshairDot = true;
     bool autoReload = true;
+    // Controls and display.
+    float mouseSens = 1.0f;   // multiplier on the look speed
+    bool invertY = false;
+    int displayMode = 0;      // 0 = borderless fullscreen, 1 = windowed
+    int windowSize = 1;       // index into kWindowSizes (windowed mode)
 };
+
+// Window sizes offered in windowed mode.
+static const int kWindowSizes[][2] = {{1024, 768}, {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1080},
+                                      {2560, 1440}, {3440, 1440}, {3840, 2160}};
+static const int kWindowSizeCount = (int)(sizeof(kWindowSizes) / sizeof(kWindowSizes[0]));
 
 class FeMenu {
 public:
@@ -132,6 +142,7 @@ private:
     void DrawMap(Fe2d& g);
     void DrawStats(Fe2d& g);
     void DrawBrief(Fe2d& g);
+    void DrawControls(Fe2d& g);
     void MapReset();
     void MapZoom(float factor, float fx, float fy);
     void MapSetWaypoint(float sx, float sy);
