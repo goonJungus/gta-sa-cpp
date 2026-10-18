@@ -161,6 +161,7 @@ static volatile bool g_msgBtn[3] = { false, false, false };   // left, right, mi
 static volatile long g_msgMouseX = 0, g_msgMouseY = 0;        // client coords, last WM_MOUSEMOVE
 static volatile bool g_msgMouseSeen = false;
 static volatile long g_dbgRaw = 0, g_dbgMove = 0;   // MOUSE: log line counters
+static bool g_freeHave = false;                      // free-pointer look has a previous position
 static bool g_cursorHidden = false;                  // ShowCursor(FALSE) is in effect
 static SHORT RawGameKey(int vk) {
     if (ScriptedKey(vk)) return (SHORT)0x8000;
@@ -2588,7 +2589,36 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 // clicks always land on the game.
                 dx = (int)g_rawMouseDX; dy = (int)g_rawMouseDY;
                 g_rawMouseDX = 0; g_rawMouseDY = 0;
-                if (g_hasFocus) {
+                if (g_hasFocus && MouseMode() == 1) {
+                    // Free pointer: the pointer is never pinned, so the compositor keeps it moving. The
+                    // view turns by the pointer's own movement; near the window edge it is warped back
+                    // to the centre (once the warp is seen to work) so a long swipe keeps turning.
+                    RECT rc; GetClientRect(g_hwnd, &rc);
+                    const int w = rc.right - rc.left, h = rc.bottom - rc.top;
+                    POINT cur;
+                    if (g_msgMouseSeen) { cur.x = g_msgMouseX; cur.y = g_msgMouseY; }
+                    else { GetCursorPos(&cur); ScreenToClient(g_hwnd, &cur); }
+                    static POINT s_last = {0, 0};
+                    static bool s_warpOk = true;
+                    static int s_pending = 0;
+                    if (s_pending > 0) {   // a warp is in flight: wait for the pointer to land
+                        if (abs(cur.x - w / 2) < 40 && abs(cur.y - h / 2) < 40) s_pending = 0;
+                        else if (--s_pending == 0) s_warpOk = false;   // never landed: the system ignores warps
+                        s_last = cur;
+                    } else {
+                        if (dx == 0 && dy == 0 && g_freeHave) { dx = cur.x - s_last.x; dy = cur.y - s_last.y; }
+                        s_last = cur;
+                        g_freeHave = true;
+                        if (s_warpOk && w > 0 && h > 0 &&
+                            (cur.x < w / 5 || cur.x > w * 4 / 5 || cur.y < h / 5 || cur.y > h * 4 / 5)) {
+                            POINT c = {w / 2, h / 2};
+                            ClientToScreen(g_hwnd, &c);
+                            SetCursorPos(c.x, c.y);
+                            s_pending = 6;
+                        }
+                    }
+                    g_cursorCentred = false;
+                } else if (g_hasFocus) {
                     POINT mp; GetCursorPos(&mp);
                     RECT rc; GetClientRect(g_hwnd, &rc);
                     POINT center = {(rc.right-rc.left)/2, (rc.bottom-rc.top)/2};
@@ -2637,6 +2667,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 // pile up and snap the view when control resumes.
                 g_rawMouseDX = 0; g_rawMouseDY = 0;
                 g_cursorCentred = false;
+                g_freeHave = false;
             }
             if (g_pad.Connected() && g_hasFocus && !g_menu.IsOpen() && !g_wheelOpen) {   // right stick looks
                 const FeSettings& ps = g_menu.Settings();

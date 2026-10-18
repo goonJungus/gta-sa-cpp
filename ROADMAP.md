@@ -38,5 +38,5 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 
 ## Scripts and missions
 - [~] SCM virtual machine (main.scm header chunks parsed; every thread runs the core language: variables, arrays, arithmetic, comparisons, AND/OR, jumps, subroutines, waits; game commands are skipped by argument count (662 opcodes settled against the compiled script, scripts/scm_args.py) and listed in the log; CREATE_PLAYER, coordinates and SET_TIME_OF_DAY are wired, GTA_SCM=1 runs the script in game and places CJ at the retail start) (w 4)
-- [~] Weapon anim groups: long guns (shotgun, SPAS-12, AK-47, M4, rifles) use the armed move set (idle_armed, walk_armed, run_armed, no sprint); rocket, bat and chainsaw groups still to do (w 1)
+- [~] Weapon anim groups: move set follows the weapon (armed for long guns, rocket, chainsaw; bat uses the player set), swapped in place when the weapon changes; no rocket / chainsaw / bat weapons exist yet to use them (w 1)
 - [~] Missions (mission table of main.scm read; the VM launches a mission script as its own thread with its own jump base, and START_NEW_SCRIPT passes locals; mission 1 runs 410 instructions before its first game command; nothing is playable yet) (w 6)
