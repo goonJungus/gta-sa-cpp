@@ -1367,6 +1367,11 @@ void PlayerPed::StopSwim() {
     m_swimPitch = 0.0f;
     m_swimVelZ = 0.0f;
     m_ratio = 0.0f;
+    if (m_climbing) {   // hauled out onto a ledge: only the swim clips go, the climb clips stay
+        for (Assoc& a : m_assocs)
+            if (a.clip && a.clip->name.rfind("swim", 0) == 0) a.delta = -8.0f;
+        return;
+    }
     // back to the idle stance (CTaskSimpleSwim::~, BlendAnimation IDLE)
     for (Assoc& a : m_assocs) a.delta = -8.0f;
     if (const AnimClip* idle = Clip("idle_stance")) Blend(idle, true, false, 8.0f);

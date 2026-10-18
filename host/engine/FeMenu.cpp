@@ -530,6 +530,14 @@ void FeMenu::DrawRewriteList(Fe2d& g, float sw, float sh) {
         g.DrawTris(nullptr, q, 6);
     }
     const float left = std::max(96.0f * ref, (sw - 1920.0f * ref) * 0.5f + 96.0f * ref);
+    // control hints along the bottom
+    {
+        const std::string hint = m_padHints
+            ? "A  " + m_text.Get("HINT SELECT") + "     B  " + m_text.Get("HINT BACK") + "     " + m_text.Get("HINT ADJUST")
+            : "ENTER  " + m_text.Get("HINT SELECT") + "     ESC  " + m_text.Get("HINT BACK") + "     " + m_text.Get("HINT ADJUST");
+        font(FeFont::SUBTITLES, 0.30f, 0.66f, 0xB0FFFFFF, FeFont::LEFT);
+        m_font.Print(g, left, sh - 64.0f * ref, hint);
+    }
     // title and description
     if (!sc.title.empty()) {
         font(FeFont::PRICEDOWN, 1.0f, 1.9f, 0xFFFFFFFF, FeFont::LEFT);

@@ -2184,6 +2184,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     g_menu.OnMouse((float)mp.x * sx, (float)mp.y * sy, inside && lmb && !lmbWas, inside && lmb);
                     lmbWas = lmb;
                 }
+                g_menu.SetPadHints(g_pad.Connected() && g_pad.Active());
                 if (g_menu.TakeSettingsChanged()) {
                     const FeSettings& s = g_menu.Settings();
                     if (s.vsync != g_renderer.Vsync() && !g_renderer.SetVsync(s.vsync))

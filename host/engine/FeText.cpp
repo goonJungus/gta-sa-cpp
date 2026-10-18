@@ -107,6 +107,9 @@ std::string FeText::Extra(const char* key) const {
         {"BORDERLESS", "SANS BORDURE", "RANDLOS", "SENZA BORDI", "SIN BORDES"},
         {"WINDOWED", "FENETRE", "FENSTER", "IN FINESTRA", "VENTANA"},
         {"MAP AND BLIPS", "CARTE ET BLIPS", "KARTE UND BLIPS", "MAPPA E BLIP", "MAPA Y MARCADORES"},
+        {"HINT SELECT", "VALIDER", "AUSWAHL", "SELEZIONA", "SELECCIONAR"},
+        {"HINT BACK", "RETOUR", "ZURUECK", "INDIETRO", "ATRAS"},
+        {"HINT ADJUST", "GAUCHE DROITE REGLER", "LINKS RECHTS ANPASSEN", "SINISTRA DESTRA REGOLA", "IZQUIERDA DERECHA AJUSTAR"},
         {"VSYNC", "VSYNC", "VSYNC", "VSYNC", "VSYNC"},
         {"ON", "OUI", "AN", "SI", "SI"},
         {"OFF", "NON", "AUS", "NO", "NO"},
@@ -115,6 +118,10 @@ std::string FeText::Extra(const char* key) const {
         {"FEL_ITA", "ITALIANO", "ITALIANO", "ITALIANO", "ITALIANO"},
     };
     for (const auto& row : kTable)
-        if (std::strcmp(row[0], key) == 0) return row[m_lang];
+        if (std::strcmp(row[0], key) == 0) {
+            if (m_lang == 0 && std::strncmp(key, "HINT ", 5) == 0)   // the key is a tag, not the text
+                return std::strcmp(key, "HINT ADJUST") == 0 ? "LEFT RIGHT  ADJUST" : key + 5;
+            return row[m_lang];
+        }
     return std::string(key);
 }

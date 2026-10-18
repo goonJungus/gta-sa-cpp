@@ -68,6 +68,7 @@ public:
     void Shutdown();
 
     bool IsOpen() const { return m_open; }
+    void SetPadHints(bool on) { m_padHints = on; }   // show controller prompts instead of keyboard ones
     void Open(int screen = kPauseScreen);
     void Close();
 
@@ -161,6 +162,7 @@ private:
     std::vector<Screen> m_screens;
     int m_screen = kPauseScreen, m_sel = 0;
     std::string m_gameDir;
+    bool m_padHints = false;
     bool m_open = false, m_changed = false, m_quit = false;
     FeSettings m_set;
     float m_w = 640, m_h = 448, m_ox = 0, m_oy = 0;
