@@ -599,6 +599,7 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
     m_wantedFade = std::max(0.0f, m_wantedFade - d.dt);
     m_hitTimer = std::max(0.0f, m_hitTimer - d.dt);
     m_msgTimer = std::max(0.0f, m_msgTimer - d.dt);
+    m_subTimer = std::max(0.0f, m_subTimer - d.dt);
     m_msgFade = std::min(1.0f, std::max(0.0f, m_msgFade + (m_msgTimer > 0.0f ? 4.0f : -4.0f) * d.dt));
 
     // Zone name state (CHud::DrawAreaName): fade in 1 s, show 3 s, fade out 1 s,
@@ -614,6 +615,10 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
     Fe2d& g = m_2d;
     g.Begin(r.GetDevice());
     if (d.rewrite) DrawRewrite(g, d, sw, sh); else DrawClassic(g, d, sw, sh);
+    if (m_subTimer > 0.0f && !m_sub.empty() && d.showHud) {   // CHud::DrawSubtitles
+        const float u = sh / 448.0f;
+        Text(g, FeFont::SUBTITLES, sw / 2, sh - 88.0f * u, m_sub, 0.58f, 1.2f, 0xFFFFFFFF, FeFont::CENTER, 1);
+    }
     if (d.lockOn) DrawLockOn(g, d, sh);
     if (d.wheel) { m_font.SetScreen(640.0f * (sh / 448.0f), 448.0f * (sh / 448.0f)); DrawWheel(g, d, sw, sh); }
     {
