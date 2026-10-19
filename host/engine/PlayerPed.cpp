@@ -1050,6 +1050,15 @@ RwMat AxisRotation(const float axis[3], float radians, const float pivot[3]) {
 }
 }  // namespace
 
+// CTaskSimpleSwim::ApplyRollAndPitch @ 0068a8e0: the ped matrix turned about its X axis by
+// m_fRotationX (diving tips the head down), about the ped centre.
+void PlayerPed::ApplySwimPitch() {
+    if (!m_swimming || std::fabs(m_swimPitch) < 1e-4f) return;
+    const float right[3] = {1, 0, 0}, origin[3] = {0, 0, 0};
+    const RwMat rot = AxisRotation(right, -m_swimPitch, origin);
+    for (size_t f = 1; f < m_globals.size(); f++) m_globals[f] = m_globals[f] * rot;
+}
+
 // Rewrite body pose: the ped matrix rolled by the lean and tipped by
 // the pitch about the ped centre, the lower legs turned back so
 // the shins stay upright and the head turned a little further
@@ -1434,7 +1443,7 @@ void PlayerPed::Update(const Input& in) {
             m_velY = (m_rootDX * s + m_rootDY * c) / dt * k;
             m_swimVelZ = m_swimState == SwimState::Under ? -std::sin(m_swimPitch) * m_rootDY / dt : 0.0f;
         }
-        BuildPose(); BuildGlobals(m_pose); ShoulderBoneRotation();
+        BuildPose(); BuildGlobals(m_pose); ShoulderBoneRotation(); ApplySwimPitch();
         Skin();
         return;
     }
@@ -1529,6 +1538,7 @@ void PlayerPed::Update(const Input& in) {
     BuildPose();
     BuildGlobals(m_pose);
     ShoulderBoneRotation();
+    ApplySwimPitch();
     if (in.rewrite) ApplyRewritePose();
     ApplyAimIK(in);
     if (in.rewrite) ApplyFootIK(in);
@@ -1702,7 +1712,7 @@ void PlayerPed::ControlSwim(const Input& in) {
     case SwimState::Dive:
         if (cur && cur->finished) {
             m_swimState = SwimState::Under;
-            m_swimPitch = 0.7854f;   // SWIM_DIVE_UNDER_ANGLE: head first, down
+            m_swimPitch = 35.0f * kPi / 180.0f;   // -SWIM_DIVE_UNDER_ANGLE (-35 degrees @ 008d2fc4): head first, down
             m_swimClip = nullptr;
         }
         break;
