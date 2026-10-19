@@ -335,6 +335,7 @@ void PlayerPed::UpdateGun(const Input& in) {
     Gun& g = m_guns[m_gun];
     const GunSpec& sp = *g.spec;
     m_flash = std::max(0.0f, m_flash - in.dt);
+    m_flashL = std::max(0.0f, m_flashL - in.dt);
     const bool crouch = m_ducking;
     const float loopStart = crouch ? g.loop2Start : g.loopStart, loopEnd = crouch ? g.loop2End : g.loopEnd,
                 fireTime = crouch ? g.fire2Time : g.fireTime;
@@ -413,6 +414,7 @@ void PlayerPed::UpdateGun(const Input& in) {
         if (want && g.ammo > 0 && fa->blend > 0.9f) {
             m_firing = true;
             m_shotDone = false;
+            m_shotLeftDone = false;
             m_fireQueued = false;
             fa->playing = true;
         }
@@ -423,8 +425,19 @@ void PlayerPed::UpdateGun(const Input& in) {
             m_shotDone = true;
             g.ammo--;
             m_shotEvents++;
+            m_lastShotLeft = false;
             if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0) m_flash = 0.06f;   // the silenced pistol has no flash
             std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
+        }
+        // CTaskSimpleUseGun::ProcessPed: a twin pistol's left gun fires half a loop after the right
+        // ((loop end - loop start) / 2 + fire time), each shot one round of the shared clip.
+        if (g.twin && m_shotDone && !m_shotLeftDone && g.ammo > 0 && fa->time >= fireTime + (loopEnd - loopStart) * 0.5f) {
+            m_shotLeftDone = true;
+            g.ammo--;
+            m_shotEvents++;
+            m_lastShotLeft = true;
+            m_flashL = 0.06f;
+            std::fprintf(stderr, "[GUN] shot %s (left) ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
         }
         if (fa->time >= loopEnd || fa->finished) {
             // retail: the clip wraps from the loop end to the loop start while the next command is fire,
@@ -435,10 +448,12 @@ void PlayerPed::UpdateGun(const Input& in) {
             if (again) {
                 fa->time = loopStart + std::max(0.0f, fa->time - loopEnd);
                 m_shotDone = false;
+                m_shotLeftDone = false;
                 if (fa->time >= fireTime) {
                     m_shotDone = true;
                     g.ammo--;
                     m_shotEvents++;
+                    m_lastShotLeft = false;
                     if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0) m_flash = 0.06f;
                     std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
                 }
@@ -457,7 +472,7 @@ bool PlayerPed::MuzzleWorld(float x, float y, float feetZ, float out[3]) const {
     const int f = m_frameOfBone[kBoneRHand];
     if (f < 0 || f >= (int)m_globals.size()) return false;
     const float* o = m_guns[m_gun].fireOffset;
-    const RwMat& h = m_globals[f];
+    const RwMat h = m_guns[m_gun].twin && m_lastShotLeft ? LeftGunMatrix() : m_globals[f];   // the gun that fired last
     float p[3];
     for (int j = 0; j < 3; j++) p[j] = o[0] * h.m[0][j] + o[1] * h.m[1][j] + o[2] * h.m[2][j] + h.m[3][j];
     const float a = m_heading - 1.57079633f, c = std::cos(a), s = std::sin(a);
@@ -477,13 +492,10 @@ void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
     const float w[4][4] = {{c, s, 0, 0}, {-s, c, 0, 0}, {0, 0, 1, 0}, {x, y, feetZ - m_bindMinZ, 1}};
     // CVisibilityPlugins::RenderWeaponPedsForPC: the right hand's matrix; a twin gun is drawn again
     // from the left hand turned 180 degrees about X then moved (0.04, -0.05, 0), both pre-concatenated.
-    DrawGunAt(r, m_globals[f], w);
+    DrawGunAt(r, m_globals[f], w, m_flash > 0.0f);
     const int fl = m_frameOfBone[34];
     if (m_guns[m_gun].twin && fl >= 0 && fl < (int)m_globals.size()) {
-        RwMat local;   // translate, then rotate, in the hand's space
-        local.m[1][1] = -1.0f; local.m[2][2] = -1.0f;
-        local.m[3][0] = 0.04f; local.m[3][1] = 0.05f; local.m[3][2] = 0.0f;   // (0.04, -0.05, 0) * Rx(180)
-        const RwMat lm = local * m_globals[fl];
+        const RwMat lm = LeftGunMatrix();
         if (std::getenv("GTA_IKDBG")) {
             static int n = 0;
             if (++n % 30 == 0) {
@@ -494,11 +506,19 @@ void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
                 std::fprintf(stderr, "[TWIN] barrel %.0f %.0f %.0f R (%.2f %.2f %.2f) L (%.2f %.2f %.2f) Lpos (%.2f %.2f %.2f) Rpos (%.2f %.2f %.2f)\n", b[0], b[1], b[2], cr[0], cr[1], cr[2], cl[0], cl[1], cl[2], lm.m[3][0], lm.m[3][1], lm.m[3][2], rm.m[3][0], rm.m[3][1], rm.m[3][2]);
             }
         }
-        DrawGunAt(r, lm, w);
+        DrawGunAt(r, lm, w, m_flashL > 0.0f);
     }
 }
 
-void PlayerPed::DrawGunAt(D3DRenderer& r, const RwMat& h, const float w[4][4]) {
+RwMat PlayerPed::LeftGunMatrix() const {
+    RwMat local;   // translate, then rotate, in the hand's space
+    local.m[1][1] = -1.0f; local.m[2][2] = -1.0f;
+    local.m[3][0] = 0.04f; local.m[3][1] = 0.05f; local.m[3][2] = 0.0f;   // (0.04, -0.05, 0) * Rx(180)
+    const int fl = m_frameOfBone[34];
+    return fl >= 0 && fl < (int)m_globals.size() ? local * m_globals[fl] : local;
+}
+
+void PlayerPed::DrawGunAt(D3DRenderer& r, const RwMat& h, const float w[4][4], bool flash) {
     IDirect3DDevice9* dev = r.GetDevice();
     float hm[4][4];
     for (int i = 0; i < 4; i++) { for (int j = 0; j < 3; j++) hm[i][j] = h.m[i][j]; hm[i][3] = i == 3 ? 1.0f : 0.0f; }
@@ -513,7 +533,7 @@ void PlayerPed::DrawGunAt(D3DRenderer& r, const RwMat& h, const float w[4][4]) {
     dev->SetTransform(D3DTS_WORLD, &out);
     Gun& g = m_guns[m_gun];
     for (D3DRenderMesh* m : g.meshes) r.DrawMesh(m);
-    if (m_flash > 0.0f && !g.muzzle.empty()) {
+    if (flash && !g.muzzle.empty()) {
         // the flash atomic: additive, no depth write, a little bigger or smaller every shot
         DWORD ab, sb, db, zw;
         dev->GetRenderState(D3DRS_ALPHABLENDENABLE, &ab);

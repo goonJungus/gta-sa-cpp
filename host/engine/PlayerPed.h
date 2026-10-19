@@ -221,7 +221,8 @@ private:
     void LoadGuns(D3DRenderer& r, const std::string& gameDir);
     void ShutdownGuns(D3DRenderer& r);
     void UpdateGun(const Input& in);
-    void DrawGunAt(D3DRenderer& r, const RwMat& hand, const float world[4][4]);
+    void DrawGunAt(D3DRenderer& r, const RwMat& hand, const float world[4][4], bool flash);
+    RwMat LeftGunMatrix() const;   // the twin gun's frame: left hand, X 180, then (0.04, -0.05, 0)
     void DrawGun(D3DRenderer& r, float x, float y, float feetZ);
     struct StanceW { const char* name; float w; bool move, loop; float rate; };
     void StanceBlend(const StanceW* ws, int n, float dt, float expResp, float fadeRate);
@@ -303,6 +304,8 @@ private:
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = kBreathMax, m_damageFlash = 0.0f;
     bool m_reloading = false, m_firing = false, m_shotDone = false, m_fireQueued = false;
     float m_flash = 0.0f;                      // muzzle flash time left
+    float m_flashL = 0.0f;                     // twin pistols: the left gun's flash
+    bool m_shotLeftDone = false, m_lastShotLeft = false;   // twin pistols: left shot of this loop fired / the last shot was the left gun
     float m_reloadTime = 0.0f;
     const AnimClip* m_gunFireClip = nullptr;
     const AnimClip* m_gunRelClip = nullptr;
