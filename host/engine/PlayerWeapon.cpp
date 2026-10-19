@@ -651,11 +651,11 @@ void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
             const float w[4][4] = {{c, s, 0, 0}, {-s, c, 0, 0}, {0, 0, 1, 0}, {x, y, feetZ - m_bindMinZ, 1}};
             m_drawIdx = m_melee;
             RwMat pm = m_globals[sf];
-            {   // pack seated on the back: turned 90 degrees about Y, lifted 0.1 along the spine
+            {   // RenderWeaponPedsForPC: translate (0.1, -0.15, 0), then turn 90 degrees about Y (pre-concat)
                 RwMat loc;
                 loc.m[0][0] = 0.0f; loc.m[0][2] = -1.0f;
                 loc.m[2][0] = 1.0f; loc.m[2][2] = 0.0f;
-                loc.m[3][0] = 0.1f;
+                loc.m[3][0] = 0.1f; loc.m[3][1] = -0.15f;
                 pm = loc * pm;
             }
             DrawGunAt(r, pm, w, false);
