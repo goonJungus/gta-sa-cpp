@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "ImgLoader.h"
+#include "Speech.h"
 #include "TxdLoader.h"
 
 namespace {
@@ -90,6 +91,7 @@ bool Peds::Init(D3DRenderer&, const std::string& gameDir) {
             PedInfo p;
             p.id = std::atoi(f[0].c_str());
             p.dff = Lower(f[1]); p.txd = Lower(f[2]); p.type = f[3]; p.group = Lower(f[5]);
+            if (f.size() >= 13) p.voice = Speech::GenVoice(f[12]);   // the first of the voice range
             m_info[p.id] = p;
             if (p.id > 0 && (p.type == "CIVMALE" || p.type == "CIVFEMALE")) m_pool.push_back(p.id);
         }
@@ -221,6 +223,7 @@ int Peds::Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading
     if (!GetModel(r, id)) return -1;
     Actor a;
     a.model = id; a.x = x; a.y = y; a.z = z; a.heading = heading;
+    if (auto it = m_info.find(id); it != m_info.end()) a.voice = it->second.voice;
     a.turnTimer = 2.0f + (float)Rand(40) * 0.1f;
     a.walking = Rand(3) != 0;
     a.animTime = (float)Rand(100) * 0.01f;
@@ -329,7 +332,10 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
         }
         const float pdx = player.x - a.x, pdy = player.y - a.y, pd = std::sqrt(pdx * pdx + pdy * pdy);
         // Gunfire or an aimed weapon close by: run away from CJ for a while.
-        if (player.threat && pd < 25.0f) a.fleeTimer = 6.0f;
+        if (player.threat && pd < 25.0f) {
+            if (a.fleeTimer <= 0.0f) m_speech.push_back({(int)ai, 115});   // CTX_GLOBAL_GUN_RUN as it starts running
+            a.fleeTimer = 6.0f;
+        }
         const bool fleeing = a.fleeTimer > 0.0f && m.run;
         if (a.fleeTimer > 0.0f) a.fleeTimer -= dt;
         a.turnTimer -= dt;

@@ -33,7 +33,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [x] GXT text tables (w 1)
 
 ## Audio
-- [~] Sound effects (retail SFX bank loader and software mixer on waveOut; gun shots, dry fire and reloads per weapon, footsteps, jumps, pain, menu cues; water splash and landing sounds from the retail swimming and feet banks; volume sliders; player car engine from the retail vehicle banks; no speech yet) (w 2)
+- [~] Sound effects (retail SFX bank loader and software mixer on waveOut; gun shots, dry fire and reloads per weapon, footsteps, jumps, pain, menu cues; water splash and landing sounds from the retail swimming and feet banks; volume sliders; player car engine from the retail vehicle banks; ped speech from the retail CAEPedSpeechAudioEntity tables (context, voice and bank lookups read from gta_sa.exe): CJ pulls a gun on a ped, peds run from a gun, repeat times per context) (w 2)
 - [~] Radio station playback (11 retail stations from the scrambled Ogg Vorbis stream packs, decoded by our own Vorbis decoder and streamed through the mixer; Q and E change station while driving; retail programming: CAERadioTrackManager tables from gta_sa.exe pick idents, adverts, DJ banter (first, time-of-day, general) and songs with their DJ intros and outros, with play histories) (w 1)
 
 ## Scripts and missions

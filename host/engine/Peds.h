@@ -17,6 +17,7 @@
 struct PedInfo {
     int id = 0;
     std::string dff, txd, type, group;
+    int voice = -1;                // peds.ide voice (VOICE_GEN_... index), -1 none
 };
 
 class Peds {
@@ -52,6 +53,10 @@ public:
     // whether the head was hit. Damage returns true when the shot killed.
     int Trace(const float* eye, const float* dir, float reach, float* t, bool* head) const;
     bool Damage(int actor, float damage, bool head);
+    // Speech requests since the last call: actor index and eGlobalSpeechContext.
+    struct SpeechEvent { int actor; int ctx; };
+    std::vector<SpeechEvent> TakeSpeech() { std::vector<SpeechEvent> e; e.swap(m_speech); return e; }
+    int Voice(size_t i) const { return i < m_actors.size() ? m_actors[i].voice : -1; }
     // Keep about `target` civilians around (px, py): spawn on the ground in a ring in front of and around
     // the player, remove the ones that fell far behind. target 0 clears the crowd.
     void Populate(D3DRenderer& r, float px, float py, float pz, int target,
@@ -84,6 +89,7 @@ private:
         const AnimClip* deathClip = nullptr;
         float deadTime = 0.0f;            // seconds since death, the body is removed after a while
         bool crowd = false;               // spawned by Populate, removed again when far away
+        int voice = -1;                   // speech voice
     };
 
     Model* GetModel(D3DRenderer& r, int id);
@@ -97,6 +103,7 @@ private:
     std::unordered_map<std::string, AnimClip> m_clips;
     std::unordered_map<std::string, std::vector<std::string>> m_groups;   // animation group -> clip names
     std::vector<Actor> m_actors;
+    std::vector<SpeechEvent> m_speech;
     unsigned m_rng = 99;
     int Rand(int n) { m_rng = m_rng * 1664525u + 1013904223u; return (int)((m_rng >> 8) % (unsigned)n); }
 };

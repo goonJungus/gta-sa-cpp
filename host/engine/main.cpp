@@ -53,6 +53,7 @@
 #include "Script.h"
 #include "Radio.h"
 #include "Peds.h"
+#include "Speech.h"
 #include "PlayerPed.h"
 #include "Camera.h"
 #include "CameraShake.h"
@@ -520,6 +521,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 static std::string g_gameDir;
 static Vehicles g_vehicles;
 static Peds g_peds;
+static Speech g_speech;   // CAEPedSpeechAudioEntity
 static int g_crowdTarget = 0;   // ambient pedestrians around CJ (key O toggles, GTA_PEDS=n sets it)
 static int g_vehSpawnIdx = 0;
 
@@ -1093,7 +1095,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_menu.Settings().antiAlias > 0) g_renderer.SetAntiAlias(g_menu.Settings().antiAlias);
         g_fx.Init(g_renderer);
         Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
-        if (g_audio.Ready()) g_radio.Init(GameDir(), &g_audio);
+        if (g_audio.Ready()) { g_radio.Init(GameDir(), &g_audio); g_speech.Init(&g_audio); }
         if (const char* rt = getenv("GTA_RADIOTEST")) {   // dev: decode a few seconds of a station and log the level
             if (g_radio.Ready()) {
                 g_radio.Tune(atoi(rt));
@@ -3230,6 +3232,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                               if (g_vehicles.Nearest(x, y, 2.4f) >= 0) return true;   // keep clear of cars
                               return g_world.HitsSolidCircle(x, y, z, ox, oy, 0.4f, 0.3f, 1.8f); },
                           [&] { Peds::Player pl; pl.x = playerX; pl.y = playerY; pl.threat = cjReady && g_cj.GunIndex() >= 0 && g_cj.Aiming(); return pl; }());
+            g_speech.Tick(dt);
+            for (const Peds::SpeechEvent& e : g_peds.TakeSpeech()) {   // ped lines, quieter and panned with distance
+                const float dx = g_peds.X(e.actor) - camPosX, dy = g_peds.Y(e.actor) - camPosY;
+                const float dist = sqrtf(dx * dx + dy * dy);
+                const float side = (dx * sinf(yaw) - dy * cosf(yaw)) / std::max(1.0f, dist);
+                g_speech.SayGen(e.actor, g_peds.Voice(e.actor), e.ctx, std::clamp(1.0f - dist / 30.0f, 0.0f, 1.0f), std::clamp(side, -1.0f, 1.0f));
+            }
+            if (cjReady && g_cj.Aiming() && g_cj.GunIndex() >= 0 && strcmp(g_cj.GunId(), "PISTOL_SILENCED") != 0) {
+                // CPlayerPed::Compute3rdPersonMouseTarget: CJ says CTX_GLOBAL_PULL_GUN when his aim finds a ped
+                float tt = 0.0f;
+                const int hitPed = g_lockPed >= 0 ? g_lockPed : g_peds.Trace(g_aimEye, g_aimDir, g_cj.TargetRange() + 8.0f, &tt, nullptr);
+                static int s_lastTarget = -1;
+                if (hitPed >= 0 && hitPed != s_lastTarget) g_speech.SayPlayer(CTX_PULL_GUN);
+                s_lastTarget = hitPed;
+            }
             g_vehicles.UpdateDamage(dt, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p) { g_fx.Explosion(p); g_audio.Impact(0.0f); });
             if (g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).wrecked) {   // thrown out of a car that blew up
