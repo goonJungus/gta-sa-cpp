@@ -3384,9 +3384,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const std::string gid = g_cj.GunId();
                     ci.aimFov = gid == "AK47" || gid == "M4" ? 50.0f : gid == "COUNTRYRIFLE" ? 35.0f : 70.0f;
                 }
-                {   // sniper / country rifle / camera aim through the scope: wheel zooms 70 -> 15 (camera 3)
+                {   // sniper / camera / rocket launchers aim first person: wheel zooms 70 -> 15 (camera 3)
                     const int gt = g_cj.GunIndex() >= 0 ? g_cj.GunType(g_cj.GunIndex()) : 0;
-                    g_scoped = g_cj.Aiming() && (gt == 33 || gt == 34 || gt == 43 || gt == 35 || gt == 36);
+                    g_scoped = g_cj.Aiming() && (gt == 34 || gt == 43 || gt == 35 || gt == 36);   // the country rifle aims over the shoulder (Process_AimWeapon)
                     if (g_scoped) {
                         if (gt == 35 || gt == 36) g_scopeFov = 70.0f; else if (g_wheelSteps) { g_scopeFov = std::clamp(g_scopeFov * std::pow(1.084f, -(float)g_wheelSteps), gt == 43 ? 3.0f : 15.0f, 70.0f); g_wheelSteps = 0; }
                         ci.scope = true;
