@@ -34,7 +34,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 
 ## Audio
 - [~] Sound effects (retail SFX bank loader and software mixer on waveOut; gun shots, dry fire and reloads per weapon, footsteps, jumps, pain, menu cues; water splash and landing sounds from the retail swimming and feet banks; volume sliders; player car engine from the retail vehicle banks; no speech yet) (w 2)
-- [~] Radio station playback (11 retail stations from the scrambled Ogg Vorbis stream packs, decoded by our own Vorbis decoder and streamed through the mixer; Q and E change station while driving; no DJ chatter, adverts or station-specific track order yet) (w 1)
+- [~] Radio station playback (11 retail stations from the scrambled Ogg Vorbis stream packs, decoded by our own Vorbis decoder and streamed through the mixer; Q and E change station while driving; retail programming: CAERadioTrackManager tables from gta_sa.exe pick idents, adverts, DJ banter (first, time-of-day, general) and songs with their DJ intros and outros, with play histories) (w 1)
 
 ## Scripts and missions
 - [~] SCM virtual machine (main.scm header chunks parsed; every thread runs the core language: variables, arrays, arithmetic, comparisons, AND/OR, jumps, subroutines, waits; game commands are skipped by argument count (662 opcodes settled against the compiled script, scripts/scm_args.py) and listed in the log; CREATE_PLAYER, coordinates and SET_TIME_OF_DAY are wired, GTA_SCM=1 runs the script in game and places CJ at the retail start) (w 4)

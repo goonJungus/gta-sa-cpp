@@ -3745,6 +3745,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             const FeSettings& as = g_menu.Settings();
             g_audio.SetVolumes(as.masterVol, as.sfxVol);
             g_radio.SetVolume(as.musicVol);
+            g_radio.SetClockHour((int)(g_gameSeconds / 3600.0f) % 24);
             g_radio.Update();
             if (int ui = g_menu.TakeUiEvent()) g_audio.Ui(ui);
             struct Pending { float t; const char* gun; int kind; };

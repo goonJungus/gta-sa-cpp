@@ -27,12 +27,28 @@ public:
     void Step(int dir);          // next / previous station, wrapping through "off"
     void Update();               // call every frame: starts the next track when one ends
     void SetVolume(float v);
+    void SetClockHour(int h) { m_hour = h; }   // the DJ talks about the time of day
     // Decoded stereo frames of the current track (the mixer thread pulls these; tests may too).
     size_t Pull(int16_t* out, size_t frames);
 
 private:
-    struct StationInfo { std::string pack, name; std::vector<uint32_t> tracks; };
+    struct StationInfo { std::string pack, name; int id = 0; };   // id: eRadioID
     bool StartTrack();
+    bool PlayLookup(uint32_t trak);
+    // CAERadioTrackManager::ChooseTracksForStation: the next items (ident, advert, DJ banter, intro,
+    // music, outro) as TrakLkup indices.
+    void ChooseTracks(int id);
+    bool Queue(int id, int type);
+    int Rnd(int lo, int hi);
+    bool Chance(float p);
+    int ChooseIdent(int id);
+    int ChooseAdvert(int id);
+    int ChooseMusic(int id);
+    int ChooseBanter(int id);
+    int BanterFromList(int id, const int (*list)[2]);
+    std::vector<uint32_t> m_queue;
+    int m_hour = 12;
+    int m_musicHist[13][20], m_identHist[13][8], m_advertHist[13][40], m_banterHist[13][15];
 
     bool m_ready = false;
     std::string m_dir;
