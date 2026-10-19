@@ -304,7 +304,8 @@ private:
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = kBreathMax, m_damageFlash = 0.0f;
     bool m_reloading = false, m_firing = false, m_shotDone = false, m_fireQueued = false;
     float m_flash = 0.0f;                      // muzzle flash time left
-    float m_flashL = 0.0f;                     // twin pistols: the left gun's flash
+    float m_flashL = 0.0f;
+    float m_attackCounter = 0.0f;              // CPlayerPedData::m_fAttackButtonCounter: shots widen the crosshair                     // twin pistols: the left gun's flash
     bool m_shotLeftDone = false, m_lastShotLeft = false;   // twin pistols: left shot of this loop fired / the last shot was the left gun
     float m_reloadTime = 0.0f;
     const AnimClip* m_gunFireClip = nullptr;
