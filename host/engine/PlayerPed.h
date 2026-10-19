@@ -111,6 +111,9 @@ public:
     void StopSwim();                       // wading out, climbing out
     void SwimSurface();                    // underwater swimmer reached the surface
     bool Swimming() const { return m_swimming; }
+    // CStats::UpdateStatsWhen*: the exercise rate of what CJ is doing (ar_stats.dat
+    // STAT_EXERCISE_RATE_*, 10 = one second per second), 0 when he is not exercising.
+    int ExerciseRate() const;
     bool Underwater() const { return m_swimming && m_swimState == SwimState::Under; }
     bool SwimJumpOut() const { return m_swimming && m_swimState == SwimState::BackToSurface; }
     float SwimSubmerge() const;            // how far below the surface the ped origin rides

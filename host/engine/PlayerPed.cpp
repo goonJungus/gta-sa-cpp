@@ -1050,6 +1050,20 @@ RwMat AxisRotation(const float axis[3], float radians, const float pivot[3]) {
 }
 }  // namespace
 
+int PlayerPed::ExerciseRate() const {
+    if (m_swimming)   // CTaskSimpleSwim::ProcessSwimAnims: moving at half speed or more, or sprinting under water
+        return m_ratio >= 0.5f || m_swimState == SwimState::Sprinting ? (m_swimState == SwimState::Sprinting ? 15 : 10) : 0;
+    if (m_inAir) return 0;
+    // CPlayerPed::SetRealMoveAnim: sprint 10, run 5
+    const AnimClip *sprint = Clip("sprint_civi"), *run = Clip("run_player");
+    for (const Assoc& a : m_assocs) {
+        if (a.dead || a.blend <= 0.5f) continue;
+        if (sprint && a.clip == sprint) return 10;
+        if (run && a.clip == run) return 5;
+    }
+    return 0;
+}
+
 // CTaskSimpleSwim::ApplyRollAndPitch @ 0068a8e0: the ped matrix turned about its X axis by
 // m_fRotationX (diving tips the head down), about the ped centre.
 void PlayerPed::ApplySwimPitch() {

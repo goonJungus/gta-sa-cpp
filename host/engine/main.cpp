@@ -522,6 +522,7 @@ static std::string g_gameDir;
 static Vehicles g_vehicles;
 static Peds g_peds;
 static Speech g_speech;   // CAEPedSpeechAudioEntity
+static float g_statFat = 0.0f, g_statMuscle = 0.0f;   // CStats STAT_FAT / STAT_MUSCLE, 0..1000
 static int g_crowdTarget = 0;   // ambient pedestrians around CJ (key O toggles, GTA_PEDS=n sets it)
 static int g_vehSpawnIdx = 0;
 
@@ -1339,6 +1340,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (const char* e = getenv("GTA_MUSCLE")) mus = (float)atof(e);
         if (const char* e = getenv("GTA_GUN")) g_cj.SelectGun(atoi(e));   // dev: weapon index
         if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
+        g_statFat = fat * 1000.0f; g_statMuscle = mus * 1000.0f;
     }
     Log("PLAYER: CJ model %s", cjReady ? "ready" : "FAILED (using the box)");
     if (g_aimTest) {
@@ -3233,6 +3235,32 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                               return g_world.HitsSolidCircle(x, y, z, ox, oy, 0.4f, 0.3f, 1.8f); },
                           [&] { Peds::Player pl; pl.x = playerX; pl.y = playerY; pl.threat = cjReady && g_cj.GunIndex() >= 0 && g_cj.Aiming(); return pl; }());
             g_speech.Tick(dt);
+            if (cjReady) {
+                // CStats::UpdateFatAndMuscleStats @ 0055c470 with ar_stats.dat: exercise counts time at its rate;
+                // every STAT_TIMELIMIT_FAT_ADJUST (150 s) of it burns STAT_DEC_FAT (15) fat and builds
+                // STAT_INC_BODY_MUSCLE (10) muscle, or with no fat left costs STAT_DEC_BODY_MUSCLE (15) muscle.
+                static float s_fatCounterMs = 0.0f;
+                const int rate = g_cj.ExerciseRate();
+                if (rate > 0) {
+                    s_fatCounterMs += dt * 1000.0f * (float)rate / 10.0f;
+                    if (s_fatCounterMs > 150.0f * 1000.0f) {
+                        s_fatCounterMs = 0.0f;
+                        if (g_statFat > 0.0f) {
+                            g_statFat = std::max(0.0f, g_statFat - 15.0f);
+                            g_statMuscle = std::min(1000.0f, g_statMuscle + 10.0f);
+                        } else {
+                            g_statMuscle = std::max(0.0f, g_statMuscle - 15.0f);
+                        }
+                        g_cj.SetBodyShape(g_statFat / 1000.0f, g_statMuscle / 1000.0f);   // CClothes::RebuildPlayerIfNeeded
+                        char v[16];
+                        snprintf(v, sizeof(v), "%d", (int)(g_statFat / 10.0f));
+                        WritePrivateProfileStringA("Player", "Fat", v, g_iniPath);
+                        snprintf(v, sizeof(v), "%d", (int)(g_statMuscle / 10.0f));
+                        WritePrivateProfileStringA("Player", "Muscle", v, g_iniPath);
+                        Log("STATS: fat %.0f muscle %.0f", g_statFat, g_statMuscle);
+                    }
+                }
+            }
             for (const Peds::SpeechEvent& e : g_peds.TakeSpeech()) {   // ped lines, quieter and panned with distance
                 const float dx = g_peds.X(e.actor) - camPosX, dy = g_peds.Y(e.actor) - camPosY;
                 const float dist = sqrtf(dx * dx + dy * dy);
