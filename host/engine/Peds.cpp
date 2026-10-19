@@ -526,3 +526,25 @@ void Peds::Populate(D3DRenderer& r, float px, float py, float pz, int target,
         }
     }
 }
+
+int Peds::Explosion(const float c[3], float radius) {
+    int killed = 0;
+    for (size_t i = 0; i < m_actors.size(); i++) {
+        Actor& a = m_actors[i];
+        if (a.dead) continue;
+        const float dx = a.x - c[0], dy = a.y - c[1], dz = a.z + 1.0f - c[2];
+        const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (d >= radius) continue;
+        const float dmg = std::min(1.0f, 2.0f * (radius - d) / radius) * 250.0f;
+        if (Damage((int)i, dmg / 1.5f, false)) killed++;
+    }
+    return killed;
+}
+
+void Peds::Choke(const float c[3], float radius) {
+    for (Actor& a : m_actors) {
+        if (a.dead) continue;
+        const float dx = a.x - c[0], dy = a.y - c[1], dz = a.z + 1.0f - c[2];
+        if (dx * dx + dy * dy + dz * dz < radius * radius) a.fleeTimer = std::max(a.fleeTimer, 6.0f);
+    }
+}

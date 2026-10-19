@@ -169,6 +169,22 @@ public:
     bool TakeStrike(Strike& out) { if (!m_strikePending) return false; out = m_strike; m_strikePending = false; return true; }
     void SetFightStyle(int style) { m_fightStyle = std::clamp(style, 0, 3); }   // UNARMED_1..4
     bool Fighting() const { return m_fight.active; }
+    // Thrown weapons (PlayerThrow.cpp): CTaskSimpleThrowProjectile. A projectile leaves the hand at the
+    // fire frame of the throw clip; the host owns it from there (Projectiles.h).
+    struct Launch {
+        int gun = -1;               // index of the weapon whose model the projectile wears
+        int type = 0;               // eWeaponType: 16 grenade, 17 teargas, 18 molotov, 39 satchel charge
+        float pos[3] = {0, 0, 0};   // world
+        float vel[3] = {0, 0, 0};   // m/s
+        bool fell = false;          // thrown into a wall: it just drops at CJ's feet (force 0)
+    };
+    bool TakeLaunch(Launch& out) { if (!m_launchPending) return false; out = m_launch; m_launchPending = false; return true; }
+    bool TakeDetonate() { const bool d = m_detonatePending; m_detonatePending = false; return d; }   // CWorld::UseDetonator
+    bool HoldingThrown() const { return m_melee >= 0 && m_guns[m_melee].thrown; }
+    bool Throwing() const { return m_throw.state != 0; }
+    void SetWallProbe(std::function<bool(const float*, const float*)> f) { m_wallProbe = std::move(f); }
+    void DrawGunModel(D3DRenderer& r, int gunIndex, const float world[4][4]);   // a weapon model at a world matrix
+    int GunType(int gunIndex) const;                                            // eWeaponType of a weapon
     bool Reloading() const { return m_reloading; }
     IDirect3DTexture9* GunIcon() const; // hud icon texture, or null (fists)
     // One-shot events for sound and effects, taken by the host each frame.
@@ -254,6 +270,11 @@ private:
     void ShutdownGuns(D3DRenderer& r);
     void UpdateGun(const Input& in);
     void UpdateMelee(const Input& in);
+    void UpdateThrow(const Input& in);
+    void ThrowStart(const Input& in);
+    void ThrowFire(const Input& in);
+    int DetonatorIndex() const;
+    void HandWorld(const Input& in, const float off[3], float out[3]) const;
     const Melee::Combo* CurrentCombo() const;
     float FatMuscleModifier() const;
     void DrawGunAt(D3DRenderer& r, const RwMat& hand, const float world[4][4], bool flash);
@@ -315,6 +336,8 @@ private:
 
     struct Gun {
         const GunSpec* spec = nullptr;
+        bool thrown = false, detonator = false;                              // grenade family / detonator
+        int type = 0;                                                        // eWeaponType
         const char* fireClip = nullptr;                                      // standing fire clip (poor skill uses its own)
         std::string name;
         int clipSize = 0, ammo = 0, total = 0;
@@ -380,6 +403,19 @@ private:
     } m_fight;
     bool m_strikePending = false;
     Strike m_strike;
+    // CTaskSimpleThrowProjectile
+    struct Throw {
+        int state = 0;                  // 0 none, 1 WEAPON_start_throw, 2 WEAPON_throw / WEAPON_throwu
+        const AnimClip* clip = nullptr; // m_Anim
+        bool underhand = false;         // WEAPON_throwu
+        bool released = false;          // m_bButtonReleased
+        bool fired = false;
+        float counterMs = 0.0f;         // m_ButtonCounter: ms since the press, frozen at the release
+        float prevTime = 0.0f;
+    } m_throw;
+    Launch m_launch;
+    bool m_launchPending = false, m_detonatePending = false, m_switchToDetonator = false;
+    std::function<bool(const float*, const float*)> m_wallProbe;   // segment a -> b hits the world
     void FightStart(const Input& in, int move);
     void FightEnd(bool abrupt);
 

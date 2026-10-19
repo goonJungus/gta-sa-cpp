@@ -70,6 +70,8 @@ if(WIN32)
         host/engine/PlayerFootIK.cpp
         host/engine/PlayerWeapon.cpp
         host/engine/PlayerMelee.cpp
+        host/engine/PlayerThrow.cpp
+        host/engine/Projectiles.cpp
         host/engine/Melee.cpp
         host/engine/Vehicle.cpp
         host/engine/Script.cpp

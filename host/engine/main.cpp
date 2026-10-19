@@ -53,6 +53,7 @@
 #include "Script.h"
 #include "Radio.h"
 #include "Peds.h"
+#include "Projectiles.h"
 #include "Speech.h"
 #include "Delirium.h"
 #include "PlayerPed.h"
@@ -67,6 +68,7 @@
 #include "Gamepad.h"
 
 static D3DRenderer g_renderer;
+static Projectiles g_proj;   // thrown weapons in flight
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
 static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
 static Sky g_sky;        // CClouds: moon, stars, low clouds
@@ -1326,6 +1328,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         PlayerPed::SetWeaponSkill(std::clamp(skill, 0, 2));
     }
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
+    g_cj.SetWallProbe([](const float* a, const float* b) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]) < 1.0f; });
     if (cjReady) {   // [Player] FightStyle: 0 normal, 1 boxing, 2 kung fu, 3 kick boxing; GTA_FIGHTSTYLE overrides
         int fs = GetPrivateProfileIntA("Player", "FightStyle", 0, g_iniPath);
         if (const char* e = getenv("GTA_FIGHTSTYLE")) fs = atoi(e);
@@ -3557,6 +3560,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             drawPlayerBox();
             g_vehicles.Draw(g_renderer);
             g_peds.Draw(g_renderer);
+            g_proj.Draw(g_renderer, g_cj);
             // Water (translucent) before the world's alpha meshes: it's a far,
             // low surface, so nearer glass/foliage blends over it.
             // Wavyness = WindClipped + 0.3 in CWeather::Update; there is no wind yet.
@@ -3685,6 +3689,37 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             if (g_hudReady) g_hud.Hit(killed);
                             g_fx.Blood(sk.pos);
                             g_audio.Impact(0.0f);
+                        }
+                    }
+                }
+                {   // CTaskSimpleThrowProjectile: launches, the detonator, and what the projectiles did
+                    PlayerPed::Launch ln;
+                    if (g_cj.TakeLaunch(ln)) {
+                        Log("THROW type %d pos %.2f %.2f %.2f vel %.2f %.2f %.2f fell %d", ln.type, ln.pos[0], ln.pos[1], ln.pos[2], ln.vel[0], ln.vel[1], ln.vel[2], (int)ln.fell);
+                        g_proj.Add(ln.gun, ln.type, ln.pos, ln.vel, ln.fell);
+                    }
+                    if (g_cj.TakeDetonate()) g_proj.Detonate();
+                    Projectiles::Env env;
+                    env.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
+                    env.rayCast = [](const float* a, const float* b, float* nz) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2], nullptr, nz); };
+                    std::vector<Projectiles::Event> pev;
+                    if (worldReady) g_proj.Update(dt, env, pev);
+                    for (const Projectiles::Event& e : pev) {
+                        if (e.kind == Projectiles::Kind::Explode) {
+                            Log("BOOM %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
+                            g_fx.Explosion(e.pos);
+                            g_audio.Impact(0.0f);
+                            const int killed = g_peds.Explosion(e.pos, e.radius);
+                            if (killed) Log("EXPLOSION killed %d", killed);
+                            const float dx = playerX - e.pos[0], dy = playerY - e.pos[1], dz = playerZ - EYE_HEIGHT + 1.0f - e.pos[2];
+                            const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+                            if (d < e.radius) g_cj.Hurt(std::min(1.0f, 2.0f * (e.radius - d) / e.radius) * 250.0f);
+                        } else if (e.kind == Projectiles::Kind::Fire) {
+                            g_fx.Fire(e.pos); g_fx.Fire(e.pos); g_fx.Smoke(e.pos, 0.5f);
+                            g_peds.Explosion(e.pos, 3.0f);
+                        } else {
+                            g_fx.Smoke(e.pos, 0.0f);
+                            g_peds.Choke(e.pos, e.radius);
                         }
                     }
                 }
@@ -3949,7 +3984,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             static int s_wanted = getenv("GTA_WANTED") ? atoi(getenv("GTA_WANTED")) : 0;
             hd.money = s_money; hd.wanted = s_wanted;
             hd.hour = (int)clockHour; hd.minute = (int)((clockHour - floorf(clockHour)) * 60.0f);
-            hd.armed = g_cj.GunIndex() >= 0;
+            hd.armed = g_cj.GunIndex() >= 0 || g_cj.HoldingThrown();
             hd.weaponIcon = g_cj.GunIcon();
             hd.ammoClip = g_cj.GunAmmo(); hd.ammoTotal = g_cj.GunTotalAmmo(); hd.clipSize = g_cj.GunClipSize();
             hd.reloading = g_cj.Reloading();

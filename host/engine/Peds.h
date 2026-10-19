@@ -63,6 +63,11 @@ public:
     // Returns the actor index hit or -1; *killed tells whether it died.
     int MeleeStrike(const float centre[3], float radius, float damage, const float attackerPos[2], bool sword3,
                     const char* const hitClips[3], int move, bool* killed);
+    // CExplosion: peds inside `radius` take min(1, 2 (R - d) / R) * 250 (d from the centre to the ped
+    // origin, one metre above the feet); survivors flee. Returns the number killed.
+    int Explosion(const float centre[3], float radius);
+    // CWorld::SetPedsChoking: peds inside `radius` stagger away from the gas.
+    void Choke(const float centre[3], float radius);
     float DefendWeakness(int actor) const { return actor >= 0 && (size_t)actor < m_actors.size() ? m_actors[(size_t)actor].weakness : 1.0f; }
     // Speech requests since the last call: actor index and eGlobalSpeechContext.
     struct SpeechEvent { int actor; int ctx; };
