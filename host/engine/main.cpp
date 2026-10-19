@@ -3868,7 +3868,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                 const float d = use * (float)k / 3.0f;
                                 const float pt[3] = {hm[0] + g_aimDir[0] * d, hm[1] + g_aimDir[1] * d, hm[2] + g_aimDir[2] * d};
                                 if (heavy == 37) { g_fx.Fire(pt); if (k == 3) g_fx.Smoke(pt, 0.4f); }
-                                else g_fx.Spray(pt, heavy == 41 ? 0x30D030u : 0xF0F0F0u);
+                                else g_fx.Spray(pt, heavy == 41 ? 0x40F040u : 0xF0F0F0u);
                             }
                             if (pi2 >= 0 && heavy == 37) {
                                 const bool kill = g_peds.Damage(pi2, g_cj.GunDamage(), false);
