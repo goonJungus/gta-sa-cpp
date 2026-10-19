@@ -68,6 +68,15 @@ public:
     int Explosion(const float centre[3], float radius);
     // CWorld::SetPedsChoking: peds inside `radius` stagger away from the gas.
     void Choke(const float centre[3], float radius);
+    // CFire on a ped (CTaskComplexOnFire): it runs, screams (CTX_GLOBAL_PAIN_ON_FIRE) and burns for
+    // step * 0.5 per 20 ms times the defend weakness until the fire goes out. Returns true if it died.
+    void SetBurning(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].burning = on; }
+    bool Burning(size_t i) const { return i < m_actors.size() && m_actors[i].burning; }
+    bool Choking(size_t i) const { return i < m_actors.size() && m_actors[i].chokeTimer > 0.0f; }
+    // CTaskSimpleChoking: gas_cwr while the gas lasts, then idle_tired for 8-12 s.
+    bool Fireproof(size_t) const { return false; }
+    // Apply fire damage for dt seconds to a burning ped (CTaskComplexOnFire::ComputeFireDamage); true if it died.
+    bool BurnDamage(size_t i, float dt);
     float DefendWeakness(int actor) const { return actor >= 0 && (size_t)actor < m_actors.size() ? m_actors[(size_t)actor].weakness : 1.0f; }
     // Speech requests since the last call: actor index and eGlobalSpeechContext.
     struct SpeechEvent { int actor; int ctx; };
@@ -109,6 +118,11 @@ private:
         float weakness = 1.0f;            // pedstats.dat defend weakness
         const AnimClip* hitClip = nullptr;   // melee hit reaction in progress
         float hitTime = 0.0f;
+        bool burning = false;             // a CFire is attached
+        float screamTimer = 0.0f;
+        float chokeTimer = 0.0f;          // gas_cwr phase left (CTaskSimpleChoking), re-armed by gas
+        float tiredTimer = 0.0f;          // idle_tired phase left
+        float chokeAnim = 0.0f, coughTimer = 0.0f;
     };
 
     Model* GetModel(D3DRenderer& r, int id);

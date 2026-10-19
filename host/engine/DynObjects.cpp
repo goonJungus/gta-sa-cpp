@@ -565,19 +565,26 @@ float GameWorld::DynShoot(const float* origin, const float* dir, float range, fl
     return bestT;
 }
 
-void GameWorld::DynExplosion(const float* pos, float radius, float force) {
+void GameWorld::DynExplosion(const float* pos, float radius, float visible) {
+    // CWorld::TriggerExplosionSectorList for objects: a body inside the radius takes a move force of
+    // mass / 1400 * rel * visibleDistance (rel = min(1, 2 (R - d) / R), force units are m per 20 ms tick) along the
+    // direction away from the centre (z at least 0.2), a turn force at half the bound radius above the centre,
+    // and ObjectDamage(rel * 300).
     for (DynBody& b : m_dyn) {
         if (!b.ready || b.dead) continue;
         float d[3] = {b.p[0] - pos[0], b.p[1] - pos[1], b.p[2] - pos[2]};
         const float dist = Len(d);
-        if (dist > radius) continue;
+        if (dist >= radius) continue;
+        const float rel = std::min(1.0f, 2.0f * (radius - dist) / radius);
         const float fall = 1.0f - dist / radius;
-        if (b.def.cdEff == 20 || b.def.cdEff == 21 || b.def.cdEff >= 200) { if (fall > 0.2f) { DynBreak(b, false); continue; } }
+        if (b.def.cdEff == 20 || b.def.cdEff == 21 || b.def.cdEff >= 200) { if (rel * 300.0f > 40.0f) { DynBreak(b, false); continue; } }
         if (b.def.expl && fall > 0.3f) { DynBreak(b, true); continue; }
-        if (dist < 1e-3f) { d[2] = 1.0f; } else for (int i = 0; i < 3; i++) d[i] /= dist;
-        const float dv = force * fall * std::sqrt(std::clamp(100.0f / b.def.mass, 0.1f, 1.0f));
-        const float j[3] = {d[0] * dv * b.def.mass, d[1] * dv * b.def.mass, (d[2] * 0.6f + 0.5f) * dv * b.def.mass};
-        const float at[3] = {b.p[0] + b.hx[0] * 0.5f, b.p[1] - b.hx[1] * 0.5f, b.p[2] - b.hx[2] * 0.5f};
+        const float inv = 1.0f / std::max(0.01f, dist);
+        for (float& v : d) v *= inv;
+        if (d[2] < 0.1f) d[2] = 0.2f;
+        const float dv = rel * visible / 1400.0f * 50.0f;   // m/s
+        const float j[3] = {d[0] * dv * b.def.mass, d[1] * dv * b.def.mass, d[2] * dv * b.def.mass};
+        const float at[3] = {b.p[0], b.p[1], b.p[2] + std::max(b.hx[0], std::max(b.hx[1], b.hx[2])) * 0.5f};
         DynImpulse(b, at, j);
     }
 }

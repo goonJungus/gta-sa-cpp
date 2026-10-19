@@ -66,11 +66,15 @@
 #include "Effects.h"
 #include "AimTest.h"
 #include "Gamepad.h"
+#include "Fire.h"
+#include "Explosion.h"
 
 static D3DRenderer g_renderer;
 static Projectiles g_proj;   // thrown weapons in flight
-struct FirePatch { float pos[3]; float left; };   // a molotov's burning ground: CFireManager fires, kept burning for a few seconds
-static std::vector<FirePatch> g_firePatches;
+static FireManager g_fires;          // CFireManager
+static ExplosionManager g_expl;      // CExplosion
+static std::vector<std::array<float, 2>> g_shakeQ;   // camera shakes waiting for the shake clock: strength, distance
+static std::vector<std::array<float, 3>> g_carBooms;   // wrecked cars that blew up this frame
 static std::vector<std::array<float, 3>> g_dynBooms;   // explosive props that went off this frame
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
 static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
@@ -3312,7 +3316,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 s_lastTarget = hitPed;
             }
             g_vehicles.UpdateDamage(dt, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
-                                    [](const float* p) { g_fx.Explosion(p); g_audio.Impact(0.0f); });
+                                    [](const float* p) { g_carBooms.push_back({p[0], p[1], p[2]}); });
             if (g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).wrecked) {   // thrown out of a car that blew up
                 const VehicleInstance& wc = g_vehicles.Car((size_t)g_driveCar);
                 playerX = wc.x + 2.5f; playerY = wc.y; playerZ = wc.z + EYE_HEIGHT; velZ = 3.0f; onGround = false;
@@ -3422,6 +3426,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     static uint32_t shakeMs = 0;
                     static const char* devShake = getenv("GTA_SHAKE");   // dev: strength fired once at frame 20
                     shakeMs += (uint32_t)(dt * 1000.0f);
+                    for (const auto& q : g_shakeQ) g_shake.TriggerAt(q[0], q[1], shakeMs);
+                    g_shakeQ.clear();
                     if (devShake && frame == 20) g_shake.Trigger((float)atof(devShake), shakeMs);
                     float fwd[3] = {co.dir[0], co.dir[1], co.dir[2]};
                     float rgt[3] = {fwd[1], -fwd[0], 0.0f};
@@ -3764,40 +3770,102 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     };
                     std::vector<Projectiles::Event> pev;
                     if (worldReady) g_proj.Update(dt, env, pev);
-                    for (const auto& bm : g_dynBooms) pev.push_back({Projectiles::Kind::Explode, {bm[0], bm[1], bm[2]}, 6.0f});
+                    // ---- CFireManager / CExplosion / CWorld::TriggerExplosion / SetPedsChoking ----
+                    FireManager::World fw;
+                    fw.groundZ = [](const float* p, float* o) {
+                        const float g = g_world.GetGroundHeight(p[0], p[1], p[2]);
+                        if (g < -1e5f) return false;
+                        o[0] = p[0]; o[1] = p[1]; o[2] = g;
+                        return true;
+                    };
+                    fw.underwater = [](const float* p) { float wz; return g_water.Ready() && g_water.GetWaterLevel(p[0], p[1], &wz) && p[2] < wz; };
+                    fw.pedPos = [](int i, float* o) { if ((size_t)i >= g_peds.Count()) return false; o[0] = g_peds.X((size_t)i); o[1] = g_peds.Y((size_t)i); o[2] = g_peds.Z((size_t)i) + 0.5f; return true; };
+                    fw.pedAlive = [](int i) { return g_peds.Alive((size_t)i); };
+                    fw.pedBurning = [](int i, bool on) { g_peds.SetBurning((size_t)i, on); };
+                    fw.pedBurnDamage = [](int i, float d) { return g_peds.BurnDamage((size_t)i, d); };
+                    fw.carCount = g_vehicles.Ready() ? g_vehicles.Count() : 0;
+                    fw.carPos = [](int i, float* o) { if (!g_vehicles.Ready() || (size_t)i >= g_vehicles.Count()) return false; const VehicleInstance& c = g_vehicles.Car((size_t)i); o[0] = c.x; o[1] = c.y; o[2] = c.z + 0.5f; return true; };
+                    fw.carWrecked = [](int i) { return g_vehicles.Car((size_t)i).wrecked; };
+                    fw.carDamage = [](int i, float step) { g_vehicles.Damage(i, step); };   // InflictDamage(WEAPON_FLAMETHROWER, step * 1.2)
+                    fw.carBurning = [](int) {};
+                    fw.player = [&](float* o) { if (g_driveCar >= 0 || g_cj.Dead()) return false; o[0] = playerX; o[1] = playerY; o[2] = playerZ - EYE_HEIGHT; return true; };
+                    fw.playerBurning = []() { return g_fires.IsBurning(FireManager::Target::Player, 0); };
+                    fw.playerBurn = [](float d) { g_cj.Hurt(25.0f * d); };   // CTaskComplexOnFire::ComputeFireDamage: 0.5 per 20 ms step
+                    fw.objectFire = [](const float*, float) {};               // CObject::ObjectFireDamage only hurts grass plants
+                    fw.emit = [](const float* p, float s, float) {
+                        g_fx.Fire(p);
+                        if (s > 1.0f) g_fx.Fire(p);
+                        if (s > 2.0f) g_fx.Fire(p);
+                        if (rand() % 8 == 0) g_fx.Smoke(p, 0.5f);
+                    };
+                    ExplHooks eh;
+                    eh.fire = &g_fires; eh.fireWorld = &fw;
+                    eh.groundZ = fw.groundZ; eh.underwater = fw.underwater;
+                    eh.fx = [](const float* p, ExplType t) {
+                        if (t == ExplType::Molotov) { g_fx.Fire(p); g_fx.Fire(p); g_fx.Smoke(p, 0.5f); return; }
+                        g_fx.Explosion(p); g_audio.Impact(0.0f);
+                    };
+                    eh.fuel = [](const float* p, float) { g_fx.Fire(p); g_fx.Smoke(p, 0.9f); };
+                    eh.shake = [&](const float* p, float s) {
+                        const float dx = playerX - p[0], dy = playerY - p[1], dz = playerZ - p[2];
+                        g_shakeQ.push_back({s, std::sqrt(dx * dx + dy * dy + dz * dz)});
+                    };
+                    eh.setPedsOnFire = [&](const float* p, float r) {   // CWorld::SetPedsOnFire
+                        for (size_t i = 0; i < g_peds.Count(); i++) {
+                            if (!g_peds.Alive(i) || g_peds.Burning(i) || std::fabs(g_peds.X(i) - p[0]) > r || std::fabs(g_peds.Y(i) - p[1]) > r || std::fabs(g_peds.Z(i) + 1.0f - p[2]) > 5.0f) continue;
+                            if (g_fires.StartFireOn(FireManager::Target::Ped, (int)i, 0.8f, 7000.0f, 2) >= 0) { g_peds.SetBurning(i, true); Log("PED %zu ON FIRE", i); }
+                        }
+                        if (g_driveCar < 0 && !g_cj.Dead() && !g_fires.IsBurning(FireManager::Target::Player, 0) && std::fabs(playerX - p[0]) <= r && std::fabs(playerY - p[1]) <= r && std::fabs(playerZ - p[2]) <= 5.0f)
+                            g_fires.StartFireOn(FireManager::Target::Player, 0, 0.8f, 7000.0f, 100);
+                    };
+                    eh.setCarsOnFire = [&](const float* p, float r) {   // CWorld::SetCarsOnFire
+                        for (size_t i = 0; g_vehicles.Ready() && i < g_vehicles.Count(); i++) {
+                            const VehicleInstance& c = g_vehicles.Car(i);
+                            if (c.wrecked || std::fabs(c.x - p[0]) > r || std::fabs(c.y - p[1]) > r || std::fabs(c.z - p[2]) > 5.0f) continue;
+                            g_fires.StartFireOn(FireManager::Target::Vehicle, (int)i, 0.8f, 7000.0f, 100);
+                        }
+                    };
+                    eh.setWorldOnFire = [&](const float* p, float r) {   // CWorld::SetWorldOnFire
+                        const float g = g_world.GetGroundHeight(p[0], p[1], p[2] + 1.0f);
+                        if (g > -1e5f && std::fabs(g - p[2]) < r && g_fires.NumInRange(p, 2.0f) == 0) { const float fp[3] = {p[0], p[1], g}; g_fires.StartFire(fp, 0.8f, true, 7000.0f, 100); }
+                    };
+                    eh.trigger = [&](const float* p, float radius, float visible, float damage) {   // CWorld::TriggerExplosion
+                        if (worldReady) g_world.DynExplosion(p, radius, visible);
+                        int killed = 0;
+                        for (size_t i = 0; i < g_peds.Count(); i++) {   // peds: min(1, 2 (R - d) / R) * 250
+                            if (!g_peds.Alive(i)) continue;
+                            const float dx = g_peds.X(i) - p[0], dy = g_peds.Y(i) - p[1], dz = g_peds.Z(i) + 1.0f - p[2];
+                            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                            if (d >= radius) continue;
+                            if (g_peds.Damage((int)i, std::min(1.0f, 2.0f * (radius - d) / radius) * damage * 250.0f / 1.5f, false)) killed++;
+                        }
+                        if (killed) Log("EXPLOSION killed %d", killed);
+                        for (size_t i = 0; g_vehicles.Ready() && i < g_vehicles.Count(); i++) {   // vehicles: InflictDamage(rel * damage * 1100)
+                            const VehicleInstance& c = g_vehicles.Car(i);
+                            if (c.wrecked) continue;
+                            const float dx = c.x - p[0], dy = c.y - p[1], dz = c.z - p[2];
+                            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                            if (d >= radius) continue;
+                            g_vehicles.Damage((int)i, std::min(1.0f, 2.0f * (radius - d) / radius) * damage * 1100.0f);
+                        }
+                        const float dx = playerX - p[0], dy = playerY - p[1], dz = playerZ - EYE_HEIGHT + 1.0f - p[2];
+                        const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+                        if (g_driveCar < 0 && d < radius) g_cj.Hurt(std::min(1.0f, 2.0f * (radius - d) / radius) * damage * 250.0f);
+                    };
+                    for (const auto& bm : g_carBooms) g_expl.Add(ExplType::Car, bm.data(), eh);
+                    g_carBooms.clear();
+                    for (const auto& bm : g_dynBooms) g_expl.Add(ExplType::Object, bm.data(), eh);
                     g_dynBooms.clear();
-                    for (size_t i = 0; i < g_firePatches.size();) {   // burning ground: flames and smoke while it lasts, hurts whoever stands in it
-                        FirePatch& fp = g_firePatches[i];
-                        fp.left -= dt;
-                        if (fp.left <= 0.0f) { g_firePatches.erase(g_firePatches.begin() + (long)i); continue; }
-                        g_fx.Fire(fp.pos);
-                        if (rand() % 8 == 0) g_fx.Smoke(fp.pos, 0.5f);
-                        const float dx = playerX - fp.pos[0], dy = playerY - fp.pos[1], dz = playerZ - EYE_HEIGHT - fp.pos[2];
-                        if (dx * dx + dy * dy < 1.0f && std::fabs(dz) < 2.0f) g_cj.Hurt(10.0f * dt);
-                        i++;
-                    }
                     for (const Projectiles::Event& e : pev) {
                         if (e.kind == Projectiles::Kind::Explode) {
                             Log("BOOM %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
-                            g_fx.Explosion(e.pos);
-                            g_audio.Impact(0.0f);
-                            if (worldReady) g_world.DynExplosion(e.pos, e.radius * 1.5f, 14.0f);
-                            const int killed = g_peds.Explosion(e.pos, e.radius);
-                            if (killed) Log("EXPLOSION killed %d", killed);
-                            const float dx = playerX - e.pos[0], dy = playerY - e.pos[1], dz = playerZ - EYE_HEIGHT + 1.0f - e.pos[2];
-                            const float d = sqrtf(dx * dx + dy * dy + dz * dz);
-                            if (d < e.radius) g_cj.Hurt(std::min(1.0f, 2.0f * (e.radius - d) / e.radius) * 250.0f);
+                            g_expl.Add(e.sub == 1 ? ExplType::Rocket : ExplType::Grenade, e.pos, eh);
                         } else if (e.kind == Projectiles::Kind::Trail) {
                             static int s_trail = 0;
                             if (++s_trail % 3 == 0) g_fx.Smoke(e.pos, 0.5f);
                         } else if (e.kind == Projectiles::Kind::Fire) {
                             Log("FIRE %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
-                            g_fx.Fire(e.pos); g_fx.Fire(e.pos); g_fx.Smoke(e.pos, 0.5f);
-                            g_peds.Explosion(e.pos, 3.0f);
-                            for (int k = 0; k < 6; k++) {   // the spread: several fires around the impact
-                                const float a = (float)k * 1.0472f, r = k ? 1.0f + 0.4f * (float)(k % 3) : 0.0f;
-                                g_firePatches.push_back({{e.pos[0] + std::cos(a) * r, e.pos[1] + std::sin(a) * r, e.pos[2]}, 5.0f + 1.5f * (float)(k % 4)});
-                            }
+                            g_expl.Add(ExplType::Molotov, e.pos, eh);
                         } else {
                             static int s_gas = 0;
                             if (s_gas++ % 20 == 0) Log("GAS %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
@@ -3805,6 +3873,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_peds.Choke(e.pos, e.radius);
                         }
                     }
+                    g_expl.Update(dt, eh);
+                    g_fires.Update(dt, fw);
+                    { static int s_nf = -1; if (g_fires.Num() != s_nf) { s_nf = g_fires.Num(); Log("FIRES %d", s_nf); } }
                 }
                 st.shots += evShots; st.reloads += evReload;
                 g_fx.Update(dt);
