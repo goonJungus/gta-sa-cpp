@@ -78,7 +78,7 @@ void Projectiles::Update(float dt, const Env& env, std::vector<Event>& out) {
             const bool ent = env.entityHit && env.entityHit(p.pos, np);
             for (int k = 0; k < 3; k++) p.pos[k] = np[k];
             if (t < 1.0f || ent || p.ageMs >= (p.type == kRocket ? 3000.0f : 10000.0f)) {   // RemoveProjectile explodes it
-                out.push_back({Kind::Explode, {p.pos[0], p.pos[1], p.pos[2]}, kExplosionRadius});
+                out.push_back({Kind::Explode, {p.pos[0], p.pos[1], p.pos[2]}, kExplosionRadius, 1});
                 m_list.erase(m_list.begin() + (long)i);
                 continue;
             }

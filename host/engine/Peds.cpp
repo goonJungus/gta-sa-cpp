@@ -400,6 +400,24 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
             if (groundAt) { const float g = groundAt(a.x, a.y, a.z + 1.0f); if (g > -1e5f) a.z += (g - a.z) * std::min(1.0f, 10.0f * dt); }
             continue;
         }
+        if (a.burning) {   // CTaskComplexOnFire: flee, scream
+            a.fleeTimer = std::max(a.fleeTimer, 1.0f);
+            a.screamTimer -= dt;
+            if (a.screamTimer <= 0.0f) { m_speech.push_back({(int)ai, 346}); a.screamTimer = 3.0f; }
+        }
+        if (a.chokeTimer > 0.0f || a.tiredTimer > 0.0f) {   // CTaskSimpleChoking::ProcessPed
+            a.chokeAnim += dt;
+            if (a.chokeTimer > 0.0f) {
+                a.chokeTimer -= dt;
+                a.coughTimer -= dt;
+                if (a.coughTimer <= 0.0f) { m_speech.push_back({(int)ai, 340}); a.coughTimer = 1.5f; }
+                if (a.chokeTimer <= 0.0f) { a.tiredTimer = 8.0f + (float)Rand(4000) * 0.001f; a.chokeAnim = 0.0f; }
+            } else {
+                a.tiredTimer -= dt;
+            }
+            a.walking = false;
+            continue;
+        }
         if (a.hitClip) {   // a melee hit reaction plays out before the ped carries on
             a.hitTime += dt;
             if (a.hitTime >= a.hitClip->duration) a.hitClip = nullptr;
@@ -485,8 +503,13 @@ void Peds::Draw(D3DRenderer& r) {
         auto it = m_models.find(a.model);
         if (it == m_models.end() || !it->second.valid) continue;
         Model& m = it->second;
-        const AnimClip* clip = a.dead ? a.deathClip : a.hitClip ? a.hitClip : a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
-        Pose(m, clip, a.dead && clip ? std::min(a.animTime, clip->duration * 0.999f) : a.hitClip && !a.dead ? a.hitTime : a.animTime);
+        const AnimClip* chokeClip = nullptr;
+        if (!a.dead && (a.chokeTimer > 0.0f || a.tiredTimer > 0.0f)) {
+            auto cc = m_clips.find(a.chokeTimer > 0.0f ? "gas_cwr" : "idle_tired");
+            if (cc != m_clips.end()) chokeClip = &cc->second;
+        }
+        const AnimClip* clip = chokeClip ? chokeClip : a.dead ? a.deathClip : a.hitClip ? a.hitClip : a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
+        Pose(m, clip, chokeClip ? std::fmod(a.chokeAnim, std::max(0.01f, chokeClip->duration)) : a.dead && clip ? std::min(a.animTime, clip->duration * 0.999f) : a.hitClip && !a.dead ? a.hitTime : a.animTime);
         // Stand the posed feet on the ground: the animation sets the pelvis height, the bind pose does not.
         float footZ = 1e9f;
         for (const MeshVertex& v : m.skinned) footZ = std::min(footZ, v.z);
@@ -542,9 +565,18 @@ int Peds::Explosion(const float c[3], float radius) {
 }
 
 void Peds::Choke(const float c[3], float radius) {
+    // CWorld::SetPedsChoking: a box of the radius, z +-5; each live ped not already burning is gassed.
     for (Actor& a : m_actors) {
-        if (a.dead) continue;
-        const float dx = a.x - c[0], dy = a.y - c[1], dz = a.z + 1.0f - c[2];
-        if (dx * dx + dy * dy + dz * dz < radius * radius) a.fleeTimer = std::max(a.fleeTimer, 6.0f);
+        if (a.dead || a.burning) continue;
+        if (std::fabs(a.x - c[0]) > radius || std::fabs(a.y - c[1]) > radius || std::fabs(a.z + 1.0f - c[2]) > 5.0f) continue;
+        if (a.chokeTimer <= 0.0f && a.tiredTimer <= 0.0f) { a.chokeAnim = 0.0f; a.coughTimer = 0.0f; std::fprintf(stderr, "[CHOKE] ped %d gas_cwr\n", (int)(&a - m_actors.data())); }
+        a.tiredTimer = 0.0f;
+        a.chokeTimer = std::max(a.chokeTimer, 1.0f + (float)Rand(1000) * 0.001f);   // UpdateChoke re-arms 1000-2000 ms
     }
+}
+
+bool Peds::BurnDamage(size_t i, float dt) {
+    if (i >= m_actors.size() || m_actors[i].dead) return false;
+    const float dmg = dt * 50.0f * 0.5f * m_actors[i].weakness;
+    return Damage((int)i, dmg / 1.5f, false);
 }

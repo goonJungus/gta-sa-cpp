@@ -134,7 +134,7 @@ public:
     // Returns the distance of the hit, or -1.
     float DynShoot(const float* origin, const float* dir, float range, float impulse, int gunType);
     // An explosion at pos: props within radius are thrown, smashable ones break, explosive ones go off.
-    void DynExplosion(const float* pos, float radius, float force);
+    void DynExplosion(const float* pos, float radius, float visibleDistance);
     // Called (pos) when a prop is smashed, and when an explosive one goes off.
     std::function<void(const float*)> onDynSmash, onDynExplode;
     size_t DynAwakeCount() const;

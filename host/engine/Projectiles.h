@@ -10,7 +10,7 @@ class PlayerPed;
 class Projectiles {
 public:
     enum class Kind { Explode, Fire, Gas, Trail };
-    struct Event { Kind kind; float pos[3]; float radius; };
+    struct Event { Kind kind; float pos[3]; float radius; int sub = 0; };   // sub: 1 = rocket
 
     struct Env {
         std::function<float(float, float, float)> groundAt;                 // < -1e5: none
