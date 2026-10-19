@@ -54,6 +54,7 @@
 #include "Radio.h"
 #include "Peds.h"
 #include "Speech.h"
+#include "Delirium.h"
 #include "PlayerPed.h"
 #include "Camera.h"
 #include "CameraShake.h"
@@ -521,6 +522,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 static std::string g_gameDir;
 static Vehicles g_vehicles;
 static Peds g_peds;
+static Delirium g_delirium;   // optional active-ragdoll plugin (runtime-loaded DLL)
 static Speech g_speech;   // CAEPedSpeechAudioEntity
 static float g_statFat = 0.0f, g_statMuscle = 0.0f;   // CStats STAT_FAT / STAT_MUSCLE, 0..1000
 static int g_crowdTarget = 0;   // ambient pedestrians around CJ (key O toggles, GTA_PEDS=n sets it)
@@ -1097,6 +1099,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_fx.Init(g_renderer);
         Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
         if (g_audio.Ready()) { g_radio.Init(GameDir(), &g_audio); g_speech.Init(&g_audio); }
+        if (g_menu.Settings().movementStyle == 1) {   // optional physics plugin: only when its DLL and data are configured
+            char dll[MAX_PATH] = {}, data[MAX_PATH] = {};
+            GetPrivateProfileStringA("Delirium", "Dll", "", dll, sizeof(dll), g_iniPath);
+            GetPrivateProfileStringA("Delirium", "Data", "", data, sizeof(data), g_iniPath);
+            if (dll[0]) Log("DELIRIUM: %s", g_delirium.Load(dll, data) ? "ready" : g_delirium.Error().c_str());
+        }
         if (const char* rt = getenv("GTA_RADIOTEST")) {   // dev: decode a few seconds of a station and log the level
             if (g_radio.Ready()) {
                 g_radio.Tune(atoi(rt));
