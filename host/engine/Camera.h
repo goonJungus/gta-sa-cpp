@@ -35,6 +35,8 @@ public:
         // classic MODE_AIMWEAPON (CCam::Process_AimWeapon): aiming a gun on foot
         bool aimWeapon = false;
         float aimFov = 70.0f;     // the weapon's FOV (70; AK-47 / M4 50; country rifle 35), retail degrees
+        bool scope = false;       // MODE_SNIPER / MODE_CAMERA: first person through a scope
+        float scopeFov = 70.0f;   // its zoomed FOV, retail degrees
         float pedHeading = 0.0f;  // radians, the direction CJ faces
     };
     struct Output {

@@ -50,11 +50,13 @@ const GunSpec kSpecs[] = {
     {"MP5", "MP5", "uzi_fire", "uzi_crouchfire", "uzi_reload", "uzi_crouchreload", true, "uzi_fire_poor"},
     {"AK47", "AK-47", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true, "rifle_fire_poor"},
     {"M4", "M4", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true, "rifle_fire_poor"},
-    {"COUNTRYRIFLE", "Country rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
-    {"SNIPERRIFLE", "Sniper rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
+    {"COUNTRYRIFLE", "Country rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false, nullptr, false, false, 33},
+    {"SNIPERRIFLE", "Sniper rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false, nullptr, false, false, 34},
     // heavy weapons: AnimAssocAnimations aRocketAnimations / aFlameAnimations / aSprayCanAnimations (one fire clip, no reload clip)
     {"RLAUNCHER", "Rocket launcher", "rocketfire", "rocketfire", nullptr, nullptr, false, nullptr, false, false, 35},
     {"RLAUNCHER_HS", "Heat-seeking RPG", "rocketfire", "rocketfire", nullptr, nullptr, false, nullptr, false, false, 36},
+    // the camera: a rifle-group weapon, one shot every 1.1 s that takes a photograph instead of a bullet
+    {"CAMERA", "Camera", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", false, nullptr, false, false, 43},
     {"FTHROWER", "Flamethrower", "flame_fire", "flame_fire", nullptr, nullptr, true, nullptr, false, false, 37},
     {"MINIGUN", "Minigun", "flame_fire", "flame_fire", nullptr, nullptr, true, nullptr, false, false, 38},
     {"SPRAYCAN", "Spray can", "spraycan_fire", "spraycan_fire", nullptr, nullptr, true, nullptr, false, false, 41},
@@ -81,6 +83,7 @@ const GunSpec kMeleeSpecs[] = {
     {"VIBE2", "Silver vibrator", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
     {"FLOWERS", "Flowers", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
     {"CANE", "Cane", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"PARACHUTE", "Parachute", nullptr, nullptr, nullptr, nullptr, false, nullptr, true, false, 46},
 };
 
 // Thrown weapons and the detonator (weapon.dat PROJECTILE / USE rows). The detonator needs no clips.
@@ -90,6 +93,9 @@ const GunSpec kThrownSpecs[] = {
     {"MOLOTOV", "Molotov cocktail", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 18},
     {"SATCHEL_CHARGE", "Satchel charge", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 39},
     {"DETONATOR", "Detonator", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 40},
+    // USE rows of the goggles group: CTaskComplexUseGoggles puts them on the head model
+    {"NIGHTVISION", "Night vision goggles", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 44},
+    {"INFRARED", "Thermal goggles", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 45},
 };
 
 std::string LowerStr(std::string s) {
@@ -357,7 +363,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.fireOffset[2] = (float)std::atof((*row)[13].c_str());
         loadModel(g, std::atoi((*row)[5].c_str()));
         g.ammo = 0;
-        g.total = std::strcmp(sp.name, "DETONATOR") == 0 ? 0 : 5;
+        g.total = std::strcmp(sp.name, "DETONATOR") == 0 ? 0 : sp.type >= 44 ? 1 : 5;
         m_guns.push_back(std::move(g));
     }
     {   // the rocket model (weapon.dat ROCKET row), kept last and hidden from the weapon cycle
@@ -400,6 +406,7 @@ void PlayerPed::SelectGun(int index) {
     if (index >= 0 && index < (int)m_guns.size()) ((m_guns[index].spec->melee || m_guns[index].spec->thrown) ? m_melee : m_gun) = index;
     FightEnd(true);
     m_throw = Throw();
+    m_gogglesClip = nullptr;
     m_reloading = m_firing = false;
     m_attackCounter = 0.0f;   // CPlayerPed::MakeChangesForNewWeapon
     for (Assoc& a : m_assocs) if (a.partial) { a.dead = true; a.blend = 0.0f; }
@@ -417,7 +424,7 @@ void PlayerPed::PrevGun() {
 
 void PlayerPed::RefillAmmo() {
     for (Gun& g : m_guns) {
-        if (g.spec->thrown) { g.total = g.detonator ? g.total : 5; continue; }
+        if (g.spec->thrown) { g.total = g.detonator ? g.total : g.type >= 44 ? 1 : 5; continue; }
         g.ammo = g.clipSize; g.total = g.clipSize * 60;
     }
 }
@@ -625,7 +632,38 @@ bool PlayerPed::MuzzleWorld(float x, float y, float feetZ, float out[3]) const {
 }
 
 void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
+    if (m_goggles) {   // CPed::PutOnGoggles: the goggles model rides the head bone
+        const int hf = m_frameOfBone[5];
+        for (size_t i = 0; i < m_guns.size() && hf >= 0 && hf < (int)m_globals.size(); i++)
+            if (m_guns[i].type == m_goggles) {
+                const float a = m_heading - 1.57079633f, c = std::cos(a), s = std::sin(a);
+                const float w[4][4] = {{c, s, 0, 0}, {-s, c, 0, 0}, {0, 0, 1, 0}, {x, y, feetZ - m_bindMinZ, 1}};
+                m_drawIdx = (int)i;
+                DrawGunAt(r, m_globals[hf], w, false);
+                m_drawIdx = -1;
+            }
+    }
     if (m_gun < 0 && m_melee < 0) return;
+    if (m_gun < 0 && m_guns[m_melee].type == 46) {   // the parachute rides CJ's back, never his hand
+        const int sf = m_frameOfBone[3];
+        if (sf >= 0 && sf < (int)m_globals.size()) {
+            const float a = m_heading - 1.57079633f, c = std::cos(a), s = std::sin(a);
+            const float w[4][4] = {{c, s, 0, 0}, {-s, c, 0, 0}, {0, 0, 1, 0}, {x, y, feetZ - m_bindMinZ, 1}};
+            m_drawIdx = m_melee;
+            RwMat pm = m_globals[sf];
+            {   // pack seated on the back: turned 90 degrees about Y, lifted 0.1 along the spine
+                RwMat loc;
+                loc.m[0][0] = 0.0f; loc.m[0][2] = -1.0f;
+                loc.m[2][0] = 1.0f; loc.m[2][2] = 0.0f;
+                loc.m[3][0] = 0.1f;
+                pm = loc * pm;
+            }
+            DrawGunAt(r, pm, w, false);
+            m_drawIdx = -1;
+        }
+        return;
+    }
+    if (m_gun < 0 && m_guns[m_melee].type >= 44) return;   // goggles are never held
     const int f = m_frameOfBone[kBoneRHand];
     if (f < 0 || f >= (int)m_globals.size()) return;
     IDirect3DDevice9* dev = r.GetDevice();
@@ -673,7 +711,7 @@ void PlayerPed::DrawGunAt(D3DRenderer& r, const RwMat& h, const float w[4][4], b
             o[i * 4 + j] = v;
         }
     dev->SetTransform(D3DTS_WORLD, &out);
-    Gun& g = m_guns[m_gun >= 0 ? m_gun : m_melee];
+    Gun& g = m_guns[m_drawIdx >= 0 ? m_drawIdx : m_gun >= 0 ? m_gun : m_melee];
     for (D3DRenderMesh* m : g.meshes) r.DrawMesh(m);
     if (flash && !g.muzzle.empty()) {
         // the flash atomic: additive, no depth write, a little bigger or smaller every shot

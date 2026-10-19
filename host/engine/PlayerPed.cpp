@@ -749,6 +749,7 @@ void PlayerPed::ControlInAir(const Input& in) {
     }
     m_airTime += in.dt;
     m_minVelZ = std::min(m_minVelZ, in.velZ);
+    if (UpdateParachute(in)) return;
     const bool falling = Active(fall) || Active(sky);
     if (m_jumping) {
         const Assoc* l = Get(launch);
@@ -777,6 +778,21 @@ void PlayerPed::Land(const Input& in) {
     const bool airAnim = (aSky && aSky->blend > 0.0f) || (aFall && aFall->blend > 0.0f) ||
                          Get(jumpGlide) || Get(fallGlide) || Get(launch);
     m_inAir = false;
+    if (m_para) {   // CTaskSimpleParachute: PARA_Land (PARA_Land_Water in the sea), the canopy drops away
+        m_para = 0;
+        m_paraClip = nullptr;
+        const AnimClip* lc = Clip(in.waterZ > in.feetZ && in.waterZ < 1e3f ? "para_land_water" : "para_land");
+        if (!lc) lc = Clip("para_land");
+        if (lc) {
+            Blend(lc, false, false, 8.0f);
+            m_busy = true;
+            m_busySoft = false;
+            m_busyClip = lc;
+            m_busyNext = nullptr;
+            m_ratio = 0.0f;
+        }
+        return;
+    }
     if (!airAnim) return;   // a short drop: no in-air animation ever started
     auto busy = [&](const char* clip, const char* next, bool soft) {
         if (!Clip(clip)) return;

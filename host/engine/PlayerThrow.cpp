@@ -40,6 +40,27 @@ void PlayerPed::UpdateThrow(const Input& in) {
         return;
     }
 
+    if (g.type >= 44) {   // CTaskComplexUseGoggles: goggles_put_on, then PutOn/TakeOffGoggles
+        if (!m_gogglesClip) {
+            if (!in.fireJust || m_busy || m_inAir || m_swimming || m_climbing) return;
+            const AnimClip* c = Clip("goggles_put_on");
+            if (!c) return;
+            Assoc* a = Add(c, false, false);
+            a->partial = true;
+            a->blend = 0.0f;
+            a->delta = 4.0f;
+            m_gogglesClip = c;
+            return;
+        }
+        Assoc* a = Get(m_gogglesClip);
+        if (!a || a->dead || a->finished) {
+            if (a) a->delta = -4.0f;
+            m_goggles = m_goggles == g.type ? 0 : g.type;
+            m_gogglesClip = nullptr;
+        }
+        return;
+    }
+
     Throw& t = m_throw;
     if (t.state == 0) {
         if (!in.fireJust || g.total <= 0 || m_busy || m_inAir || m_swimming || m_climbing || m_ratio >= 1.9f) return;

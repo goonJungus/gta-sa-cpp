@@ -233,6 +233,10 @@ static Audio g_audio;
 static Radio g_radio;
 static int g_radioStation = 0;   // the station that plays while driving
 static Effects g_fx;
+static bool g_scoped = false;     // looking through a sniper / camera scope
+static float g_scopeFov = 70.0f;  // its zoom
+static float g_camFlash = 0.0f;   // the camera flash wash, fading
+static int g_photos = 0;          // photographs taken
 static bool g_aimTest = false;      // --aimtest: the shooting range
 static AimTest g_aim;
 static PlayerPed g_dummy;           // the pose every range dummy shares
@@ -3235,6 +3239,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // ---- Gravity (feet rest on gz) ----
             if (!onGround) {
                 velZ -= GRAVITY * dt;
+                if (const float cap = cjReady ? g_cj.ParaFallCap() : 0.0f; cap < 0.0f && velZ < cap)
+                    velZ += (cap - velZ) * std::min(1.0f, dt * 3.0f);   // the canopy holds the fall
                 playerZ += velZ * dt;
                 if (playerZ <= gz + EYE_HEIGHT) {
                     playerZ = gz + EYE_HEIGHT; velZ = 0; onGround = true;
@@ -3373,6 +3379,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 {   // Process_AimWeapon: AK-47 / M4 zoom to 50, the country rifle to 35
                     const std::string gid = g_cj.GunId();
                     ci.aimFov = gid == "AK47" || gid == "M4" ? 50.0f : gid == "COUNTRYRIFLE" ? 35.0f : 70.0f;
+                }
+                {   // sniper / country rifle / camera aim through the scope: wheel zooms 70 -> 15 (camera 3)
+                    const int gt = g_cj.GunIndex() >= 0 ? g_cj.GunType(g_cj.GunIndex()) : 0;
+                    g_scoped = g_cj.Aiming() && (gt == 33 || gt == 34 || gt == 43);
+                    if (g_scoped) {
+                        if (g_wheelSteps) { g_scopeFov = std::clamp(g_scopeFov * std::pow(1.084f, -(float)g_wheelSteps), gt == 43 ? 3.0f : 15.0f, 70.0f); g_wheelSteps = 0; }
+                        ci.scope = true;
+                        ci.scopeFov = g_scopeFov;
+                        ci.aimWeapon = false;
+                    } else g_scopeFov = 70.0f;
                 }
                 ci.pedHeading = g_cj.Heading();
                 if (ci.aimWeapon) { pitch = std::clamp(pitch, -1.5533f, 0.7854f); ci.pitch = pitch; }
@@ -3796,6 +3812,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 for (int n = 0; n < evShots && worldReady; n++) {
                     const int heavy = g_cj.GunIndex() >= 0 ? g_cj.GunType(g_cj.GunIndex()) : 0;
                     float hm[3];
+                    if (heavy == 43) {   // CWeapon::TakePhotograph: 1100 ms between shots, a flash, no bullet
+                        static DWORD s_lastPhoto = 0;
+                        const DWORD now = GetTickCount();
+                        if (now - s_lastPhoto >= 1100 || s_lastPhoto == 0) {
+                            s_lastPhoto = now;
+                            g_camFlash = 0.8f;
+                            Log("PHOTO %d", ++g_photos);
+                        }
+                        continue;
+                    }
                     if (heavy == 35 || heavy == 36) {   // CWeapon::FireProjectile: the rocket leaves along the camera front, 1 m from the muzzle
                         if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, hm)) {
                             const float sp = heavy == 35 ? 20.0f : 10.0f;   // 0.4 / 0.2 per step
@@ -4050,7 +4076,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.ammoClip = g_cj.GunAmmo(); hd.ammoTotal = g_cj.GunTotalAmmo(); hd.clipSize = g_cj.GunClipSize();
             hd.reloading = g_cj.Reloading();
             hd.weaponName = g_cj.GunName();
-            hd.aiming = g_cj.Aiming();
+            hd.aiming = g_cj.Aiming() && !g_scoped;
             hd.crossX = g_chairX; hd.crossY = g_chairY;
             hd.crossRadius = g_cj.WeaponRadiusOnScreen();
             hd.lockOn = false;
@@ -4130,6 +4156,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
             hd.blips = g_blips;
+            if (g_hudReady && g_scoped) g_hud.Scope(g_renderer, g_cj.GunIndex() >= 0 && g_cj.GunType(g_cj.GunIndex()) == 43);
+            if (g_hudReady) g_hud.Goggles(g_renderer, g_cj.Goggles());
+            if (g_hudReady && g_camFlash > 0.0f) { g_hud.Flash(g_renderer, g_camFlash); g_camFlash = std::max(0.0f, g_camFlash - dt * 3.0f); }
             g_hud.Draw(g_renderer, hd);
         }
         if (g_hudReady) g_hud.Brightness(g_renderer, g_menu.Settings().brightness);

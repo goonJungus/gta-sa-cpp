@@ -73,6 +73,24 @@ PlayerCamera::Output PlayerCamera::Update(const Input& in) {
         for (int k = 0; k < 3; k++) b[k] = a[k] + d[k] * keep;
     };
 
+    if (in.scope) {   // CCam::Process_M16_1stPerson (MODE_SNIPER / MODE_CAMERA): from the eyes, zoomed
+        float eye[3];
+        if (in.haveHead) {
+            for (int k = 0; k < 3; k++) eye[k] = in.head[k] + fwd[k] * 0.10f;
+            eye[2] += 0.07f;
+        } else {
+            for (int k = 0; k < 3; k++) eye[k] = in.feet[k];
+            eye[2] += 1.6f;
+        }
+        for (int k = 0; k < 3; k++) out.eye[k] = eye[k];
+        out.nearClip = 0.1f;
+        out.hideHead = true;
+        out.firstPerson = true;
+        out.fovScale = std::tan(in.scopeFov * 0.5f * 3.14159265f / 180.0f) / std::tan(35.0f * 3.14159265f / 180.0f);
+        m_anchorValid = m_eyeValid = false;
+        return out;
+    }
+
     if (in.style == kClassic) {
         // Process_FollowPed_SA: ease the zoom, then sit behind the look-at point.
         const float want = kPedZoom[m_view];
