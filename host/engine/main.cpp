@@ -71,6 +71,7 @@ static D3DRenderer g_renderer;
 static Projectiles g_proj;   // thrown weapons in flight
 struct FirePatch { float pos[3]; float left; };   // a molotov's burning ground: CFireManager fires, kept burning for a few seconds
 static std::vector<FirePatch> g_firePatches;
+static std::vector<std::array<float, 3>> g_dynBooms;   // explosive props that went off this frame
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
 static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
 static Sky g_sky;        // CClouds: moon, stars, low clouds
@@ -1461,6 +1462,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("WORLD INIT: %s (loaded %zu models dedup, %zu solid boxes)",
             worldReady ? "OK" : "FAIL", g_world.LoadedModelCount(), g_world.SolidBoxCount());
         if (worldReady) {
+            g_world.onDynSmash = [](const float* p) { g_fx.Impact(p, 1.0f); g_fx.Smoke(p, 0.3f); g_audio.Impact(0.0f); };
+            g_world.onDynExplode = [](const float* p) { g_dynBooms.push_back({p[0], p[1], p[2]}); };
             // Data-driven spawn: stream once so ground COL tris are loaded,
             // then snap to real world ground (init-time cells are empty).
             playerX = 2490.0f; playerY = -1660.0f;
@@ -2819,6 +2822,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_prof.End(FrameProfiler::P_STREAM);
                 g_prof.SetStreamStats(g_world.LastModelsLoaded(), g_world.LastLoadMs(),
                                       g_world.LastColBuilds(), g_world.LastColMs());
+                // Physics props: step the awake ones, and let the player's body shove them.
+                g_world.DynUpdate(dt, GRAVITY);
+                static float s_dynPX = 0.0f, s_dynPY = 0.0f;
+                if (g_driveCar < 0 && dt > 1e-4f && std::fabs(playerX - s_dynPX) < 3.0f && std::fabs(playerY - s_dynPY) < 3.0f)
+                    g_world.DynPush(playerX, playerY, playerZ - EYE_HEIGHT, PLAYER_RADIUS, PLAYER_HEIGHT,
+                                    (playerX - s_dynPX) / dt, (playerY - s_dynPY) / dt);
+                s_dynPX = playerX; s_dynPY = playerY;
             }
             float curFeetZ = playerZ - EYE_HEIGHT;
             float gz = GetGroundHeight(playerX, playerY, curFeetZ);
@@ -3343,8 +3353,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const bool hb = (RawGameKey(VK_SPACE) & 0x8000) != 0;
                     g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,
                                     [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
-                                    [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f); });
+                                    [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });
                     const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
+                    if (worldReady) g_world.DynVehicle(c.x, c.y, c.z, c.vx, c.vy, 1.3f, 1500.0f);
                     if (const VehicleInfo* vi = g_vehicles.Info(c.model)) {
                         const HandlingData* hd = g_vehicles.Handling(vi->handling);
                         g_audio.Engine(c.model, th, c.speed, (hd ? hd->maxVelocity : 160.0f) / 3.6f, hd ? hd->numGears : 5, dt);
@@ -3753,6 +3764,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     };
                     std::vector<Projectiles::Event> pev;
                     if (worldReady) g_proj.Update(dt, env, pev);
+                    for (const auto& bm : g_dynBooms) pev.push_back({Projectiles::Kind::Explode, {bm[0], bm[1], bm[2]}, 6.0f});
+                    g_dynBooms.clear();
                     for (size_t i = 0; i < g_firePatches.size();) {   // burning ground: flames and smoke while it lasts, hurts whoever stands in it
                         FirePatch& fp = g_firePatches[i];
                         fp.left -= dt;
@@ -3768,6 +3781,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             Log("BOOM %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
                             g_fx.Explosion(e.pos);
                             g_audio.Impact(0.0f);
+                            if (worldReady) g_world.DynExplosion(e.pos, e.radius * 1.5f, 14.0f);
                             const int killed = g_peds.Explosion(e.pos, e.radius);
                             if (killed) Log("EXPLOSION killed %d", killed);
                             const float dx = playerX - e.pos[0], dy = playerY - e.pos[1], dz = playerZ - EYE_HEIGHT + 1.0f - e.pos[2];
@@ -3983,6 +3997,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         }
                     }
                     if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, mz)) g_fx.Tracer(mz, hit);
+                    if (dummyHit < 0 && worldReady && t < 1.0f) g_world.DynShoot(g_aimEye, g_aimDirV, range * t + 0.1f, 40.0f, 0);
                     if (dummyHit >= 0) continue;
                     if (t < 1.0f) {
                         g_fx.Impact(hit, hnz);

@@ -17,6 +17,7 @@
 // invisible walls" - collision exists only where geometry is loaded).
 
 #include <cstdint>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -118,8 +119,25 @@ public:
     // to feetZ+stepOver are stepped over, boxes above feetZ+playerHeight are
     // ignored (can walk under), and the player is only blocked when
     // ENTERING a box (not when already inside it).
+    // ignoreProps: skip light dynamic props (a car plows through boxes and bins; DynVehicle bumps them).
     bool HitsSolidCircle(float x, float y, float feetZ, float ox, float oy,
-                         float radius, float stepOver, float playerHeight) const;
+                         float radius, float stepOver, float playerHeight, bool ignoreProps = false) const;
+
+    // --- Dynamic props (CObject with an object.dat mass: boxes, bags, bins, barrels, ...) ---
+    // Step every awake prop: gravity, air drag, ground / wall contacts, sleep.
+    void DynUpdate(float dt, float gravity);
+    // The player's body (vertical capsule) against the props; vx, vy is its velocity. Props it runs into are shoved.
+    void DynPush(float x, float y, float feetZ, float radius, float height, float vx, float vy, float playerMass = 70.0f);
+    // A car (circle at its centre) ploughs through light props.
+    void DynVehicle(float x, float y, float z, float vx, float vy, float radius, float carMass);
+    // A bullet along dir (unit) from origin: hits the first prop within range, shoves it, may smash / explode it.
+    // Returns the distance of the hit, or -1.
+    float DynShoot(const float* origin, const float* dir, float range, float impulse, int gunType);
+    // An explosion at pos: props within radius are thrown, smashable ones break, explosive ones go off.
+    void DynExplosion(const float* pos, float radius, float force);
+    // Called (pos) when a prop is smashed, and when an explosive one goes off.
+    std::function<void(const float*)> onDynSmash, onDynExplode;
+    size_t DynAwakeCount() const;
 
     // Segment a -> b against the streamed collision (COL triangles, boxes and
     // spheres). Returns the fraction of the way to the first hit, 1 if clear
@@ -177,6 +195,8 @@ private:
         uint8_t lodLevel = 0;      // 0 = leaf, 1 = LOD of leaves, ...
         int32_t lodTwin = -1;      // extra LOD on the same spot as this LOD: draw with it
         bool isGround = false;    // classified ground (terrain tris + no solid boxes)
+        int32_t dyn = -1;         // m_dyn index: a physics prop (object.dat mass < 99999)
+        bool hidden = false;      // smashed / blown up: not drawn, no collision
         // --- runtime (Stream / Render) ---
         bool needed = false;
         bool draw = false;         // Render: drawn this frame
@@ -325,6 +345,35 @@ private:
     std::vector<WorldColObb> m_worldObbs;
     std::vector<WorldColSphere> m_worldSpheres;
     std::vector<uint32_t> m_worldBoxOwner;   // m_insts index per m_worldBoxes entry (probe)
+    std::vector<uint32_t> m_worldSphereOwner;
+    mutable int m_skipInst = -1;             // a prop is stepping: its own box does not collide with it
+
+    // object.dat row (CObjectInfo) and the live rigid body of a prop placement.
+    struct ObjDef {
+        float mass = 99999, turn = 1, airRes = 1, elast = 0.3f, uproot = 0, cdMult = 1;
+        int cdEff = 0, spcdr = 0, expl = 0, gunBreak = 0;
+    };
+    struct DynBody {
+        int inst = -1;
+        ObjDef def;
+        float c[3] = {0, 0, 0}, hx[3] = {0, 0, 0};   // model-space box centre and half extents
+        float p[3] = {0, 0, 0};                       // centre of the box in the world
+        float R[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};   // row i = world image of local axis i
+        float v[3] = {0, 0, 0}, w[3] = {0, 0, 0};
+        bool ready = false, awake = false, dead = false;
+        float still = 0.0f;
+    };
+    std::unordered_map<std::string, ObjDef> m_objDef;
+    std::vector<DynBody> m_dyn;
+    void LoadObjectDat();
+    void MarkDynInsts();
+    bool InitDynBody(DynBody& b);
+    void DynSync(DynBody& b);
+    void DynWake(DynBody& b);
+    void DynImpulse(DynBody& b, const float* at, const float* j);
+    void DynBreak(DynBody& b, bool explode);
+    // Vertical capsule vs the prop's box; out = {nx, ny, depth, qx, qy, qz} (normal from the prop to the capsule).
+    bool DynOverlapCapsule(const DynBody& b, float x, float y, float feetZ, float radius, float height, float* out) const;
 
     int m_frame = 0;
     float m_farClip = 900.0f; // timecyc FarClp (SetFarClip)

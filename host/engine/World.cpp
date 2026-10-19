@@ -329,6 +329,8 @@ bool GameWorld::Init(ImgLoader& img, D3DRenderer& renderer, const std::string& g
     LinkLodChildren();
     LoadCols();
     BuildLampEmitters();
+    LoadObjectDat();
+    MarkDynInsts();
 
     // GTA_COLAUDIT=1: resolve the COL entry of every placed model once and
     // report the ones without collision (excluding LOD models, which have
@@ -1420,6 +1422,7 @@ void GameWorld::Stream(float px, float py, float pz) {
     m_worldObbs.clear();
     m_worldSpheres.clear();
     m_worldBoxOwner.clear();
+    m_worldSphereOwner.clear();
     const uint32_t colR2 = (uint32_t)(kColRadius * kColRadius);
     int boxBuilds = 0;   // first-time builds per frame (nearest first)
     for (auto& n : nearList) {
@@ -1433,9 +1436,11 @@ void GameWorld::Stream(float px, float py, float pz) {
             BuildInstBoxes(in);
             boxBuilds++;
         }
+        if (in.hidden) continue;
+        if (in.dyn >= 0 && !m_dyn[in.dyn].ready && !m_dyn[in.dyn].dead) InitDynBody(m_dyn[in.dyn]);
         for (auto& b : in.boxes) { m_worldBoxes.push_back(b); m_worldBoxOwner.push_back((uint32_t)n.idx); }
         for (auto& o : in.obb) m_worldObbs.push_back(o);
-        for (auto& s : in.spheres) m_worldSpheres.push_back(s);
+        for (auto& s : in.spheres) { m_worldSpheres.push_back(s); m_worldSphereOwner.push_back((uint32_t)n.idx); }
     }
 
     // Unload models nobody wants anymore (after a grace period).
@@ -1518,7 +1523,7 @@ void GameWorld::Render(D3DRenderer& r, float px, float py, float pz) {
 
     for (auto& n : m_insts) {
         const Inst& in = n;
-        if (!in.needed) continue;
+        if (!in.needed || in.hidden) continue;
         if (!in.draw) { ++m_lastSkippedInsts; continue; }
         auto hit = m_cache.find(in.hdModel);
         const std::vector<D3DRenderMesh*>* meshes = &hit->second.meshes;
@@ -2026,7 +2031,9 @@ float GameWorld::GetGroundHeight(float x, float y, float refZ) const {
     // (k = 1) of the oriented box -- tested as two triangles so a tilted
     // instance gets the true sloped top.
     std::vector<ColTriangle> top(2);
-    for (const WorldColObb& o : m_worldObbs) {
+    for (size_t oi = 0; oi < m_worldObbs.size(); oi++) {
+        if (m_skipInst >= 0 && oi < m_worldBoxOwner.size() && (int)m_worldBoxOwner[oi] == m_skipInst) continue;
+        const WorldColObb& o = m_worldObbs[oi];
         top[0] = {o.x[1], o.y[1], o.z[1], o.x[5], o.y[5], o.z[5], o.x[7], o.y[7], o.z[7]};
         top[1] = {o.x[1], o.y[1], o.z[1], o.x[7], o.y[7], o.z[7], o.x[3], o.y[3], o.z[3]};
         float h = ColLoader::GetGroundHeight(top, x, y, refZ, kMaxStepUp);
@@ -2036,7 +2043,12 @@ float GameWorld::GetGroundHeight(float x, float y, float refZ) const {
 }
 
 bool GameWorld::HitsSolidCircle(float x, float y, float feetZ, float ox, float oy,
-                                float radius, float stepOver, float playerHeight) const {
+                                float radius, float stepOver, float playerHeight, bool ignoreProps) const {
+    auto lightProp = [&](size_t i) {
+        if (!ignoreProps || i >= m_worldBoxOwner.size()) return false;
+        const int d = m_insts[m_worldBoxOwner[i]].dyn;
+        return d >= 0 && m_dyn[d].def.mass <= 1500.0f;
+    };
     // m_worldObbs and m_worldBoxes are parallel (same order). Use the AABB's Z
     // span for the step-over / above-head gates (Z is unaffected by yaw), and
     // the ORIENTED footprint for the XY hit so rotated buildings don't block
@@ -2045,13 +2057,19 @@ bool GameWorld::HitsSolidCircle(float x, float y, float feetZ, float ox, float o
     for (size_t i = 0; i < n; i++) {
         const WorldColBox& b = m_worldBoxes[i];
         const WorldColObb& o = m_worldObbs[i];
+        if (lightProp(i)) continue;
         if (b.maxZ <= feetZ + stepOver) continue;      // step over it
         if (b.minZ >= feetZ + playerHeight) continue;  // above the player's head
         if (!CircleObbHit2D(x, y, radius, o)) continue;
         if (MoveBlocked(ObbClearance2D(ox, oy, o), ObbClearance2D(x, y, o), radius)) return true;
     }
     // COL spheres: solid over their vertical extent, same gates as boxes.
-    for (const WorldColSphere& s : m_worldSpheres) {
+    for (size_t si = 0; si < m_worldSpheres.size(); si++) {
+        const WorldColSphere& s = m_worldSpheres[si];
+        if (ignoreProps && si < m_worldSphereOwner.size()) {
+            const int d = m_insts[m_worldSphereOwner[si]].dyn;
+            if (d >= 0 && m_dyn[d].def.mass <= 1500.0f) continue;
+        }
         if (s.z + s.r <= feetZ + stepOver) continue;
         if (s.z - s.r >= feetZ + playerHeight) continue;
         float nc = std::sqrt((x - s.x) * (x - s.x) + (y - s.y) * (y - s.y)) - s.r;
@@ -2220,6 +2238,7 @@ bool GameWorld::SphereProbe(float cx, float cy, float cz, float r, ProbeHit& out
     // Oriented boxes: clamp the centre onto each of the box's three axes.
     const size_t nb = std::min(m_worldObbs.size(), m_worldBoxes.size());
     for (size_t k = 0; k < nb; k++) {
+        if (m_skipInst >= 0 && k < m_worldBoxOwner.size() && (int)m_worldBoxOwner[k] == m_skipInst) continue;
         const WorldColBox& ab = m_worldBoxes[k];
         if (cx + r < ab.minX || cx - r > ab.maxX || cy + r < ab.minY || cy - r > ab.maxY ||
             cz + r < ab.minZ || cz - r > ab.maxZ) continue;
@@ -2238,7 +2257,9 @@ bool GameWorld::SphereProbe(float cx, float cy, float cz, float r, ProbeHit& out
         const float d2 = (q[0] - cx) * (q[0] - cx) + (q[1] - cy) * (q[1] - cy) + (q[2] - cz) * (q[2] - cz);
         if (d2 < best) { float n[3]; outward(q, n); best = d2; take(q, n); }
     }
-    for (const WorldColSphere& s : m_worldSpheres) {
+    for (size_t si = 0; si < m_worldSpheres.size(); si++) {
+        if (m_skipInst >= 0 && si < m_worldSphereOwner.size() && (int)m_worldSphereOwner[si] == m_skipInst) continue;
+        const WorldColSphere& s = m_worldSpheres[si];
         const float dx = cx - s.x, dy = cy - s.y, dz = cz - s.z;
         const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (d > s.r + r || d < 1e-5f) continue;
