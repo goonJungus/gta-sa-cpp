@@ -278,6 +278,7 @@ void PlayerPed::ShutdownGuns(D3DRenderer& r) {
 void PlayerPed::SelectGun(int index) {
     m_gun = index >= 0 && index < (int)m_guns.size() ? index : -1;
     m_reloading = m_firing = false;
+    m_attackCounter = 0.0f;   // CPlayerPed::MakeChangesForNewWeapon
     for (Assoc& a : m_assocs) if (a.partial) { a.dead = true; a.blend = 0.0f; }
 }
 
@@ -307,7 +308,7 @@ float PlayerPed::WeaponRadiusOnScreen() const {
     const float acc = 0.5f / std::max(0.01f, g.accuracy);
     const std::string id = GunId();
     if (id == "SHOTGUN" || id == "SPAS12" || id == "SAWNOFF") return std::max(0.2f, acc);
-    const float radius = std::min(1.0f, 15.0f / std::max(0.01f, g.range)) * acc;   // m_fAttackButtonCounter 0
+    const float radius = (m_attackCounter * 0.5f + 1.0f) * std::min(1.0f, 15.0f / std::max(0.01f, g.range)) * acc;
     return std::max(0.2f, m_ducking ? radius * 0.5f : radius);
 }
 
@@ -336,6 +337,7 @@ void PlayerPed::UpdateGun(const Input& in) {
     const GunSpec& sp = *g.spec;
     m_flash = std::max(0.0f, m_flash - in.dt);
     m_flashL = std::max(0.0f, m_flashL - in.dt);
+    m_attackCounter *= std::pow(0.96f, in.dt * 50.0f);   // CTaskSimpleUseGun::ProcessPed
     const bool crouch = m_ducking;
     const float loopStart = crouch ? g.loop2Start : g.loopStart, loopEnd = crouch ? g.loop2End : g.loopEnd,
                 fireTime = crouch ? g.fire2Time : g.fireTime;
@@ -425,6 +427,7 @@ void PlayerPed::UpdateGun(const Input& in) {
             m_shotDone = true;
             g.ammo--;
             m_shotEvents++;
+            m_attackCounter += g.damage * 0.04f;   // CWeapon::FireInstantHit
             m_lastShotLeft = false;
             if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0) m_flash = 0.06f;   // the silenced pistol has no flash
             std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
@@ -435,6 +438,7 @@ void PlayerPed::UpdateGun(const Input& in) {
             m_shotLeftDone = true;
             g.ammo--;
             m_shotEvents++;
+            m_attackCounter += g.damage * 0.04f;   // CWeapon::FireInstantHit
             m_lastShotLeft = true;
             m_flashL = 0.06f;
             std::fprintf(stderr, "[GUN] shot %s (left) ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
@@ -453,6 +457,7 @@ void PlayerPed::UpdateGun(const Input& in) {
                     m_shotDone = true;
                     g.ammo--;
                     m_shotEvents++;
+                    m_attackCounter += g.damage * 0.04f;
                     m_lastShotLeft = false;
                     if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0) m_flash = 0.06f;
                     std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);

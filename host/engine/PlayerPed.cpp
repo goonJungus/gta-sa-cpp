@@ -1954,4 +1954,5 @@ void PlayerPed::ControlStance(const Input& in) {
         m_aimPitch = m_aimPitchVel = 0.0f;
     }
     if (m_aiming) UpdateGun(in);
+    else m_attackCounter = 0.0f;   // CTaskSimpleUseGun::MakeAbortable
 }
