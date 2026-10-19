@@ -116,6 +116,17 @@ void Effects::Smoke(const float p[3], float dark) {
     m_puffs.push_back(f);
 }
 
+void Effects::Gas(const float p[3]) {
+    Puff f = {};
+    for (int k = 0; k < 3; k++) f.p[k] = p[k] + Rnd(-1.5f, 1.5f);
+    f.p[2] = p[2] + Rnd(0.2f, 1.5f);
+    f.v[0] = Rnd(-0.4f, 0.4f); f.v[1] = Rnd(-0.4f, 0.4f); f.v[2] = Rnd(0.1f, 0.4f);
+    f.life = Rnd(2.5f, 4.0f);
+    f.size0 = 1.0f; f.size1 = Rnd(3.5f, 5.0f);
+    f.rgb = 0xD8E0C0; f.alpha = 0.3f;
+    m_puffs.push_back(f);
+}
+
 void Effects::Fire(const float p[3]) {
     Puff f = {};
     for (int k = 0; k < 3; k++) f.p[k] = p[k] + Rnd(-0.3f, 0.3f);
