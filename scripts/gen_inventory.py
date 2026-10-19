@@ -6,6 +6,7 @@ Existing [x]/[~] marks are kept; new entries start as [ ]. Weight 0 = tracked, n
 """
 import pathlib
 import re
+import struct
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -32,6 +33,51 @@ def enum(path, prefix):
         if m:
             names.append(m.group(1))
     return names
+
+
+def img_entries(path):
+    """VER2 IMG directory: [(name, offset_sectors, size_sectors)]."""
+    with open(path, "rb") as f:
+        head = f.read(8)
+        if head[:4] != b"VER2":
+            return []
+        n = struct.unpack("<I", head[4:])[0]
+        raw = f.read(32 * n)
+    out = []
+    for i in range(n):
+        off, size16, size, name = struct.unpack("<IHH24s", raw[32 * i:32 * i + 32])
+        out.append((name.split(b"\0")[0].decode("latin1"), off, size16 or size))
+    return out
+
+
+def ifp_names(blob):
+    """Animation names inside an ANP3 block."""
+    if blob[:4] != b"ANP3":
+        return []
+    n = struct.unpack("<I", blob[32:36])[0]
+    pos, names = 36, []
+    for _ in range(n):
+        name, nodes, _size, _u = struct.unpack("<24sIII", blob[pos:pos + 36])
+        names.append(name.split(b"\0")[0].decode("latin1"))
+        pos += 36
+        for _j in range(nodes):
+            _nm, ty, fr, _bt = struct.unpack("<24sIII", blob[pos:pos + 36])
+            pos += 36 + fr * (16 if ty == 4 else 10)
+    return names
+
+
+def gxt_tables(path):
+    d = pathlib.Path(path).read_bytes()
+    out = []
+    if d[4:8] != b"TABL":
+        return out
+    size = struct.unpack("<I", d[8:12])[0]
+    for i in range(size // 12):
+        name, off = struct.unpack("<8sI", d[12 + 12 * i:24 + 12 * i])
+        name = name.split(b"\0")[0].decode("latin1")
+        base = off if name == "MAIN" else off + 8
+        out.append((name, base))
+    return out
 
 
 def main() -> int:
@@ -103,6 +149,39 @@ def main() -> int:
     for f in sorted(pathlib.Path(data + "/maps").rglob("*")):
         if f.is_file() and not f.name.startswith("._") and "PaxHeader" not in f.parts:
             add("map", f.relative_to(data + "/maps").as_posix(), "map file: placements, LODs, interiors, collisions, streaming", 0)
+
+    game = str(pathlib.Path(data).parent)
+    for img in ("models/gta3.img", "models/gta_int.img", "models/player.img", "models/cutscene.img", "anim/cuts.img"):
+        for name, _o, _s in img_entries(game + "/" + img):
+            add("asset", img.split("/")[1] + "/" + name, "loaded from the IMG and used as retail", 0)
+    anim = game + "/anim/anim.img"
+    with open(anim, "rb") as f:
+        for name, off, size in img_entries(anim):
+            f.seek(off * 2048)
+            blob = f.read(size * 2048)
+            add("animblock", name, "anim.img block loaded on demand", 0)
+            for a in ifp_names(blob):
+                add("anim", name + "/" + a, "animation clip plays as retail", 0)
+    ped = pathlib.Path(game + "/anim/ped.ifp").read_bytes()
+    for a in ifp_names(ped):
+        add("anim", "ped.ifp/" + a, "animation clip plays as retail", 0)
+    for sub in ("audio/sfx", "audio/streams", "audio/CONFIG"):
+        for f in sorted(pathlib.Path(game + "/" + sub).iterdir()):
+            if not f.name.startswith("._") and f.name != "PaxHeader":
+                add("audio", sub + "/" + f.name, "audio file decoded and played as retail", 0)
+    for f in sorted(pathlib.Path(game + "/movies").iterdir()):
+        if not f.name.startswith("._") and f.name != "PaxHeader":
+            add("movie", f.name, "movie plays as retail", 0)
+    for f in sorted(pathlib.Path(game + "/text").glob("*.gxt")):
+        if not f.name.startswith("._"):
+            for t, _b in gxt_tables(str(f)):
+                add("gxt", f.name + "/" + t, "text table loaded, keys resolved, shown as retail", 0)
+    for sub in ("models/txd", "models/coll", "models/generic", "models/grass"):
+        for f in sorted(pathlib.Path(game + "/" + sub).iterdir()):
+            if not f.name.startswith("._") and f.name != "PaxHeader":
+                add("asset", sub + "/" + f.name, "file loaded and used as retail", 0)
+    for f in sorted(pathlib.Path(game + "/models").glob("*.txd")) + [pathlib.Path(game + "/models/effects.fxp")]:
+        add("asset", "models/" + f.name, "file loaded and used as retail", 0)
     ops = {}
     for l in rd(src + "/Enums/eScriptCommands.h").split("\n"):
         m = re.match(r"\s*COMMAND_\w+\s*=\s*0x([0-9A-Fa-f]+)", l)
