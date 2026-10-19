@@ -5,6 +5,11 @@ done (counts half), `[ ]` not started. The number in `(w N)` is a rough effort
 weight, so a mission system does not count the same as a texture loader. After
 changing anything here, run `python scripts/progress.py` to refresh the README.
 
+This file lists every gameplay system and feature of the retail game, done and
+not done, so the bar shows the real distance to a finished port. The first
+sections are the systems built so far (each still lists what is missing in it);
+the sections from "Gap list" down are systems not yet started or only started.
+
 ## World and rendering
 - [x] IMG v2 archive reader (w 1)
 - [x] IDE object definitions, text and binary IPL placements (w 1)
@@ -47,3 +52,81 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [~] Weapon anim groups: move set follows the weapon (armed for long guns, rocket, chainsaw; bat uses the player set), swapped in place when the weapon changes (w 1)
 - [~] Gun aim: arm guns use the retail IK point-arm chain (IKChain_c sweep, effector 0.05 m along the hand, no bone limits as retail ships them, 250 ms blend) toward the crosshair ray (Find3rdPersonCamTargetVector) with RotateTorsoForArm, others the torso (ms_torsoInfo limits) with the heading turned to the crosshair; classic crosshair at 0.53 / 0.4 sized by GetWeaponRadiusOnScreen; classic aim camera (Process_AimWeapon free aim: weapon FOV, look-at offsets, 1.0 + 1.6 cos(pitch) distance, pitch limits) and pro-skill twin pistols (left gun at the left hand, left arm chain, 2guns_crouchfire) done; lock-on targeting and the camera transition curve still simplified (w 1)
 - [~] Missions (mission table of main.scm read; the VM launches a mission script as its own thread with its own jump base, and START_NEW_SCRIPT passes locals; mission 1 runs 410 instructions before its first game command; nothing is playable yet) (w 6)
+
+## Gap list: player and combat (not yet ported)
+- [ ] Weapon polish against retail captures: pistol, silenced pistol, Desert Eagle, micro SMG, Tec-9, sawn-off, MP5 aim pose, left arm and hold (w 2)
+- [ ] Side-by-side retail comparison rig (capture harness for retail and the port at identical positions and frames) (w 1)
+- [ ] Wardrobe: clothes, tattoos, hairstyles, barber, gym and tattoo parlour, clothes shops, CJ's body model per outfit (w 5)
+- [ ] Player stats beyond fat and muscle: respect, sex appeal, stamina and lung capacity effects, weapon skill progression, driving skills, vehicle skills (w 3)
+- [ ] Health, armour, death and respawn (busted and wasted, hospital and police station spawns, money loss, weapons lost) (w 3)
+- [ ] Lock-on auto target, target switching, free aim versus auto aim modes, aiming at vehicles (w 2)
+- [ ] Spray paint (tagging and the gang tag system, graffiti decals) (w 2)
+- [ ] Ped hit reactions and ragdoll falls from bullets, explosions, cars and fire (w 3)
+- [ ] Choking animation (tear gas), burning animation, drowning and electrocution deaths (w 1)
+- [ ] Vehicle and object damage from explosions, creeping fire spread across ground, peds, cars and props (w 3)
+- [ ] Explosion visuals: all retail explosion types, shockwave, debris, camera shake and decals (w 2)
+- [ ] Driveby shooting from cars and bikes (w 2)
+- [ ] Melee gaps: blocking, ground attacks, kicks, stomps, grabbing, pistol whip, hitting cars and objects (w 2)
+- [ ] Dive, roll, dodge and cover behaviours (take cover, blind fire, peek) (w 2)
+- [ ] Hand-to-hand and gun fighting for the gym fight styles (boxing, kung fu, kickboxing, grab and kick) (w 1)
+- [ ] Gang members as followers: recruit, command, group AI (w 2)
+- [ ] Interior and exterior door entry, enter and exit markers, interior streaming (w 4)
+- [ ] Crouch-and-aim edge cases, vault while armed, ladder climbing, swimming body pitch (w 1)
+- [ ] Jetpack (w 1)
+
+## Gap list: vehicles
+- [ ] Per-vehicle real suspension and wheel physics from handling.cfg (w 4)
+- [ ] Vehicle to vehicle and vehicle to world collisions with deformation and damage (w 4)
+- [ ] Body panel damage, doors, bonnet, boot and wheels falling off, flat tyres (w 3)
+- [ ] Bikes and bicycles with riders and lean (w 3)
+- [ ] Boats (w 2)
+- [ ] Planes and helicopters with flight models (w 4)
+- [ ] Trains and trams on the track nodes (w 3)
+- [ ] Trailers, towing and the tow truck, cranes, forklifts, tractors, special vehicles (w 2)
+- [ ] Vehicle lights, indicators, sirens, horn, headlight damage, neon, nitro and modifications (w 2)
+- [ ] Mod garages, respray, car modification shops, import and export (w 3)
+- [ ] Car radio UI, vehicle stealing animations, jacking, hot wiring, passengers and cabin seats (w 3)
+- [ ] Vehicle generators and parked cars (w 1)
+- [ ] Car fire, explosion chain, wreck and petrol tank rules (w 1)
+- [ ] Hydraulics, lowriders, bouncing, and the lowrider minigame (w 2)
+
+## Gap list: world and AI
+- [ ] Path nodes (nodes*.dat) and traffic: lanes, junctions, lights, overtaking, parking (w 5)
+- [ ] Pedestrian generation per zone (popcycle.dat), gangs, cops, shoppers, dealers, beggars (w 4)
+- [ ] Pedestrian tasks: walk paths, cross roads, flee, fight, panic, react to events, speech (w 4)
+- [ ] Wanted level system: crimes, police response, cop AI, helicopters, roadblocks, SWAT, FBI, army (w 5)
+- [ ] Gang territories, gang wars and turf takeover (w 3)
+- [ ] Emergency services: ambulance, fire trucks, firemen, paramedics (w 2)
+- [ ] Scripted shops: Ammu-Nation, food, clothes, tattoo, barber (w 3)
+- [ ] Pickups: weapons, health, armour, money, hidden packages, oysters, horseshoes, snapshots (w 2)
+- [ ] Properties: safe houses, save points, garages, buying and the income (w 3)
+- [ ] Day and night cycle effects on populations, shop opening hours, radio schedule (w 1)
+- [ ] Water waves, volumetric clouds, rain, fog, wind, sandstorm, thunder and lightning (w 2)
+- [ ] Particles from particle.cfg and fx files: all effects (w 3)
+- [ ] Decals: bullet holes, blood, skid marks, tyre tracks, scorch, footprints (w 2)
+- [ ] Reflection and visual effects: car reflections, heat haze, motion blur, light coronas, lens flare, shadows (w 3)
+- [ ] World destruction: lamp posts bending, breakable props, glass, fences, signs (w 2)
+- [ ] Animals and wildlife: dogs, cats, birds, sharks, fish, cows, horses (w 1)
+- [ ] Prop physics gaps: toppling, uprooting, breakable parts, real COL shapes per prop (w 2)
+
+## Gap list: scripts, missions and minigames
+- [ ] SCM opcodes implemented (all roughly 1000 commands of the VM: peds, cars, objects, audio, text, camera, stats) (w 8)
+- [ ] Mission flow: mission start and fail, pass screen, rewards, retry, mission text and timers, cutscene triggers (w 4)
+- [ ] Cutscenes from the .cut and .dat files with camera paths and lip sync (w 4)
+- [ ] All story missions of Los Santos, Countryside, San Fierro, Las Venturas, and the endgame (w 10)
+- [ ] Side missions: taxi, vigilante, paramedic, firefighter, pimping, trucking, courier, quarry, 555 We Tip (w 3)
+- [ ] Schools: driving, boat, flight, bike (w 2)
+- [ ] Minigames: pool, darts, basketball, arcade machines, dance, lowrider, gambling, casino, horse racing, 24-7 (w 4)
+- [ ] Races: street, burglary, vehicle missions, stunt jumps, rampages (w 3)
+- [ ] Dating and girlfriends, food and eating, sex appeal, gym workouts (w 3)
+- [ ] Phone and shops text, subtitle, help messages, mission titles, countdowns (w 1)
+- [ ] Save and load games, game states, auto save, statistics page complete (w 3)
+
+## Gap list: frontend and polish
+- [ ] Start screen, new game, load game, intro sequence and loading screens (w 1)
+- [ ] Controller support parity: remapping for every action, vibration (w 1)
+- [ ] Complete radar and map: all blips, zones, GPS route, legend with correct sprites (w 1)
+- [ ] Audio: all retail ambient, traffic, weather, world and mission sounds; positional 3D audio, doppler, occlusion, cutscene and speech banks (w 4)
+- [ ] Full radio programming and the cassette and radio UI (w 1)
+- [ ] Performance, memory and streaming stability at full retail draw distance (w 2)
+- [ ] Windows MSVC and Linux MinGW builds both at warning-free parity, regression test scripts (w 1)

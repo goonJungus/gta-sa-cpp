@@ -16,9 +16,9 @@ original game knows about.
 
 <!-- progress:start -->
 ```
-████████████░░░░░░░░  62%
+███░░░░░░░░░░░░░░░░░  16%
 ```
-**12 done, 21 in progress, 0 to go** across 33 milestones, weighted by effort (see [ROADMAP.md](ROADMAP.md)).
+**12 done, 21 in progress, 68 to go** across 101 milestones, weighted by effort (see [ROADMAP.md](ROADMAP.md)).
 <!-- progress:end -->
 
 The world is in place and you can explore it on foot. The game parts still to
