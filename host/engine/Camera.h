@@ -65,6 +65,8 @@ private:
     // classic
     float m_zoomSmoothed = 1.5f;
     float m_aimBlend = 0.0f;                // follow -> aim camera transition, 0..1
+    float m_aimFrom = 0.0f, m_aimT = 1e3f;  // blend at the last switch, seconds since it
+    bool m_aimIn = false;
     float m_aimFov = 70.0f;                 // CCam::m_fFOV while aiming, eased 1 degree per 1/50 s
     // rewrite shoulder cameras
     bool m_anchorValid = false;

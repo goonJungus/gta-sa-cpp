@@ -89,7 +89,16 @@ PlayerCamera::Output PlayerCamera::Update(const Input& in) {
         const float fovTarget = in.aimWeapon ? in.aimFov : 70.0f;
         const float fstep = 50.0f * in.dt;
         m_aimFov = m_aimFov < fovTarget ? std::min(fovTarget, m_aimFov + fstep) : std::max(fovTarget, m_aimFov - fstep);
-        m_aimBlend = std::clamp(m_aimBlend + (in.aimWeapon ? 1.0f : -1.0f) * in.dt / 0.25f, 0.0f, 1.0f);
+        // CCamera::StartTransition: into MODE_AIMWEAPON 400 ms (fractions 0 / 1), back to the follow
+        // camera 350 ms (fractions 0.1 / 0.9); in between a cosine ease.
+        if (in.aimWeapon != m_aimIn) { m_aimIn = in.aimWeapon; m_aimT = 0.0f; m_aimFrom = m_aimBlend; }
+        m_aimT += in.dt;
+        {
+            const float dur = m_aimIn ? 0.4f : 0.35f, sm = m_aimIn ? 0.0f : 0.1f, cu = m_aimIn ? 1.0f : 0.9f;
+            const float f = std::clamp((m_aimT / dur - sm) / (cu - sm), 0.0f, 1.0f);
+            const float e = 0.5f - 0.5f * std::cos(f * 3.14159265f);
+            m_aimBlend = m_aimFrom + ((m_aimIn ? 1.0f : 0.0f) - m_aimFrom) * e;
+        }
         if (m_aimBlend > 0.0f) {
             float side = 0.2f, lift = 0.0f;
             if (m_aimFov < 70.0f) {
@@ -105,7 +114,7 @@ PlayerCamera::Output PlayerCamera::Update(const Input& in) {
             const float ad[3] = {std::cos(in.yaw) * cv, std::sin(in.yaw) * cv, sv};
             float aimEye[3] = {at[0] - ad[0] * d, at[1] - ad[1] * d, at[2] - ad[2] * d};
             clipToWorld(at, aimEye, 0.2f);
-            const float t = m_aimBlend * m_aimBlend * (3.0f - 2.0f * m_aimBlend);
+            const float t = m_aimBlend;
             for (int k = 0; k < 3; k++) { eye[k] += (aimEye[k] - eye[k]) * t; out.dir[k] = dir[k] + (ad[k] - dir[k]) * t; }
             const float l = std::sqrt(out.dir[0] * out.dir[0] + out.dir[1] * out.dir[1] + out.dir[2] * out.dir[2]);
             for (int k = 0; k < 3; k++) out.dir[k] /= l;
