@@ -1652,6 +1652,21 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
         r.UpdateMeshVertices(p.mesh, p.skinned.data(), (uint32_t)p.skinned.size());
         r.DrawMesh(p.mesh);
     }
+    {   // the parachute script's canopy object: PARA_x_O at the time of CJ's strongest PARA_x clip
+        static const char* const kPara[][2] = {{"para_open", "para_open_o"}, {"para_float", "para_float_o"},
+                                               {"para_steerl", "para_steerl_o"}, {"para_steerr", "para_steerr_o"},
+                                               {"para_decel", "para_decel_o"}, {"para_land", "para_land_o"},
+                                               {"para_land_water", "para_land_water_o"}};
+        const AnimClip* oc = nullptr;
+        float ot = 0.0f, best = 0.0f;
+        for (const auto& k : kPara)
+            if (const Assoc* a = Get(Clip(k[0])); a && !a->dead && a->blend > best) { best = a->blend; oc = Clip(k[1]); ot = a->time; }
+        if (oc && m_canopy.Ready()) {
+            dev->SetTransform(D3DTS_WORLD, &w);
+            m_canopy.Pose(oc, ot);
+            m_canopy.Draw(r);
+        }
+    }
     if (!m_hideGun) DrawGun(r, x, y, feetZ);
 }
 

@@ -26,6 +26,7 @@
 #include "IfpLoader.h"
 #include "Melee.h"
 #include "Movement.h"
+#include "ParaCanopy.h"
 #include "SkinnedDff.h"
 
 #include <algorithm>
@@ -426,6 +427,7 @@ private:
     bool m_hideGun = false;
     int m_goggles = 0, m_drawIdx = -1;
     int m_para = 0;
+    ParaCanopy m_canopy;   // the parachute object, posed by the PARA_*_O clip matching CJ's PARA_* clip
     const AnimClip* m_paraClip = nullptr;
     bool UpdateParachute(const Input& in);
     const AnimClip* m_gogglesClip = nullptr;
