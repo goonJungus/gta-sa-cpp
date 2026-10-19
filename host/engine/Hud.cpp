@@ -196,7 +196,7 @@ void Hud::Goggles(D3DRenderer& r, int mode) {
     g.End();
 }
 
-void Hud::Scope(D3DRenderer& r, bool camera) {
+void Hud::Scope(D3DRenderer& r, bool camera, bool rocket) {
     if (!m_ready || !r.GetDevice()) return;
     const float sw = (float)r.Width(), sh = (float)r.Height();
     const float cx = sw * 0.5f, cy = sh * 0.5f;
@@ -210,7 +210,16 @@ void Hud::Scope(D3DRenderer& r, bool camera) {
     };
     const uint32_t line = 0xFFB4FFB4;   // the scope colour (180, 255, 180)
     const float t = std::max(1.0f, sh * 0.002f);
-    if (camera) {   // viewfinder brackets at the corners of a 4:3-ish frame
+    if (rocket) {   // the launcher sight: four corner brackets round a centre dot, no lens
+        const float h = sh * 0.045f, a = sh * 0.02f;
+        for (int sx = -1; sx <= 1; sx += 2)
+            for (int sy = -1; sy <= 1; sy += 2) {
+                const float x = cx + sx * h, y = cy + sy * h;
+                quad(std::min(x, x - sx * a), y - t, std::max(x, x - sx * a), y + t, 0xFFFFFFFF);
+                quad(x - t, std::min(y, y - sy * a), x + t, std::max(y, y - sy * a), 0xFFFFFFFF);
+            }
+        quad(cx - t, cy - t, cx + t, cy + t, 0xFFFFFFFF);
+    } else if (camera) {   // viewfinder brackets at the corners of a 4:3-ish frame
         const float hw = sh * 0.42f, hh = sh * 0.40f, a = sh * 0.06f;
         for (int sx = -1; sx <= 1; sx += 2)
             for (int sy = -1; sy <= 1; sy += 2) {
