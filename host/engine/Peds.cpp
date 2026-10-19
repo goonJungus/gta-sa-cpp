@@ -90,10 +90,23 @@ bool Peds::Init(D3DRenderer&, const std::string& gameDir) {
             if (f.size() < 6) continue;
             PedInfo p;
             p.id = std::atoi(f[0].c_str());
-            p.dff = Lower(f[1]); p.txd = Lower(f[2]); p.type = f[3]; p.group = Lower(f[5]);
+            p.dff = Lower(f[1]); p.txd = Lower(f[2]); p.type = f[3]; p.stat = f[4]; p.group = Lower(f[5]);
             if (f.size() >= 13) p.voice = Speech::GenVoice(f[12]);   // the first of the voice range
             m_info[p.id] = p;
             if (p.id > 0 && (p.type == "CIVMALE" || p.type == "CIVFEMALE")) m_pool.push_back(p.id);
+        }
+    }
+    {   // data/pedstats.dat: name, flee, heading, fear, temper, lawful, sexy, attack, defend weakness, ...
+        std::istringstream in(ReadText(gameDir + "/data/pedstats.dat"));
+        for (std::string line; std::getline(in, line);) {
+            line = Trim(line);
+            if (line.empty() || line[0] == '#') continue;
+            std::istringstream ls(line);
+            std::string name; float v[8];
+            ls >> name;
+            bool ok = true;
+            for (float& x : v) if (!(ls >> x)) { ok = false; break; }
+            if (ok) m_defend[name] = v[7];
         }
     }
     {   // data/animgrp.dat: "name, ped, walkcycle, 6" then the clip names
@@ -224,6 +237,7 @@ int Peds::Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading
     Actor a;
     a.model = id; a.x = x; a.y = y; a.z = z; a.heading = heading;
     if (auto it = m_info.find(id); it != m_info.end()) a.voice = it->second.voice;
+    if (auto it = m_info.find(id); it != m_info.end()) { auto w = m_defend.find(it->second.stat); if (w != m_defend.end()) a.weakness = w->second; }
     a.turnTimer = 2.0f + (float)Rand(40) * 0.1f;
     a.walking = Rand(3) != 0;
     a.animTime = (float)Rand(100) * 0.01f;
@@ -297,6 +311,18 @@ int Peds::Trace(const float* eye, const float* dir, float reach, float* t, bool*
     }
     if (best >= 0 && t) *t = bt;
     return best;
+}
+
+bool Peds::Shoot(int actor, float damage, bool head, bool sniper) {
+    if (actor < 0 || (size_t)actor >= m_actors.size()) return false;
+    Actor& a = m_actors[(size_t)actor];
+    if (a.dead) return false;
+    const float d = damage * a.weakness;
+    const bool force = head || (!sniper && Rand(8) == 0);   // ComputeWillForceDeath
+    a.fleeTimer = 8.0f;
+    if (!force && a.health - d >= 1.0f) { a.health -= d; return false; }
+    a.health = 0.0f;
+    return Damage(actor, 0.0f, true);
 }
 
 bool Peds::Damage(int actor, float damage, bool head) {

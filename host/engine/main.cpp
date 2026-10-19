@@ -3712,11 +3712,42 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 // dust and sparks and a hit sound where it lands.
                 for (int n = 0; n < evShots && worldReady; n++) {
                     const float range = 120.0f;
+                    // CWeapon::FireInstantHit: the aimed ray wobbles on a circle (1 s period) by
+                    // (100 - 95) / accuracy * attack counter * 0.75, shotguns do not (they spread pellets).
+                    float shotDir[3] = {g_aimDir[0], g_aimDir[1], g_aimDir[2]};
+                    const char* gid2 = g_cj.GunId();
+                    const bool shotgun = !strcmp(gid2, "SHOTGUN") || !strcmp(gid2, "SAWNOFF") || !strcmp(gid2, "SPAS12");
+                    if (!shotgun && g_cj.GunIndex() >= 0) {
+                        const float wr = std::max(1.0f, g_cj.GunRange());
+                        float amp = (100.0f - (g_cj.GunCanAim() ? 95.0f : 100.0f)) / std::max(0.01f, g_cj.GunAccuracy());
+                        const float counter = std::max(0.0f, g_cj.AttackCounter() - g_cj.GunDamage() * 0.04f * (float)(evShots - n));
+                        float dist;
+                        if (g_lockPed >= 0) {   // lock-on: random amplitude up to min(0.2, half the scale)
+                            amp = std::min(1.0f, 5.0f / wr) * amp * counter * 0.75f;
+                            const float lim = std::min(0.2f, amp * 0.5f);
+                            amp = lim * (2.0f * (float)rand() / (float)RAND_MAX - 1.0f);
+                            dist = wr;
+                        } else {
+                            amp = std::min(1.0f, 15.0f / wr) * amp * counter * 0.75f;
+                            dist = wr * 3.0f;
+                        }
+                        float rx = shotDir[1], ry = -shotDir[0], rl = std::sqrt(rx * rx + ry * ry);
+                        if (rl > 1e-4f) {
+                            rx /= rl; ry /= rl;
+                            const float up[3] = {-shotDir[2] * ry, shotDir[2] * rx, shotDir[0] * ry - shotDir[1] * rx};   // right x dir
+                            const float ang = (float)GetTickCount() * 0.0062832f;
+                            const float sa = std::sin(ang) * amp, ca = std::cos(ang) * amp;
+                            float e[3] = {shotDir[0] * dist + rx * sa + up[0] * ca, shotDir[1] * dist + ry * sa + up[1] * ca, shotDir[2] * dist + up[2] * ca};
+                            const float el = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+                            for (int k = 0; k < 3; k++) shotDir[k] = e[k] / el;
+                        }
+                    }
+                    const float* g_aimDirV = shotDir;
                     float farEnd[3], hit[3], hnz = 0.0f;
-                    for (int i = 0; i < 3; i++) farEnd[i] = g_aimEye[i] + g_aimDir[i] * range;
+                    for (int i = 0; i < 3; i++) farEnd[i] = g_aimEye[i] + g_aimDirV[i] * range;
                     int kind = 0;
                     const float t = g_world.RayCast(g_aimEye[0], g_aimEye[1], g_aimEye[2], farEnd[0], farEnd[1], farEnd[2], &kind, &hnz);
-                    for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * range * t;
+                    for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDirV[i] * range * t;
                     float mz[3];
                     int dummyHit = -1;
                     bool headHit = false;
@@ -3724,9 +3755,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         g_aim.shots++;
                         float dt2 = 0.0f;
                         const float reach = std::min(range * t, std::max(10.0f, g_cj.GunRange()));
-                        dummyHit = g_aim.Trace(g_aimEye, g_aimDir, reach, &dt2, &headHit);
+                        dummyHit = g_aim.Trace(g_aimEye, g_aimDirV, reach, &dt2, &headHit);
                         if (dummyHit >= 0) {
-                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * dt2;
+                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDirV[i] * dt2;
                             const bool kill = g_aim.Damage(dummyHit, g_cj.GunDamage(), headHit, hit);
                             if (g_hudReady) g_hud.Hit(kill);
                             g_fx.Blood(hit);
@@ -3736,11 +3767,33 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (dummyHit < 0 && g_peds.Ready()) {   // real pedestrians
                         float pt = 0.0f; bool ph = false;
                         const float reach = std::min(range * t, std::max(10.0f, g_cj.GunRange()));
-                        const int pi2 = g_peds.Trace(g_aimEye, g_aimDir, reach, &pt, &ph);
-                        if (getenv("GTA_PEDDBG")) Log("PED SHOT eye %.1f %.1f %.1f dir %.2f %.2f %.2f reach %.1f -> %d; ped0 %.1f %.1f %.1f", g_aimEye[0], g_aimEye[1], g_aimEye[2], g_aimDir[0], g_aimDir[1], g_aimDir[2], reach, pi2, g_peds.Count() ? g_peds.X(0) : 0.f, g_peds.Count() ? g_peds.Y(0) : 0.f, g_peds.Count() ? g_peds.Z(0) : 0.f);
+                        const int pi2 = g_peds.Trace(g_aimEye, g_aimDirV, reach, &pt, &ph);
+                        if (getenv("GTA_PEDDBG")) Log("PED SHOT eye %.1f %.1f %.1f dir %.2f %.2f %.2f reach %.1f -> %d; ped0 %.1f %.1f %.1f", g_aimEye[0], g_aimEye[1], g_aimEye[2], g_aimDirV[0], g_aimDirV[1], g_aimDirV[2], reach, pi2, g_peds.Count() ? g_peds.X(0) : 0.f, g_peds.Count() ? g_peds.Y(0) : 0.f, g_peds.Count() ? g_peds.Z(0) : 0.f);
                         if (pi2 >= 0) {
-                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * pt;
-                            const bool kill = g_peds.Damage(pi2, g_cj.GunDamage(), ph);
+                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDirV[i] * pt;
+                            float dmg = g_cj.GunDamage();
+                            if (shotgun) {   // SetUpPelletCol: 15 pellets (4 for the SPAS-12) spread by 0.05 / accuracy * 1.3 per metre
+                                const int np = !strcmp(gid2, "SPAS12") ? 4 : 15;
+                                const float depth = pt * 0.05f / std::max(0.01f, g_cj.GunAccuracy()) * 1.3f;
+                                float rx = g_aimDirV[1], ry = -g_aimDirV[0]; const float rl = std::max(1e-4f, std::sqrt(rx * rx + ry * ry)); rx /= rl; ry /= rl;
+                                const float ux = -g_aimDirV[2] * ry, uy = g_aimDirV[2] * rx, uz = g_aimDirV[0] * ry - g_aimDirV[1] * rx;
+                                int hits = 1;   // the centre line
+                                for (int k = 1; k < np; k++) {
+                                    const float an = ((float)rand() / (float)RAND_MAX * 2.0f - 1.0f) * 3.14159265f;
+                                    const float sp = (float)rand() / (float)RAND_MAX * depth * 0.8f;
+                                    const float o[3] = {g_aimEye[0] + rx * std::cos(an) * sp + ux * std::sin(an) * sp, g_aimEye[1] + ry * std::cos(an) * sp + uy * std::sin(an) * sp, g_aimEye[2] + uz * std::sin(an) * sp};
+                                    float t2 = 0.0f;
+                                    if (g_peds.Trace(o, g_aimDirV, reach, &t2, nullptr) == pi2) hits++;
+                                }
+                                dmg *= (float)hits;
+                            } else {   // a player's shot from point blank (<= 1 m) does 150
+                                float mq[3];
+                                if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, mq)) {
+                                    const float dx = g_peds.X((size_t)pi2) - mq[0], dy = g_peds.Y((size_t)pi2) - mq[1], dz = g_peds.Z((size_t)pi2) + 1.0f - mq[2];
+                                    if (dx * dx + dy * dy + dz * dz <= 1.0f) dmg = 150.0f;
+                                }
+                            }
+                            const bool kill = g_peds.Shoot(pi2, dmg, ph, !strcmp(gid2, "SNIPERRIFLE") || !strcmp(gid2, "COUNTRYRIFLE"));
                             Log("PED HIT %d head %d kill %d at %.1f", pi2, (int)ph, (int)kill, pt);
                             if (g_hudReady) g_hud.Hit(kill);
                             g_fx.Blood(hit);
@@ -3751,10 +3804,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (dummyHit < 0 && g_vehicles.Ready()) {   // cars
                         float vt = 0.0f;
                         const float reach = std::min(range * t, std::max(10.0f, g_cj.GunRange()));
-                        const int vi2 = g_vehicles.Trace(g_aimEye, g_aimDir, reach, &vt);
-                        if (getenv("GTA_PEDDBG")) Log("CAR SHOT eye %.1f %.1f %.1f dir %.2f %.2f %.2f reach %.1f -> %d car0 %.1f %.1f %.1f cars %zu", g_aimEye[0], g_aimEye[1], g_aimEye[2], g_aimDir[0], g_aimDir[1], g_aimDir[2], reach, vi2, g_vehicles.Count() ? g_vehicles.Car(0).x : 0.f, g_vehicles.Count() ? g_vehicles.Car(0).y : 0.f, g_vehicles.Count() ? g_vehicles.Car(0).z : 0.f, g_vehicles.Count());
+                        const int vi2 = g_vehicles.Trace(g_aimEye, g_aimDirV, reach, &vt);
+                        if (getenv("GTA_PEDDBG")) Log("CAR SHOT eye %.1f %.1f %.1f dir %.2f %.2f %.2f reach %.1f -> %d car0 %.1f %.1f %.1f cars %zu", g_aimEye[0], g_aimEye[1], g_aimEye[2], g_aimDirV[0], g_aimDirV[1], g_aimDirV[2], reach, vi2, g_vehicles.Count() ? g_vehicles.Car(0).x : 0.f, g_vehicles.Count() ? g_vehicles.Car(0).y : 0.f, g_vehicles.Count() ? g_vehicles.Car(0).z : 0.f, g_vehicles.Count());
                         if (vi2 >= 0 && vi2 != g_driveCar) {
-                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDir[i] * vt;
+                            for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDirV[i] * vt;
                             g_vehicles.Damage(vi2, g_cj.GunDamage() * 3.0f);
                             Log("CAR HIT %d health %.0f at %.1f", vi2, g_vehicles.Car((size_t)vi2).health, vt);
                             g_fx.Impact(hit, 0.0f);
