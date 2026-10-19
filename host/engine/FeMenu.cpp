@@ -1022,11 +1022,20 @@ void FeMenu::DrawBrief(Fe2d& g) {
 // ---- Controls list (read-only) ----------------------------------------------
 
 void FeMenu::DrawControls(Fe2d& g) {
-    static const char* kRows[][2] = {
+    // The rows follow the handling style: classic has the retail PC bindings, rewrite its own.
+    static const char* kClassic[][2] = {
+        {"Move", "W A S D"}, {"Look", "Mouse"}, {"Walk", "Alt"}, {"Sprint", "Space (tap)"}, {"Jump", "Shift"},
+        {"Crouch", "C"}, {"Aim", "Right mouse button"}, {"Fire", "Left mouse button / Enter"},
+        {"Next weapon", "E / mouse wheel down"}, {"Previous weapon", "Q / mouse wheel up"},
+        {"Enter / exit vehicle", "F"}, {"Pause menu", "Esc"}};
+    static const char* kRewrite[][2] = {
         {"Move", "W A S D"}, {"Look", "Mouse"}, {"Walk", "Alt"}, {"Sprint", "Space (hold)"}, {"Jump", "Shift"},
         {"Crouch", "C"}, {"Aim", "Right mouse button / Z"}, {"Fire", "Left mouse button / Enter"}, {"Reload", "R"},
-        {"Next weapon", "Q"}, {"Enter / exit vehicle", "F"}, {"Pause menu", "Esc"}};
-    const int n = (int)(sizeof(kRows) / sizeof(kRows[0]));
+        {"Next weapon", "Q (tap)"}, {"Weapon wheel", "Q (hold)"}, {"Camera view", "V"},
+        {"Enter / exit vehicle", "F"}, {"Pause menu", "Esc"}};
+    const bool rewrite = m_set.movementStyle == 1;
+    const char* const (*kRows)[2] = rewrite ? kRewrite : kClassic;
+    const int n = rewrite ? (int)(sizeof(kRewrite) / sizeof(kRewrite[0])) : (int)(sizeof(kClassic) / sizeof(kClassic[0]));
     const float x0 = Sx(150), x1 = Sx(490), y0 = Sy(112), lh = Sy(21);
     g.DrawRect(x0 - Sx(14), y0 - Sy(8), x1 + Sx(14), y0 + lh * (float)n + Sy(4), 0xA0000000);
     m_font.SetStyle(FeFont::SUBTITLES);
