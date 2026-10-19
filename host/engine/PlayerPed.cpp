@@ -1315,14 +1315,22 @@ void PlayerPed::ApplyAimIK(const Input& in) {
     }
     const bool armAim = m_aiming && m_gun >= 0 && m_guns[m_gun].aimWithArm && !m_ducking && !std::getenv("GTA_NOAIMIK");
     // the look pitch: the crosshair ray's (CCamera::Find3rdPersonQuickAimPitch), else the camera's
-    const float lookPitch = in.haveAimRay ? std::asin(std::clamp(in.aimDir[2], -1.0f, 1.0f)) : in.camPitch;
+    float lookPitch = in.haveAimRay ? std::asin(std::clamp(in.aimDir[2], -1.0f, 1.0f)) : in.camPitch;
+    if (in.lockOn) {   // CPedIK::PointGunAtPosition: the torso pitched toward the target
+        const float dx = in.lockPos[0] - in.worldX, dy = in.lockPos[1] - in.worldY, dz = in.lockPos[2] - (in.feetZ + 1.15f);
+        lookPitch = std::atan2(dz, std::sqrt(dx * dx + dy * dy));
+    }
     {
         // CTaskSimpleUseGun::AimGun free aim: CCamera::Find3rdPersonCamTargetVector(20, ped + (0, 0, 0.7))
         // - the camera ray through the crosshair, from its point nearest the ped, 20 m out. Model space.
         const float h = m_heading - kPi * 0.5f, c = std::cos(h), sn = std::sin(h);
         auto toModelDir = [&](const float* w, float* o) { o[0] = w[0] * c + w[1] * sn; o[1] = -w[0] * sn + w[1] * c; o[2] = w[2]; };
         float tgt[3] = {0.0f, std::cos(lookPitch) * 20.0f, 0.7f + std::sin(lookPitch) * 20.0f};
-        if (in.haveAimRay) {
+        if (in.lockOn) {   // AimGun with a target entity: point at its bone
+            const float rel[3] = {in.lockPos[0] - in.worldX, in.lockPos[1] - in.worldY, 0.0f};
+            toModelDir(rel, tgt);
+            tgt[2] = in.lockPos[2] - in.feetZ + m_bindMinZ;
+        } else if (in.haveAimRay) {
             float d[3], e[3];
             toModelDir(in.aimDir, d);
             const float rel[3] = {in.aimEye[0] - in.worldX, in.aimEye[1] - in.worldY, 0.0f};
@@ -1870,6 +1878,8 @@ void PlayerPed::ControlStance(const Input& in) {
         // 0.05 rad further right (classic; the rewrite crosshair is centred)
         if (!in.rewrite && in.haveAimRay && m_gun >= 0 && (!m_guns[m_gun].aimWithArm || m_ducking))
             m_aimHeading = std::atan2(in.aimDir[1], in.aimDir[0]) - 0.05f;
+        // CTaskSimpleUseGun::ProcessPed: locked on, the ped faces the target
+        if (in.lockOn) m_aimHeading = std::atan2(in.lockPos[1] - in.worldY, in.lockPos[0] - in.worldX);
     }
     else if (mag > 0.0f) m_aimHeading = std::atan2(sy, sx);
 

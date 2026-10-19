@@ -432,6 +432,7 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
     Fe2d& g = m_2d;
     g.Begin(r.GetDevice());
     if (d.rewrite) DrawRewrite(g, d, sw, sh); else DrawClassic(g, d, sw, sh);
+    if (d.lockOn) DrawLockOn(g, d, sh);
     if (d.wheel) { m_font.SetScreen(640.0f * (sh / 448.0f), 448.0f * (sh / 448.0f)); DrawWheel(g, d, sw, sh); }
     {
         const float u = sh / 448.0f;
@@ -521,7 +522,7 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
     // Crosshair: the retail sprite while aiming
     // CHud::DrawCrossHairs: the siteM16 quarter ring drawn four times, mirrored about the
     // crosshair point, 64 * radius units across; a 2 x 2 dot at the smallest radius.
-    if (d.aiming && d.armed) {
+    if (d.aiming && d.armed && !d.lockOn) {
         const float cx = sw * d.crossX, cy = sh * d.crossY, r = d.crossRadius;
         if (r == 0.2f) g.DrawRect(cx - 1.0f, cy - 1.0f, cx + 1.0f, cy + 1.0f, 0xFFFFFFFF);
         if (IDirect3DTexture9* site = Sprite("siteM16")) {
@@ -531,6 +532,36 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
             g.DrawTex(site, cx - w, cy, cx, cy + h, 0xFFFFFFFF, 0, 1, 1, 0);
             g.DrawTex(site, cx, cy, cx + w, cy + h, 0xFFFFFFFF, 1, 1, 0, 0);
         }
+    }
+}
+
+// CWeaponEffects::Render @ 00742cf0, a ped target: three triangles around it, turning 0.05 rad a
+// frame, each a black one with a smaller one in the target's health colour on top; the ring
+// breathes in and out. Sizes are retail pixels at 448 lines.
+void Hud::DrawLockOn(Fe2d& g, const HudData& d, float sh) {
+    const float u = sh / 448.0f, frames = d.dt * 30.0f;
+    const float size = std::clamp(d.lockSize, 0.3f, 1.2f);
+    float inner = 5.0f * size, outer = 25.0f * size;
+    if (d.crossRadius > 0.0f) { inner = d.crossRadius * 30.0f; outer = size * 20.0f + inner; }
+    m_lockRot += 0.05f * frames;
+    if (m_lockRot > 6.2831853f) m_lockRot = 0.0f;
+    if (!m_lockGrow) { m_lockPulse -= 2.0f * frames; if (m_lockPulse < 0.0f) m_lockGrow = true; }
+    else { m_lockPulse += size * 2.0f * frames; if (m_lockPulse > size * 20.0f) m_lockGrow = false; }
+    const float h = std::clamp(d.lockHealth, 0.0f, 1.0f);
+    const uint32_t col = 0xFF000000u | ((uint32_t)((1.0f - h) * 255.0f) << 16) | ((uint32_t)(h * 255.0f) << 8);
+    const float pulse = std::max(0.0f, m_lockPulse);
+    for (int i = 0; i < 3; i++) {
+        const float a = (float)i * 120.0f * 0.0174533f + m_lockRot;
+        const float b = ((float)i * 120.0f + 15.0f) * 0.0174533f + m_lockRot, c = ((float)i * 120.0f - 15.0f) * 0.0174533f + m_lockRot;
+        float p[6] = {-std::sin(a) * (inner + pulse), -std::cos(a) * (inner + pulse), -std::sin(b) * (outer + pulse),
+                      -std::cos(b) * (outer + pulse), -std::sin(c) * (outer + pulse), -std::cos(c) * (outer + pulse)};
+        Fe2d::Vert v[3];
+        for (int k = 0; k < 3; k++) v[k] = {d.lockX + p[k * 2] * u, d.lockY + p[k * 2 + 1] * u, 0, 0, 0xFF000000u};
+        g.DrawTris(nullptr, v, 3);
+        const float mx = (p[0] + p[2] + p[4]) / 3.0f, my = (p[1] + p[3] + p[5]) / 3.0f;
+        for (int k = 0; k < 3; k++)
+            v[k] = {d.lockX + ((p[k * 2] - mx) * 0.75f + mx) * u, d.lockY + ((p[k * 2 + 1] - my) * 0.75f + my) * u, 0, 0, col};
+        g.DrawTris(nullptr, v, 3);
     }
 }
 
@@ -638,7 +669,7 @@ void Hud::DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh) {
     }
 
     // ---- crosshair and hit marker ----
-    if (d.aiming && d.armed && d.crosshairDot) {
+    if (d.aiming && d.armed && d.crosshairDot && !d.lockOn) {
         const float cx = sw * d.crossX, cyy = sh * d.crossY;
         const float gap = (3.0f + 10.0f * d.spread) * u, len = 5.0f * u, th = 1.4f * u;
         const uint32_t c = 0xE0FFFFFF, sh2 = 0x70000000;

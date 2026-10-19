@@ -56,6 +56,8 @@ public:
         float camPitch = 0.0f;                // radians, positive = looking up
         float camYaw = 0.0f;                  // for the rewrite heading / lean
         bool haveAimRay = false;              // third person: the camera ray through the crosshair
+        bool lockOn = false;                  // locked on a target (CPlayerPed::m_pTargetedObject)
+        float lockPos[3] = {0, 0, 0};         // its aim point, world
         float aimEye[3] = {0, 0, 0}, aimDir[3] = {1, 0, 0};   // world
         bool firstPerson = false;             // face the camera, move along the stick
         // Ground height at (x, y) searching down from z (rewrite foot IK);
@@ -122,6 +124,9 @@ public:
     void PrevGun();                     // the other way
     int GunIndex() const { return m_gun; }
     float WeaponRadiusOnScreen() const;   // CPlayerPed::GetWeaponRadiusOnScreen
+    float TargetRange() const { return m_gun >= 0 ? m_guns[m_gun].targetRange : 0.0f; }
+    // CWeaponInfo::GetTargetHeadRange: (skill + 2) * weapon range * 0.04
+    float TargetHeadRange() const { return m_gun >= 0 ? (float)(s_weaponSkill + 2) * m_guns[m_gun].range * 0.04f : 0.0f; }
     int GunCount() const;                 // guns carried (the wheel lists these plus the fists)
     const char* GunNameAt(int i) const;
     IDirect3DTexture9* GunIconAt(int i) const;
@@ -290,6 +295,7 @@ private:
         float moveSpeed = 1.0f;                                              // weapon.dat move speed
         float barrel[3] = {0, 1, 0};                                         // barrel direction in hand space (long axis of the model, grip to muzzle)
     float accuracy = 1.0f;                                               // weapon.dat accuracy
+    float targetRange = 25.0f;                                           // weapon.dat target range (lock-on)
     float damage = 10.0f, range = 30.0f;                                 // weapon.dat damage and weapon range
         bool twin = false;                                                   // flag 0x800: a gun in each hand (pro skill)
         bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
