@@ -29,6 +29,8 @@ struct GunSpec {
     bool continuous;        // keeps firing while the button is held
     const char* firePoor = nullptr;   // the fire clip of the poor skill group (weapon.dat 'bad' groups)
     bool melee = false;     // a melee weapon: weapon.dat MELEE row, swung through data\melee.dat
+    bool thrown = false;    // a PROJECTILE row thrown by CTaskSimpleThrowProjectile (or the USE detonator)
+    int type = 0;           // eWeaponType, where the game logic needs it
 };
 
 namespace {
@@ -69,6 +71,15 @@ const GunSpec kMeleeSpecs[] = {
     {"VIBE2", "Silver vibrator", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
     {"FLOWERS", "Flowers", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
     {"CANE", "Cane", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+};
+
+// Thrown weapons and the detonator (weapon.dat PROJECTILE / USE rows). The detonator needs no clips.
+const GunSpec kThrownSpecs[] = {
+    {"GRENADE", "Grenade", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 16},
+    {"TEARGAS", "Tear gas", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 17},
+    {"MOLOTOV", "Molotov cocktail", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 18},
+    {"SATCHEL_CHARGE", "Satchel charge", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 39},
+    {"DETONATOR", "Detonator", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 40},
 };
 
 std::string LowerStr(std::string s) {
@@ -266,6 +277,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         if (!row) continue;
         Gun g;
         g.spec = &sp;
+        g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
         g.fireClip = s_weaponSkill == 0 && sp.firePoor ? sp.firePoor : sp.fire;
         g.name = sp.label;
         g.clipSize = std::atoi((*row)[9].c_str());
@@ -300,6 +312,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         if (!row) continue;
         Gun g;
         g.spec = &sp;
+        g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
         g.name = sp.label;
         g.comboName = (*row)[7];
         g.range = (float)std::atof((*row)[3].c_str());
@@ -307,6 +320,34 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.clipSize = g.ammo = g.total = 0;
         if (std::atoi((*row)[8].c_str()) > 1) g.comboName += "#";   // numbered by the fight style
         loadModel(g, std::atoi((*row)[4].c_str()));
+        m_guns.push_back(std::move(g));
+    }
+    // thrown weapons: the clip is one grenade, the stock is the count
+    for (const GunSpec& sp : kThrownSpecs) {
+        const std::vector<std::string>* row = nullptr;
+        for (const auto& t : rows) if (t[1] == sp.name) row = &t;
+        if (!row) continue;
+        Gun g;
+        g.spec = &sp;
+        g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
+        g.name = sp.label;
+        g.clipSize = 1;
+        g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
+        g.loopEnd = (float)std::atof((*row)[19].c_str()) * kFrame;
+        g.fireTime = (float)std::atof((*row)[20].c_str()) * kFrame;       // WEAPON_throw
+        g.loop2Start = (float)std::atof((*row)[21].c_str()) * kFrame;
+        g.loop2End = (float)std::atof((*row)[22].c_str()) * kFrame;
+        g.fire2Time = (float)std::atof((*row)[23].c_str()) * kFrame;      // WEAPON_throwu
+        g.damage = (float)std::atof((*row)[10].c_str());
+        g.range = (float)std::atof((*row)[4].c_str());
+        g.targetRange = (float)std::atof((*row)[3].c_str());
+        g.flags = (unsigned)std::strtoul((*row)[25].c_str(), nullptr, 16);
+        g.fireOffset[0] = (float)std::atof((*row)[11].c_str());
+        g.fireOffset[1] = (float)std::atof((*row)[12].c_str());
+        g.fireOffset[2] = (float)std::atof((*row)[13].c_str());
+        loadModel(g, std::atoi((*row)[5].c_str()));
+        g.ammo = 0;
+        g.total = std::strcmp(sp.name, "DETONATOR") == 0 ? 0 : 5;
         m_guns.push_back(std::move(g));
     }
     m_meleeOk = Melee::Load(gameDir, m_meleeTable);
@@ -332,8 +373,9 @@ void PlayerPed::ShutdownGuns(D3DRenderer& r) {
 // Select a weapon (-1 = fists); resets the aim state.
 void PlayerPed::SelectGun(int index) {
     m_gun = m_melee = -1;
-    if (index >= 0 && index < (int)m_guns.size()) (m_guns[index].spec->melee ? m_melee : m_gun) = index;
+    if (index >= 0 && index < (int)m_guns.size()) ((m_guns[index].spec->melee || m_guns[index].spec->thrown) ? m_melee : m_gun) = index;
     FightEnd(true);
+    m_throw = Throw();
     m_reloading = m_firing = false;
     m_attackCounter = 0.0f;   // CPlayerPed::MakeChangesForNewWeapon
     for (Assoc& a : m_assocs) if (a.partial) { a.dead = true; a.blend = 0.0f; }
@@ -350,7 +392,10 @@ void PlayerPed::PrevGun() {
 }
 
 void PlayerPed::RefillAmmo() {
-    for (Gun& g : m_guns) { g.ammo = g.clipSize; g.total = g.clipSize * 60; }
+    for (Gun& g : m_guns) {
+        if (g.spec->thrown) { g.total = g.detonator ? g.total : 5; continue; }
+        g.ammo = g.clipSize; g.total = g.clipSize * 60;
+    }
 }
 
 int PlayerPed::GunCount() const { return (int)m_guns.size(); }
@@ -373,8 +418,9 @@ float PlayerPed::WeaponRadiusOnScreen() const {
 
 const char* PlayerPed::GunId() const { return WeaponIndex() >= 0 && m_guns[WeaponIndex()].spec ? m_guns[WeaponIndex()].spec->name : ""; }
 int PlayerPed::GunAmmo() const { return m_gun >= 0 ? m_guns[m_gun].ammo : 0; }
-int PlayerPed::GunClipSize() const { return m_gun >= 0 ? m_guns[m_gun].clipSize : 0; }
-int PlayerPed::GunTotalAmmo() const { return m_gun >= 0 ? m_guns[m_gun].total : 0; }
+int PlayerPed::GunClipSize() const { return m_gun >= 0 ? m_guns[m_gun].clipSize : HoldingThrown() ? 1 : 0; }
+int PlayerPed::GunTotalAmmo() const { return m_gun >= 0 ? m_guns[m_gun].total : HoldingThrown() ? m_guns[m_melee].total : 0; }
+int PlayerPed::GunType(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].type : 0; }
 IDirect3DTexture9* PlayerPed::GunIcon() const { return WeaponIndex() >= 0 ? m_guns[WeaponIndex()].icon : nullptr; }
 
 // Armor soaks the hit first, like CPed::InflictDamage.

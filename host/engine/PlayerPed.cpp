@@ -249,7 +249,7 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         if (anims.Open(gameDir + "\\anim\\anim.img")) {
             IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), m_clips, true);
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
-            for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw"})   // melee groups
+            for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw", "grenade"})   // melee groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
             for (const char* g : {"colt45", "silenced", "python", "shotgun", "buddy", "uzi", "rifle", "sniper"})   // weapon groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
@@ -1530,6 +1530,7 @@ void PlayerPed::Update(const Input& inRaw) {
         else if (!m_busy) { if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false); ControlOnFoot(in); }
         else { if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false); m_ratio = 0.0f; }
         UpdateMelee(in);
+        UpdateThrow(in);
     }
 
     // Dev: GTA_CJPOSE="clip:seconds" freezes CJ in one frame of one clip.
