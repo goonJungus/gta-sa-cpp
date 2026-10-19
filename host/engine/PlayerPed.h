@@ -185,6 +185,7 @@ public:
     void SetWallProbe(std::function<bool(const float*, const float*)> f) { m_wallProbe = std::move(f); }
     void DrawGunModel(D3DRenderer& r, int gunIndex, const float world[4][4]);   // a weapon model at a world matrix
     int GunType(int gunIndex) const;                                            // eWeaponType of a weapon
+    int RocketModelIndex() const;                                               // the hidden rocket model slot
     bool Reloading() const { return m_reloading; }
     IDirect3DTexture9* GunIcon() const; // hud icon texture, or null (fists)
     // One-shot events for sound and effects, taken by the host each frame.

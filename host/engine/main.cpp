@@ -3702,6 +3702,31 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     Projectiles::Env env;
                     env.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
                     env.rayCast = [](const float* a, const float* b, float* nz) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2], nullptr, nz); };
+                    env.entityHit = [](const float* a, const float* b) {
+                        float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+                        const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                        if (len < 1e-4f) return false;
+                        for (float& v : d) v /= len;
+                        float t = 0.0f;
+                        if (g_peds.Ready() && g_peds.Trace(a, d, len, &t, nullptr) >= 0) return true;
+                        return g_vehicles.Ready() && g_vehicles.Trace(a, d, len, &t) >= 0 && g_vehicles.Trace(a, d, len, &t) != g_driveCar;
+                    };
+                    env.seekTarget = [](const float* o, const float* v, float* out) {   // the nearest ped or car inside the nose cone
+                        const float vl = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                        if (vl < 1e-3f) return false;
+                        float best = 1e9f; bool found = false;
+                        auto consider = [&](float x, float y, float z) {
+                            const float d[3] = {x - o[0], y - o[1], z - o[2]};
+                            const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                            if (dl < 1.0f || dl > 120.0f) return;
+                            if ((d[0] * v[0] + d[1] * v[1] + d[2] * v[2]) / (dl * vl) < 0.5f) return;   // about 60 degrees
+                            if (dl < best) { best = dl; out[0] = x; out[1] = y; out[2] = z; found = true; }
+                        };
+                        for (size_t i = 0; g_vehicles.Ready() && i < g_vehicles.Count(); i++)
+                            if ((int)i != g_driveCar) consider(g_vehicles.Car(i).x, g_vehicles.Car(i).y, g_vehicles.Car(i).z);
+                        for (size_t i = 0; g_peds.Ready() && i < g_peds.Count(); i++) consider(g_peds.X(i), g_peds.Y(i), g_peds.Z(i) + 1.0f);
+                        return found;
+                    };
                     std::vector<Projectiles::Event> pev;
                     if (worldReady) g_proj.Update(dt, env, pev);
                     for (const Projectiles::Event& e : pev) {
@@ -3714,6 +3739,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             const float dx = playerX - e.pos[0], dy = playerY - e.pos[1], dz = playerZ - EYE_HEIGHT + 1.0f - e.pos[2];
                             const float d = sqrtf(dx * dx + dy * dy + dz * dz);
                             if (d < e.radius) g_cj.Hurt(std::min(1.0f, 2.0f * (e.radius - d) / e.radius) * 250.0f);
+                        } else if (e.kind == Projectiles::Kind::Trail) {
+                            static int s_trail = 0;
+                            if (++s_trail % 3 == 0) g_fx.Smoke(e.pos, 0.5f);
                         } else if (e.kind == Projectiles::Kind::Fire) {
                             g_fx.Fire(e.pos); g_fx.Fire(e.pos); g_fx.Smoke(e.pos, 0.5f);
                             g_peds.Explosion(e.pos, 3.0f);
@@ -3766,6 +3794,39 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 // Each shot is a hitscan down the camera ray: a tracer from the muzzle,
                 // dust and sparks and a hit sound where it lands.
                 for (int n = 0; n < evShots && worldReady; n++) {
+                    const int heavy = g_cj.GunIndex() >= 0 ? g_cj.GunType(g_cj.GunIndex()) : 0;
+                    float hm[3];
+                    if (heavy == 35 || heavy == 36) {   // CWeapon::FireProjectile: the rocket leaves along the camera front, 1 m from the muzzle
+                        if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, hm)) {
+                            const float sp = heavy == 35 ? 20.0f : 10.0f;   // 0.4 / 0.2 per step
+                            float pos[3], vel[3];
+                            for (int i = 0; i < 3; i++) { pos[i] = hm[i] + g_aimDir[i]; vel[i] = g_aimDir[i] * sp; }
+                            Log("ROCKET %d pos %.2f %.2f %.2f", heavy, pos[0], pos[1], pos[2]);
+                            g_proj.Add(g_cj.RocketModelIndex(), heavy == 35 ? 19 : 20, pos, vel, false);
+                            g_audio.Impact(0.0f);
+                        }
+                        continue;
+                    }
+                    if (heavy == 37 || heavy == 41 || heavy == 42) {   // CWeapon::FireAreaEffect: a stream along the aim, fire / paint / foam
+                        if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, hm)) {
+                            const float reach = std::max(1.0f, g_cj.GunRange());
+                            float tt = 0.0f; bool hd = false;
+                            const int pi2 = g_peds.Ready() ? g_peds.Trace(hm, g_aimDir, reach, &tt, &hd) : -1;
+                            const float use = pi2 >= 0 ? tt : reach;
+                            for (int k = 1; k <= 3; k++) {
+                                const float d = use * (float)k / 3.0f;
+                                const float pt[3] = {hm[0] + g_aimDir[0] * d, hm[1] + g_aimDir[1] * d, hm[2] + g_aimDir[2] * d};
+                                if (heavy == 37) { g_fx.Fire(pt); if (k == 3) g_fx.Smoke(pt, 0.4f); }
+                                else g_fx.Smoke(pt, 0.0f);
+                            }
+                            if (pi2 >= 0 && heavy == 37) {
+                                const bool kill = g_peds.Damage(pi2, g_cj.GunDamage(), false);
+                                Log("FLAME HIT %d kill %d", pi2, (int)kill);
+                                if (g_hudReady) g_hud.Hit(kill);
+                            }
+                        }
+                        continue;
+                    }
                     const float range = 120.0f;
                     // CWeapon::FireInstantHit: the aimed ray wobbles on a circle (1 s period) by
                     // (100 - 95) / accuracy * attack counter * 0.75, shotguns do not (they spread pellets).

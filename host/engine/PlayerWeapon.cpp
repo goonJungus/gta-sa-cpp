@@ -52,7 +52,17 @@ const GunSpec kSpecs[] = {
     {"M4", "M4", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true, "rifle_fire_poor"},
     {"COUNTRYRIFLE", "Country rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
     {"SNIPERRIFLE", "Sniper rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
+    // heavy weapons: AnimAssocAnimations aRocketAnimations / aFlameAnimations / aSprayCanAnimations (one fire clip, no reload clip)
+    {"RLAUNCHER", "Rocket launcher", "rocketfire", "rocketfire", nullptr, nullptr, false, nullptr, false, false, 35},
+    {"RLAUNCHER_HS", "Heat-seeking RPG", "rocketfire", "rocketfire", nullptr, nullptr, false, nullptr, false, false, 36},
+    {"FTHROWER", "Flamethrower", "flame_fire", "flame_fire", nullptr, nullptr, true, nullptr, false, false, 37},
+    {"MINIGUN", "Minigun", "flame_fire", "flame_fire", nullptr, nullptr, true, nullptr, false, false, 38},
+    {"SPRAYCAN", "Spray can", "spraycan_fire", "spraycan_fire", nullptr, nullptr, true, nullptr, false, false, 41},
+    {"EXTINGUISHER", "Fire extinguisher", "flame_fire", "flame_fire", nullptr, nullptr, true, nullptr, false, false, 42},
 };
+
+// The rocket in flight: a model only, never selectable (last in the list).
+const GunSpec kRocketSpec = {"ROCKET", "Rocket", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, false, 19};
 
 // weapon.dat MELEE rows, in slot order: model, base combo and fight data come from the file.
 const GunSpec kMeleeSpecs[] = {
@@ -350,6 +360,20 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.total = std::strcmp(sp.name, "DETONATOR") == 0 ? 0 : 5;
         m_guns.push_back(std::move(g));
     }
+    {   // the rocket model (weapon.dat ROCKET row), kept last and hidden from the weapon cycle
+        for (const auto& t : rows) {
+            if (t[1] != kRocketSpec.name) continue;
+            Gun g;
+            g.spec = &kRocketSpec;
+            g.type = kRocketSpec.type;
+            g.name = kRocketSpec.label;
+            g.flags = 0;
+            g.clipSize = g.ammo = g.total = 0;
+            loadModel(g, std::atoi(t[5].c_str()));
+            m_guns.push_back(std::move(g));
+            break;
+        }
+    }
     m_meleeOk = Melee::Load(gameDir, m_meleeTable);
     for (Gun& g : m_guns)
         if (g.spec->melee) {
@@ -383,12 +407,12 @@ void PlayerPed::SelectGun(int index) {
 
 void PlayerPed::NextGun() {
     const int cur = WeaponIndex();
-    SelectGun(cur + 1 >= (int)m_guns.size() ? -1 : cur + 1);
+    SelectGun(cur + 1 >= GunCount() ? -1 : cur + 1);
 }
 
 void PlayerPed::PrevGun() {
     const int cur = WeaponIndex();
-    SelectGun(cur < 0 ? (int)m_guns.size() - 1 : cur - 1);
+    SelectGun(cur < 0 ? GunCount() - 1 : cur - 1);
 }
 
 void PlayerPed::RefillAmmo() {
@@ -398,7 +422,11 @@ void PlayerPed::RefillAmmo() {
     }
 }
 
-int PlayerPed::GunCount() const { return (int)m_guns.size(); }
+int PlayerPed::GunCount() const {
+    int n = (int)m_guns.size();
+    while (n > 0 && m_guns[n - 1].type == 19) n--;   // the rocket model is not a weapon
+    return n;
+}
 const char* PlayerPed::GunNameAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].name.c_str() : "Fists"; }
 IDirect3DTexture9* PlayerPed::GunIconAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].icon : nullptr; }
 int PlayerPed::GunClipAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].ammo : 0; }
@@ -420,6 +448,10 @@ const char* PlayerPed::GunId() const { return WeaponIndex() >= 0 && m_guns[Weapo
 int PlayerPed::GunAmmo() const { return m_gun >= 0 ? m_guns[m_gun].ammo : 0; }
 int PlayerPed::GunClipSize() const { return m_gun >= 0 ? m_guns[m_gun].clipSize : HoldingThrown() ? 1 : 0; }
 int PlayerPed::GunTotalAmmo() const { return m_gun >= 0 ? m_guns[m_gun].total : HoldingThrown() ? m_guns[m_melee].total : 0; }
+int PlayerPed::RocketModelIndex() const {
+    for (size_t i = 0; i < m_guns.size(); i++) if (m_guns[i].type == 19) return (int)i;
+    return -1;
+}
 int PlayerPed::GunType(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].type : 0; }
 IDirect3DTexture9* PlayerPed::GunIcon() const { return WeaponIndex() >= 0 ? m_guns[WeaponIndex()].icon : nullptr; }
 
@@ -534,7 +566,7 @@ void PlayerPed::UpdateGun(const Input& in) {
             m_shotEvents++;
             m_attackCounter += g.damage * 0.04f;   // CWeapon::FireInstantHit
             m_lastShotLeft = false;
-            if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0) m_flash = 0.06f;   // the silenced pistol has no flash
+            if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0 && g.type < 35) m_flash = 0.06f;   // the silenced pistol and the heavy weapons have no flash
             std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
         }
         // CTaskSimpleUseGun::ProcessPed: a twin pistol's left gun fires half a loop after the right
@@ -564,7 +596,7 @@ void PlayerPed::UpdateGun(const Input& in) {
                     m_shotEvents++;
                     m_attackCounter += g.damage * 0.04f;
                     m_lastShotLeft = false;
-                    if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0) m_flash = 0.06f;
+                    if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0 && g.type < 35) m_flash = 0.06f;
                     std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
                 }
             } else {

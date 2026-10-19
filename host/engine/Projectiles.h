@@ -9,12 +9,14 @@ class PlayerPed;
 
 class Projectiles {
 public:
-    enum class Kind { Explode, Fire, Gas };
+    enum class Kind { Explode, Fire, Gas, Trail };
     struct Event { Kind kind; float pos[3]; float radius; };
 
     struct Env {
         std::function<float(float, float, float)> groundAt;                 // < -1e5: none
-        std::function<float(const float*, const float*, float*)> rayCast;   // fraction of a -> b to the first hit (>= 1: clear), wall normal z in the third
+        std::function<float(const float*, const float*, float*)> rayCast;
+        std::function<bool(const float*, const float*)> entityHit;          // a ped or car on the segment a -> b
+        std::function<bool(const float*, const float*, float*)> seekTarget;   // heat-seeker: origin, forward -> target position   // fraction of a -> b to the first hit (>= 1: clear), wall normal z in the third
     };
 
     void Add(int gun, int type, const float pos[3], const float vel[3], bool fell);
@@ -31,6 +33,7 @@ private:
         float spin = 0.0f;
         bool resting = false;
         float elasticity = 0.75f;
+        bool homing = false;
     };
     std::vector<P> m_list;
     unsigned m_rng = 12345;
