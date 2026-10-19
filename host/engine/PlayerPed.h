@@ -130,6 +130,10 @@ public:
     float TargetRange() const { return m_gun >= 0 ? m_guns[m_gun].targetRange : 0.0f; }
     // CWeaponInfo::GetTargetHeadRange: (skill + 2) * weapon range * 0.04
     float TargetHeadRange() const { return m_gun >= 0 ? (float)(s_weaponSkill + 2) * m_guns[m_gun].range * 0.04f : 0.0f; }
+    // CWeapon::FireInstantHit inputs: the crosshair counter, weapon.dat accuracy and flags.
+    float AttackCounter() const { return m_attackCounter; }
+    float GunAccuracy() const { return m_gun >= 0 ? m_guns[m_gun].accuracy : 1.0f; }
+    bool GunCanAim() const { return m_gun >= 0 && (m_guns[m_gun].flags & 1); }
     int GunCount() const;                 // guns carried (the wheel lists these plus the fists)
     const char* GunNameAt(int i) const;
     IDirect3DTexture9* GunIconAt(int i) const;
@@ -297,6 +301,7 @@ private:
         float loop2Start = 0, loop2End = 0, fire2Time = 0;                   // the crouched loop (weapon.dat anim loop 2)
         float moveSpeed = 1.0f;                                              // weapon.dat move speed
         float barrel[3] = {0, 1, 0};                                         // barrel direction in hand space (long axis of the model, grip to muzzle)
+    unsigned flags = 0;                                                  // weapon.dat flags
     float accuracy = 1.0f;                                               // weapon.dat accuracy
     float targetRange = 25.0f;                                           // weapon.dat target range (lock-on)
     float damage = 10.0f, range = 30.0f;                                 // weapon.dat damage and weapon range
