@@ -18,6 +18,7 @@ changing anything here, run `python scripts/progress.py` to refresh the README.
 - [~] Water, particles and sky effects (water.dat water, retail sky polys, sun, moon with phases that rises and sets, regional weather cycle, stars and low clouds; water splashes on entry, swimming and wading and landing dust; no waves or volumetric clouds yet) (w 2)
 
 ## Physics and player
+- [~] Physics props (object.dat parsed; every placement with a mass under 99999 and no uproot limit becomes a rigid box: gravity, air drag, ground and wall contacts, bounce from the elasticity, friction, sleep; the player shoves them, cars plough through them, bullets knock them about and smash cardboard boxes, explosions throw them and set off barrels; lamp posts, doors and fences stay fixed; no toppling or breakable parts yet) (w 2)
 - [x] COL2/COL3/COL4 collision: boxes, spheres, triangle walls and floors (w 2)
 - [x] On-foot player controller and camera (classic ped zooms; rewrite first person and shoulder views with collision; rewrite camera shake, no producers yet; rewrite foot IK) (w 1)
 - [~] Skinned CJ model and IFP animations (default outfit; retail blend system, walk/run/sprint, jumps, falls, landings and get-ups; classic or rewrite handling; ledge climbs, hangs and vaults (CTaskSimpleClimb port); fat/muscle body blend from the fat and muscle stats, which exercise changes as in CStats::UpdateFatAndMuscleStats (ar_stats.dat rates and limits; saved to the ini); no wardrobe yet) (w 3)

@@ -50,6 +50,7 @@ if(WIN32)
         host/engine/Speech.cpp
         host/engine/Delirium.cpp
         host/engine/World.cpp
+        host/engine/DynObjects.cpp
         host/engine/TimeCycle.cpp
         host/engine/D3DRenderer.cpp
         host/engine/DffLoader.cpp
