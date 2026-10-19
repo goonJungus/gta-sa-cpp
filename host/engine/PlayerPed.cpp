@@ -1169,6 +1169,10 @@ void QuatMul(const float a[4], const float b[4], float o[4]) {
 void PlayerPed::UpdateArmChain(int side, bool want, const float target[3], float dt) {
     IkChain& c = m_ikArm[side];
     const int handBone = side == 0 ? 24 : 34;
+    if (want && std::getenv("GTA_IKLATE") && !c.alive) {   // dev: start the chain from the aim clip's pose
+        const Assoc* fa = m_gunFireClip ? Get(m_gunFireClip) : nullptr;
+        if (!fa || fa->blend < 0.98f) return;
+    }
     if (want) {
         if (!c.alive) {
             c.nodes.clear();
@@ -1219,7 +1223,10 @@ void PlayerPed::UpdateArmChain(int side, bool want, const float target[3], float
     };
     calcFrom(count - 1);
     const float eff[3] = {0.05f, 0.0f, 0.0f};   // CTaskSimpleIKPointArm ctor @ 00634150: m_EffectorOffset (0.05, 0, 0)
-    for (int i = 0; i < count; i++) {
+    // The clavicle stays with the clip: turning it too (the chain reaches it under the neck pivot)
+    // stretches the shoulder far out of the skin, which retail never shows. GTA_IKCLAV=1 sweeps it.
+    static const int sweep = std::getenv("GTA_IKCLAV") ? count : count - 1;
+    for (int i = 0; i < sweep && i < count; i++) {
         IkNode& n = c.nodes[i];
         float tip[3];
         wld[0].ApplyDir(eff, tip);
@@ -1265,8 +1272,10 @@ void PlayerPed::UpdateArmChain(int side, bool want, const float target[3], float
             float e[4][3];
             for (int i = 0; i < count && i < 4; i++) IkQuatToEuler(c.nodes[i].q, e[i]);
             const float* hp = wld[0].m[3];
-            std::fprintf(stderr, "[IKCH] side %d blend %.2f hand (%.2f %.2f %.2f) tgt (%.1f %.1f %.1f) up (%.0f %.0f %.0f) fore (%.0f %.0f %.0f)\n", side, c.blend,
-                         hp[0], hp[1], hp[2], target[0], target[1], target[2], e[2][0], e[2][1], e[2][2], e[1][0], e[1][1], e[1][2]);
+            float pe[3]; IkQuatToEuler(m_pose[c.nodes[3].frame].q, pe);
+            std::fprintf(stderr, "[IKCH] side %d blend %.2f hand (%.2f %.2f %.2f) tgt (%.1f %.1f %.1f) up (%.0f %.0f %.0f) fore (%.0f %.0f %.0f) clav (%.0f %.0f %.0f) clavAnim (%.0f %.0f %.0f) S (%.2f %.2f %.2f)\n", side, c.blend,
+                         hp[0], hp[1], hp[2], target[0], target[1], target[2], e[2][0], e[2][1], e[2][2], e[1][0], e[1][1], e[1][2],
+                         e[3][0], e[3][1], e[3][2], pe[0], pe[1], pe[2], wld[2].m[3][0], wld[2].m[3][1], wld[2].m[3][2]);
         }
     }
     // BoneNode_c::BlendKeyframe: the keyframe slerped toward the chain's orientation, then the
@@ -1563,6 +1572,7 @@ void PlayerPed::Update(const Input& in) {
     ApplySwimPitch();
     if (in.rewrite) ApplyRewritePose();
     ApplyAimIK(in);
+    ShoulderBoneRotation();   // the shoulder helpers follow the arm after the IK moved it
     if (in.rewrite) ApplyFootIK(in);
     Skin();
 }
