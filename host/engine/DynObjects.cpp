@@ -1,3 +1,4 @@
+#include <array>
 // Dynamic props: the objects that object.dat gives a mass (boxes, trash bags, bins, barrels, ...).
 // Retail makes each placement a CObject: static until something hits it, then a rigid body that falls,
 // bounces and slides, and goes back to sleep. Collision damage effects 20/21 smash it, 200/202 break it,
@@ -156,10 +157,16 @@ bool GameWorld::InitDynBody(DynBody& b) {
         mx[0] = std::max(mx[0], x); mx[1] = std::max(mx[1], y); mx[2] = std::max(mx[2], z);
     };
     const ColEntryLoc* loc = FindColEntry(in.hdModel);
+    struct Raw { bool sphere; float c[3], h[3], r; };
+    std::vector<Raw> raw;
     if (loc && loc->arc != size_t(-1)) {
         std::vector<WorldColBox> boxes;
         if (ParseBoxes(loc->arc, loc->off, boxes))
-            for (const WorldColBox& x : boxes) { grow(x.minX, x.minY, x.minZ); grow(x.maxX, x.maxY, x.maxZ); }
+            for (const WorldColBox& x : boxes) {
+                grow(x.minX, x.minY, x.minZ); grow(x.maxX, x.maxY, x.maxZ);
+                raw.push_back({false, {0.5f * (x.minX + x.maxX), 0.5f * (x.minY + x.maxY), 0.5f * (x.minZ + x.maxZ)},
+                               {0.5f * (x.maxX - x.minX), 0.5f * (x.maxY - x.minY), 0.5f * (x.maxZ - x.minZ)}, 0.0f});
+            }
         const std::vector<uint8_t>& d = m_cols[loc->arc].data;
         const uint8_t* e = d.data() + loc->off;
         if (loc->off + 0x6C <= d.size() && std::memcmp(e, "COL", 3) == 0) {
@@ -174,6 +181,7 @@ bool GameWorld::InitDynBody(DynBody& b) {
                 const float cx = f32(d.data() + s), cy = f32(d.data() + s + 4), cz = f32(d.data() + s + 8), r = f32(d.data() + s + 12);
                 if (!(r > 0.0f && r < 100.0f)) continue;
                 grow(cx - r, cy - r, cz - r); grow(cx + r, cy + r, cz + r);
+                raw.push_back({true, {cx, cy, cz}, {r, r, r}, r});
             }
         }
         if (mn[0] > mx[0]) {
@@ -193,6 +201,23 @@ bool GameWorld::InitDynBody(DynBody& b) {
         b.c[i] = 0.5f * (mn[i] + mx[i]);
         b.hx[i] = std::max(0.04f, 0.5f * (mx[i] - mn[i]));
     }
+    b.parts.clear();
+    for (const Raw& r : raw) {
+        DynBody::Part p;
+        p.sphere = r.sphere; p.r = r.r;
+        for (int i = 0; i < 3; i++) { p.c[i] = r.c[i] - b.c[i]; p.h[i] = r.h[i]; }
+        b.parts.push_back(p);
+    }
+    if (b.parts.empty()) {   // a triangle-mesh model: its hull box stands in
+        DynBody::Part p;
+        for (int i = 0; i < 3; i++) p.h[i] = b.hx[i];
+        b.parts.push_back(p);
+    }
+    if (getenv("GTA_DYNSHAPES")) {
+        int nb = 0, ns = 0;
+        for (const DynBody::Part& p : b.parts) (p.sphere ? ns : nb)++;
+        std::fprintf(stderr, "[DynShape] %s boxes %d spheres %d%s\n", in.hdModel.c_str(), nb, ns, raw.empty() ? " (hull)" : "");
+    }
     QuatRows(in.qx, in.qy, in.qz, in.qw, b.R);
     float off[3];
     ToWorld(b.R, b.c, off);
@@ -211,23 +236,29 @@ void GameWorld::DynSync(DynBody& b) {
     ToWorld(b.R, b.c, off);
     in.x = b.p[0] - off[0]; in.y = b.p[1] - off[1]; in.z = b.p[2] - off[2];
     RowsQuat(b.R, in.qx, in.qy, in.qz, in.qw);
-    WorldColObb ob;
-    float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
-    for (int i = 0; i < 2; i++)
-        for (int j = 0; j < 2; j++)
-            for (int k = 0; k < 2; k++) {
-                const float l[3] = {i ? b.hx[0] : -b.hx[0], j ? b.hx[1] : -b.hx[1], k ? b.hx[2] : -b.hx[2]};
-                float w[3];
-                ToWorld(b.R, l, w);
-                const int c = i * 4 + j * 2 + k;
-                ob.x[c] = b.p[0] + w[0]; ob.y[c] = b.p[1] + w[1]; ob.z[c] = b.p[2] + w[2];
-                mn[0] = std::min(mn[0], ob.x[c]); mx[0] = std::max(mx[0], ob.x[c]);
-                mn[1] = std::min(mn[1], ob.y[c]); mx[1] = std::max(mx[1], ob.y[c]);
-                mn[2] = std::min(mn[2], ob.z[c]); mx[2] = std::max(mx[2], ob.z[c]);
-            }
-    in.boxes.assign(1, WorldColBox{mn[0], mn[1], mn[2], mx[0], mx[1], mx[2]});
-    in.obb.assign(1, ob);
-    in.spheres.clear();
+    in.boxes.clear(); in.obb.clear(); in.spheres.clear();
+    for (const DynBody::Part& pt : b.parts) {
+        float cw[3];
+        ToWorld(b.R, pt.c, cw);
+        const float C[3] = {b.p[0] + cw[0], b.p[1] + cw[1], b.p[2] + cw[2]};
+        if (pt.sphere) { in.spheres.push_back(WorldColSphere{C[0], C[1], C[2], pt.r}); continue; }
+        WorldColObb ob;
+        float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
+        for (int i = 0; i < 2; i++)
+            for (int j = 0; j < 2; j++)
+                for (int k = 0; k < 2; k++) {
+                    const float l[3] = {i ? pt.h[0] : -pt.h[0], j ? pt.h[1] : -pt.h[1], k ? pt.h[2] : -pt.h[2]};
+                    float w[3];
+                    ToWorld(b.R, l, w);
+                    const int c = i * 4 + j * 2 + k;
+                    ob.x[c] = C[0] + w[0]; ob.y[c] = C[1] + w[1]; ob.z[c] = C[2] + w[2];
+                    mn[0] = std::min(mn[0], ob.x[c]); mx[0] = std::max(mx[0], ob.x[c]);
+                    mn[1] = std::min(mn[1], ob.y[c]); mx[1] = std::max(mx[1], ob.y[c]);
+                    mn[2] = std::min(mn[2], ob.z[c]); mx[2] = std::max(mx[2], ob.z[c]);
+                }
+        in.boxes.push_back(WorldColBox{mn[0], mn[1], mn[2], mx[0], mx[1], mx[2]});
+        in.obb.push_back(ob);
+    }
     in.boxesIn = true;
 }
 
@@ -277,15 +308,19 @@ void GameWorld::DynUpdate(float dt, float gravity) {
         const float invM = 1.0f / std::max(0.1f, b.def.mass);
         const float turn = b.def.turn;
         // contact points: corners and face centres, relative to the centre in local space
-        float lp[14][3];
-        int n = 0;
-        for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) for (int k = 0; k < 2; k++) {
-            lp[n][0] = i ? b.hx[0] : -b.hx[0]; lp[n][1] = j ? b.hx[1] : -b.hx[1]; lp[n][2] = k ? b.hx[2] : -b.hx[2]; n++;
+        // (every COL part: a box gives its corners and face centres, a sphere its centre with its radius)
+        std::vector<std::array<float, 4>> lp;
+        for (const DynBody::Part& pt : b.parts) {
+            if (pt.sphere) { lp.push_back({pt.c[0], pt.c[1], pt.c[2], pt.r}); continue; }
+            for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) for (int k = 0; k < 2; k++)
+                lp.push_back({pt.c[0] + (i ? pt.h[0] : -pt.h[0]), pt.c[1] + (j ? pt.h[1] : -pt.h[1]), pt.c[2] + (k ? pt.h[2] : -pt.h[2]), 0.0f});
+            for (int a = 0; a < 3; a++) for (int sg = -1; sg <= 1; sg += 2) {
+                std::array<float, 4> f = {pt.c[0], pt.c[1], pt.c[2], 0.0f};
+                f[a] += sg * pt.h[a];
+                lp.push_back(f);
+            }
         }
-        for (int a = 0; a < 3; a++) for (int s = -1; s <= 1; s += 2) {
-            lp[n][0] = lp[n][1] = lp[n][2] = 0.0f;
-            lp[n][a] = s * b.hx[a]; n++;
-        }
+        const int n = (int)lp.size();
         for (int step = 0; step < steps; step++) {
             b.v[2] -= gravity * h;
             const float drag = std::pow(std::clamp(b.def.airRes, 0.5f, 1.0f), h * 30.0f);
@@ -315,18 +350,24 @@ void GameWorld::DynUpdate(float dt, float gravity) {
             for (int iter = 0; iter < 3; iter++) {
                 for (int k = 0; k < n; k++) {
                     float r[3];
-                    ToWorld(b.R, lp[k], r);
+                    const float lpk[3] = {lp[k][0], lp[k][1], lp[k][2]};
+                    const float rad = lp[k][3];
+                    ToWorld(b.R, lpk, r);
                     const float pt[3] = {b.p[0] + r[0], b.p[1] + r[1], b.p[2] + r[2]};
                     float nrm[3] = {0, 0, 0}, pen = 0.0f;
-                    const float gh = GetGroundHeight(pt[0], pt[1], pt[2] + 0.05f);
-                    if (gh > kNoGroundV * 0.5f && gh > pt[2] && gh - pt[2] < 0.6f) {
-                        nrm[2] = 1.0f; pen = gh - pt[2];
+                    const float low = pt[2] - rad;   // a sphere touches with its underside
+                    const float gh = GetGroundHeight(pt[0], pt[1], low + 0.05f);
+                    if (gh > kNoGroundV * 0.5f && gh > low && gh - low < 0.6f) {
+                        nrm[2] = 1.0f; pen = gh - low;
+                        if (rad > 0.0f) r[2] -= rad;
                     } else {
                         ProbeHit ph;
-                        if (SphereProbe(pt[0], pt[1], pt[2], 0.05f, ph) && std::fabs(ph.n[2]) < 0.7f) {
+                        const float pr = rad > 0.0f ? rad : 0.05f;
+                        if (SphereProbe(pt[0], pt[1], pt[2], pr, ph) && std::fabs(ph.n[2]) < 0.7f) {
                             const float d[3] = {pt[0] - ph.p[0], pt[1] - ph.p[1], pt[2] - ph.p[2]};
-                            pen = 0.05f - Len(d);
+                            pen = pr - Len(d);
                             if (pen > 0.0f) { nrm[0] = ph.n[0]; nrm[1] = ph.n[1]; nrm[2] = ph.n[2]; }
+                            if (rad > 0.0f) for (int i = 0; i < 3; i++) r[i] -= nrm[i] * rad;
                         }
                     }
                     if (pen <= 0.0f && Dot(nrm, nrm) < 0.5f) continue;
@@ -391,33 +432,47 @@ bool GameWorld::DynOverlapCapsule(const DynBody& b, float x, float y, float feet
     float best = 1e9f;
     bool hit = false;
     const float zs[3] = {feetZ + 0.35f, feetZ + height * 0.5f, feetZ + height - 0.1f};
-    for (float z : zs) {
-        const float P[3] = {x, y, z};
-        const float rel[3] = {P[0] - b.p[0], P[1] - b.p[1], P[2] - b.p[2]};
-        float l[3];
-        ToLocal(b.R, rel, l);
-        float q[3];
-        for (int i = 0; i < 3; i++) q[i] = std::clamp(l[i], -b.hx[i], b.hx[i]);
-        float qw[3];
-        ToWorld(b.R, q, qw);
-        const float Q[3] = {b.p[0] + qw[0], b.p[1] + qw[1], b.p[2] + qw[2]};
-        float dx = x - Q[0], dy = y - Q[1];
-        float dh = std::sqrt(dx * dx + dy * dy);
-        if (dh < 1e-4f) {
-            dx = x - b.p[0]; dy = y - b.p[1];
-            dh = std::sqrt(dx * dx + dy * dy);
-            if (dh < 1e-4f) { dx = 1.0f; dy = 0.0f; dh = 1.0f; }
-            dh = 0.0f;
-            const float inv = 1.0f / std::sqrt(dx * dx + dy * dy);
-            dx *= inv; dy *= inv;
-        } else {
-            dx /= dh; dy /= dh;
-        }
-        if (dh < radius + 0.1f && dh < best) {
-            best = dh;
-            out[0] = dx; out[1] = dy; out[2] = radius - dh;
-            out[3] = Q[0]; out[4] = Q[1]; out[5] = Q[2];
-            hit = true;
+    for (const DynBody::Part& pt : b.parts) {
+        float cw[3];
+        ToWorld(b.R, pt.c, cw);
+        const float C[3] = {b.p[0] + cw[0], b.p[1] + cw[1], b.p[2] + cw[2]};
+        for (float z : zs) {
+            const float P[3] = {x, y, z};
+            float Q[3];
+            if (pt.sphere) {
+                float d[3] = {P[0] - C[0], P[1] - C[1], P[2] - C[2]};
+                const float dl = Len(d);
+                if (dl < 1e-5f) { Q[0] = C[0]; Q[1] = C[1]; Q[2] = C[2]; }
+                else for (int i = 0; i < 3; i++) Q[i] = C[i] + d[i] / dl * pt.r;
+                if (dl < pt.r) { Q[0] = C[0] + d[0]; Q[1] = C[1] + d[1]; Q[2] = C[2] + d[2]; }
+            } else {
+                const float rel[3] = {P[0] - C[0], P[1] - C[1], P[2] - C[2]};
+                float l[3];
+                ToLocal(b.R, rel, l);
+                float q[3];
+                for (int i = 0; i < 3; i++) q[i] = std::clamp(l[i], -pt.h[i], pt.h[i]);
+                float qw[3];
+                ToWorld(b.R, q, qw);
+                Q[0] = C[0] + qw[0]; Q[1] = C[1] + qw[1]; Q[2] = C[2] + qw[2];
+            }
+            float dx = x - Q[0], dy = y - Q[1];
+            float dh = std::sqrt(dx * dx + dy * dy);
+            if (dh < 1e-4f) {
+                dx = x - b.p[0]; dy = y - b.p[1];
+                dh = std::sqrt(dx * dx + dy * dy);
+                if (dh < 1e-4f) { dx = 1.0f; dy = 0.0f; dh = 1.0f; }
+                dh = 0.0f;
+                const float inv = 1.0f / std::sqrt(dx * dx + dy * dy);
+                dx *= inv; dy *= inv;
+            } else {
+                dx /= dh; dy /= dh;
+            }
+            if (dh < radius + 0.1f && dh < best) {
+                best = dh;
+                out[0] = dx; out[1] = dy; out[2] = radius - dh;
+                out[3] = Q[0]; out[4] = Q[1]; out[5] = Q[2];
+                hit = true;
+            }
         }
     }
     return hit;
@@ -467,23 +522,36 @@ float GameWorld::DynShoot(const float* origin, const float* dir, float range, fl
     float bestT = range;
     for (DynBody& b : m_dyn) {
         if (!b.ready || b.dead) continue;
-        const float rel[3] = {origin[0] - b.p[0], origin[1] - b.p[1], origin[2] - b.p[2]};
-        float o[3], d[3];
-        ToLocal(b.R, rel, o);
-        ToLocal(b.R, dir, d);
-        float t0 = 0.0f, t1 = bestT;
-        bool ok = true;
-        for (int i = 0; i < 3 && ok; i++) {
-            if (std::fabs(d[i]) < 1e-8f) {
-                if (o[i] < -b.hx[i] || o[i] > b.hx[i]) ok = false;
+        for (const DynBody::Part& pt : b.parts) {
+            float cw[3];
+            ToWorld(b.R, pt.c, cw);
+            const float C[3] = {b.p[0] + cw[0], b.p[1] + cw[1], b.p[2] + cw[2]};
+            const float rel[3] = {origin[0] - C[0], origin[1] - C[1], origin[2] - C[2]};
+            float t0 = 0.0f;
+            bool ok = true;
+            if (pt.sphere) {
+                const float bq = Dot(rel, dir), cq = Dot(rel, rel) - pt.r * pt.r;
+                const float disc = bq * bq - cq;
+                if (disc < 0.0f) ok = false;
+                else { t0 = -bq - std::sqrt(disc); if (t0 < 0.0f) t0 = cq <= 0.0f ? 0.0f : -1.0f; if (t0 < 0.0f) ok = false; }
             } else {
-                float a = (-b.hx[i] - o[i]) / d[i], c = (b.hx[i] - o[i]) / d[i];
-                if (a > c) std::swap(a, c);
-                t0 = std::max(t0, a); t1 = std::min(t1, c);
-                if (t0 > t1) ok = false;
+                float o[3], d[3];
+                ToLocal(b.R, rel, o);
+                ToLocal(b.R, dir, d);
+                float t1 = bestT;
+                for (int i = 0; i < 3 && ok; i++) {
+                    if (std::fabs(d[i]) < 1e-8f) {
+                        if (o[i] < -pt.h[i] || o[i] > pt.h[i]) ok = false;
+                    } else {
+                        float a2 = (-pt.h[i] - o[i]) / d[i], c2 = (pt.h[i] - o[i]) / d[i];
+                        if (a2 > c2) std::swap(a2, c2);
+                        t0 = std::max(t0, a2); t1 = std::min(t1, c2);
+                        if (t0 > t1) ok = false;
+                    }
+                }
             }
+            if (ok && t0 < bestT) { bestT = t0; hit = &b; }
         }
-        if (ok && t0 < bestT) { bestT = t0; hit = &b; }
     }
     if (!hit) return -1.0f;
     const float at[3] = {origin[0] + dir[0] * bestT, origin[1] + dir[1] * bestT, origin[2] + dir[2] * bestT};
