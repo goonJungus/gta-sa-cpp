@@ -113,6 +113,12 @@ public:
 
     // Display > Brightness: a flat black or white wash over the whole frame (0.5 = none).
     void Brightness(D3DRenderer& r, float level);
+    // CPostEffects night vision (44, green) / infrared (45, blue-orange) tint over the frame.
+    void Goggles(D3DRenderer& r, int mode);
+    // A flat white wash that fades out: the camera flash (a = 0..1).
+    void Flash(D3DRenderer& r, float a);
+    // The sniper scope (black surround, circle, cross hairs) or the camera viewfinder (corner brackets).
+    void Scope(D3DRenderer& r, bool camera);
 
     // A hit confirmed on a target (rewrite hit marker); kill = a heavier one.
     void Hit(bool kill) { m_hitTimer = 0.25f; m_hitKill = kill; }

@@ -181,6 +181,10 @@ public:
     bool TakeLaunch(Launch& out) { if (!m_launchPending) return false; out = m_launch; m_launchPending = false; return true; }
     bool TakeDetonate() { const bool d = m_detonatePending; m_detonatePending = false; return d; }   // CWorld::UseDetonator
     bool HoldingThrown() const { return m_melee >= 0 && m_guns[m_melee].thrown; }
+    // CTaskSimpleParachute: 0 none, 1 PARA_open playing, 2 floating under the canopy.
+    int Parachute() const { return m_para; }
+    float ParaFallCap() const { return m_para == 1 ? -20.0f : m_para == 2 ? -5.0f : 0.0f; }   // m/s, 0 = no cap
+    int Goggles() const { return m_goggles; }   // 0 off, 44 night vision, 45 thermal
     bool Throwing() const { return m_throw.state != 0; }
     void SetWallProbe(std::function<bool(const float*, const float*)> f) { m_wallProbe = std::move(f); }
     void DrawGunModel(D3DRenderer& r, int gunIndex, const float world[4][4]);   // a weapon model at a world matrix
@@ -415,6 +419,11 @@ private:
         float prevTime = 0.0f;
     } m_throw;
     Launch m_launch;
+    int m_goggles = 0, m_drawIdx = -1;
+    int m_para = 0;
+    const AnimClip* m_paraClip = nullptr;
+    bool UpdateParachute(const Input& in);
+    const AnimClip* m_gogglesClip = nullptr;
     bool m_launchPending = false, m_detonatePending = false, m_switchToDetonator = false;
     std::function<bool(const float*, const float*)> m_wallProbe;   // segment a -> b hits the world
     void FightStart(const Input& in, int move);

@@ -184,6 +184,73 @@ void Hud::RotatedSprite(Fe2d& g, IDirect3DTexture9* tex, float cx, float cy, flo
     g.DrawTris(tex, tris, 6);
 }
 
+void Hud::Goggles(D3DRenderer& r, int mode) {
+    if (!m_ready || !r.GetDevice() || mode < 44) return;
+    const float sw = (float)r.Width(), sh = (float)r.Height();
+    const uint32_t col = mode == 44 ? Alpha(0xFF10FF20, 0.22f) : Alpha(0xFF2040FF, 0.22f);
+    Fe2d& g = m_2d;
+    g.Begin(r.GetDevice());
+    const Fe2d::Vert q[6] = {{0, 0, 0, 0, col}, {sw, 0, 0, 0, col}, {0, sh, 0, 0, col},
+                             {sw, 0, 0, 0, col}, {sw, sh, 0, 0, col}, {0, sh, 0, 0, col}};
+    g.DrawTris(nullptr, q, 6);
+    g.End();
+}
+
+void Hud::Scope(D3DRenderer& r, bool camera) {
+    if (!m_ready || !r.GetDevice()) return;
+    const float sw = (float)r.Width(), sh = (float)r.Height();
+    const float cx = sw * 0.5f, cy = sh * 0.5f;
+    Fe2d& g = m_2d;
+    g.Begin(r.GetDevice());
+    std::vector<Fe2d::Vert> v;
+    auto quad = [&](float x0, float y0, float x1, float y1, uint32_t c) {
+        const Fe2d::Vert q[6] = {{x0, y0, 0, 0, c}, {x1, y0, 0, 0, c}, {x0, y1, 0, 0, c},
+                                 {x1, y0, 0, 0, c}, {x1, y1, 0, 0, c}, {x0, y1, 0, 0, c}};
+        v.insert(v.end(), q, q + 6);
+    };
+    const uint32_t line = 0xFFB4FFB4;   // the scope colour (180, 255, 180)
+    const float t = std::max(1.0f, sh * 0.002f);
+    if (camera) {   // viewfinder brackets at the corners of a 4:3-ish frame
+        const float hw = sh * 0.42f, hh = sh * 0.40f, a = sh * 0.06f;
+        for (int sx = -1; sx <= 1; sx += 2)
+            for (int sy = -1; sy <= 1; sy += 2) {
+                const float x = cx + sx * hw, y = cy + sy * hh;
+                quad(std::min(x, x - sx * a), y - t, std::max(x, x - sx * a), y + t, line);
+                quad(x - t, std::min(y, y - sy * a), x + t, std::max(y, y - sy * a), line);
+            }
+        quad(cx - a * 0.5f, cy - t * 0.5f, cx + a * 0.5f, cy + t * 0.5f, line);
+        quad(cx - t * 0.5f, cy - a * 0.5f, cx + t * 0.5f, cy + a * 0.5f, line);
+    } else {   // CHud::DrawSniperCrosshair: the lens is a circle, everything outside it black
+        const float rad = sh * 0.48f;
+        const uint32_t black = 0xFF000000;
+        const int n = 64;
+        for (int i = 0; i < n; i++) {   // the surround as wedges between the circle and the screen box
+            const float a0 = (float)i / n * 6.2831853f, a1 = (float)(i + 1) / n * 6.2831853f;
+            const float c0 = std::cos(a0), s0 = std::sin(a0), c1 = std::cos(a1), s1 = std::sin(a1);
+            const float k = (sw + sh) * 2.0f;   // far enough to leave the screen
+            const Fe2d::Vert q[6] = {{cx + c0 * rad, cy + s0 * rad, 0, 0, black}, {cx + c0 * k, cy + s0 * k, 0, 0, black}, {cx + c1 * rad, cy + s1 * rad, 0, 0, black},
+                                     {cx + c1 * rad, cy + s1 * rad, 0, 0, black}, {cx + c0 * k, cy + s0 * k, 0, 0, black}, {cx + c1 * k, cy + s1 * k, 0, 0, black}};
+            v.insert(v.end(), q, q + 6);
+        }
+        quad(cx - rad, cy - t * 0.5f, cx + rad, cy + t * 0.5f, line);
+        quad(cx - t * 0.5f, cy - rad, cx + t * 0.5f, cy + rad, line);
+    }
+    g.DrawTris(nullptr, v.data(), (int)v.size());
+    g.End();
+}
+
+void Hud::Flash(D3DRenderer& r, float a) {
+    if (!m_ready || !r.GetDevice() || a <= 0.0f) return;
+    const float sw = (float)r.Width(), sh = (float)r.Height();
+    const uint32_t col = Alpha(0xFFFFFFFF, std::min(1.0f, a));
+    Fe2d& g = m_2d;
+    g.Begin(r.GetDevice());
+    const Fe2d::Vert q[6] = {{0, 0, 0, 0, col}, {sw, 0, 0, 0, col}, {0, sh, 0, 0, col},
+                             {sw, 0, 0, 0, col}, {sw, sh, 0, 0, col}, {0, sh, 0, 0, col}};
+    g.DrawTris(nullptr, q, 6);
+    g.End();
+}
+
 void Hud::Brightness(D3DRenderer& r, float level) {
     if (!m_ready || !r.GetDevice() || std::fabs(level - 0.5f) < 0.02f) return;
     const float sw = (float)r.Width(), sh = (float)r.Height();
