@@ -248,6 +248,11 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         ImgLoader anims;
         if (anims.Open(gameDir + "\\anim\\anim.img")) {
             IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), m_clips, true);
+            {   // the script's own skydive clips: ped.ifp has same-named ones, so keep these under "para/"
+                std::unordered_map<std::string, AnimClip> pc;
+                IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), pc, false);
+                for (auto& kv : pc) m_clips["para/" + kv.first] = kv.second;
+            }
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
             for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw", "grenade", "rocket", "flame", "spraycan", "goggles", "camera"})   // melee groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
@@ -780,6 +785,7 @@ void PlayerPed::Land(const Input& in) {
     m_inAir = false;
     if (m_para) {   // CTaskSimpleParachute: PARA_Land (PARA_Land_Water in the sea), the canopy drops away
         m_para = 0;
+        m_sky = 0;
         m_paraClip = nullptr;
         const AnimClip* lc = Clip(in.waterZ > in.feetZ && in.waterZ < 1e3f ? "para_land_water" : "para_land");
         if (!lc) lc = Clip("para_land");
@@ -792,6 +798,21 @@ void PlayerPed::Land(const Input& in) {
             m_ratio = 0.0f;
         }
         return;
+    }
+    if (m_sky) {   // the parachute script's skydive ended on the ground without a canopy
+        m_sky = 0;
+        const bool water = in.waterZ > in.feetZ && in.waterZ < 1e3f;
+        const char* lc = water ? "para_land_water" : "para_land";
+        const char* c = (m_minVelZ < -20.0f && !water) ? "fall_skydive_die" : lc;
+        if (Clip(c)) {
+            Blend(Clip(c), false, false, 8.0f);
+            m_busy = true;
+            m_busySoft = false;
+            m_busyClip = Clip(c);
+            m_busyNext = !strcmp(c, "fall_skydive_die") ? Clip("getup_front") : nullptr;
+            m_ratio = 0.0f;
+            return;
+        }
     }
     if (!airAnim) return;   // a short drop: no in-air animation ever started
     auto busy = [&](const char* clip, const char* next, bool soft) {

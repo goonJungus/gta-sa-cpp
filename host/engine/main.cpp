@@ -3243,8 +3243,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // ---- Gravity (feet rest on gz) ----
             if (!onGround) {
                 velZ -= GRAVITY * dt;
-                if (const float cap = cjReady ? g_cj.ParaFallCap() : 0.0f; cap < 0.0f && velZ < cap)
-                    velZ += (cap - velZ) * std::min(1.0f, dt * 3.0f);   // the canopy holds the fall
+                if (cjReady) g_cj.ParaVelZ(velZ);   // the parachute script sets the fall speed
+                if (cjReady && g_hudReady && g_cj.TakeParaHelp()) g_hud.Subtitle(g_hud.Text().Get("PARA_01"), 1.0f);
                 playerZ += velZ * dt;
                 if (playerZ <= gz + EYE_HEIGHT) {
                     playerZ = gz + EYE_HEIGHT; velZ = 0; onGround = true;
