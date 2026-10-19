@@ -3699,6 +3699,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const char* hc[3] = {sk.hitClips[0].c_str(), sk.hitClips[1].c_str(), sk.hitClips[2].c_str()};
                         const float ap[2] = {playerX, playerY};
                         bool killed = false;
+                        if (getenv("GTA_PEDDBG")) {
+                            Log("STRIKE %.2f %.2f %.2f r %.2f dmg %.1f move %d; cj %.2f %.2f", sk.pos[0], sk.pos[1], sk.pos[2], sk.radius, sk.damage, sk.move, playerX, playerY);
+                            for (size_t pi = 0; pi < g_peds.Count(); pi++) Log("  ped %zu at %.2f %.2f %.2f", pi, g_peds.X(pi), g_peds.Y(pi), g_peds.Z(pi));
+                        }
                         const int hp = g_peds.MeleeStrike(sk.pos, sk.radius, sk.damage, ap, sk.sword && sk.move == 2, hc, sk.move, &killed);
                         if (hp >= 0) {
                             Log("MELEE HIT %d move %d dmg %.1f kill %d", hp, sk.move, sk.damage, (int)killed);
@@ -3759,10 +3763,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             static int s_trail = 0;
                             if (++s_trail % 3 == 0) g_fx.Smoke(e.pos, 0.5f);
                         } else if (e.kind == Projectiles::Kind::Fire) {
+                            Log("FIRE %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
                             g_fx.Fire(e.pos); g_fx.Fire(e.pos); g_fx.Smoke(e.pos, 0.5f);
                             g_peds.Explosion(e.pos, 3.0f);
                         } else {
-                            g_fx.Smoke(e.pos, 0.0f);
+                            static int s_gas = 0;
+                            if (s_gas++ % 20 == 0) Log("GAS %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
+                            g_fx.Gas(e.pos);
                             g_peds.Choke(e.pos, e.radius);
                         }
                     }

@@ -23,6 +23,7 @@ public:
     // A kick of dust at the feet (hard landings, sprint starts).
     void Dust(const float p[3], float strength);
     // Smoke rising from a damaged engine (dark 0..1) and a car blowing up.
+    void Gas(const float p[3]);   // a tear gas cloud puff
     void Smoke(const float p[3], float dark);
     void Fire(const float p[3]);
     void Explosion(const float p[3]);
