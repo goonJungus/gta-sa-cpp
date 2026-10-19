@@ -57,6 +57,12 @@ public:
     // CPedDamageResponseCalculator for a bullet: damage * the ped stat's defend weakness; a gun forces
     // death on a head hit or 1 time in 8 (snipers: head hits only). Returns true when it killed.
     bool Shoot(int actor, float damage, bool head, bool sniper);
+    // CTaskSimpleFight strikes (PlayerPed::Strike): the first live ped whose body the sphere reaches takes
+    // damage * defend weakness; force death 1 in 8, a katana third attack 1 in 2. The ped turns to the
+    // attacker and plays the group's hit reaction (hitClips = the group's three reaction clip names).
+    // Returns the actor index hit or -1; *killed tells whether it died.
+    int MeleeStrike(const float centre[3], float radius, float damage, const float attackerPos[2], bool sword3,
+                    const char* const hitClips[3], int move, bool* killed);
     float DefendWeakness(int actor) const { return actor >= 0 && (size_t)actor < m_actors.size() ? m_actors[(size_t)actor].weakness : 1.0f; }
     // Speech requests since the last call: actor index and eGlobalSpeechContext.
     struct SpeechEvent { int actor; int ctx; };
@@ -96,6 +102,8 @@ private:
         bool crowd = false;               // spawned by Populate, removed again when far away
         int voice = -1;                   // speech voice
         float weakness = 1.0f;            // pedstats.dat defend weakness
+        const AnimClip* hitClip = nullptr;   // melee hit reaction in progress
+        float hitTime = 0.0f;
     };
 
     Model* GetModel(D3DRenderer& r, int id);

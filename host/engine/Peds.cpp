@@ -1,6 +1,7 @@
 #include "Peds.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -128,6 +129,12 @@ bool Peds::Init(D3DRenderer&, const std::string& gameDir) {
         }
     }
     IfpLoader::Load(gameDir + "/anim/ped.ifp", m_clips);
+    {   // the melee groups' hit reactions (anim.img), keyed like ped.ifp's clips
+        ImgLoader anims;
+        if (anims.Open(gameDir + "/anim/anim.img"))
+            for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw"})
+                IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
+    }
     m_ready = !m_pool.empty() && !m_clips.empty();
     std::fprintf(stderr, "[PED] %zu ped models (%zu civilians), %zu animation groups, %zu clips\n", m_info.size(), m_pool.size(),
                  m_groups.size(), m_clips.size());
@@ -325,6 +332,43 @@ bool Peds::Shoot(int actor, float damage, bool head, bool sniper) {
     return Damage(actor, 0.0f, true);
 }
 
+int Peds::MeleeStrike(const float centre[3], float radius, float damage, const float attackerPos[2], bool sword3,
+                      const char* const hitClips[3], int move, bool* killed) {
+    if (killed) *killed = false;
+    int best = -1;
+    float bestD = 1e9f;
+    for (size_t i = 0; i < m_actors.size(); i++) {
+        const Actor& a = m_actors[i];
+        if (a.dead) continue;
+        const float dx = a.x - centre[0], dy = a.y - centre[1];
+        const float d = std::sqrt(dx * dx + dy * dy);
+        if (d > radius + 0.35f) continue;                    // the body is a 0.35 m capsule
+        if (centre[2] < a.z - radius || centre[2] > a.z + 1.8f + radius) continue;
+        if (d < bestD) { bestD = d; best = (int)i; }
+    }
+    if (best < 0) return -1;
+    Actor& a = m_actors[(size_t)best];
+    const float d = damage * a.weakness;
+    const bool force = Rand(sword3 ? 2 : 8) == 0;            // ComputeWillForceDeath
+    a.fleeTimer = 8.0f;
+    a.heading = std::atan2(attackerPos[1] - a.y, attackerPos[0] - a.x);   // turns to the attacker
+    if (!force && a.health - d >= 1.0f) {
+        a.health -= d;
+        // CEventDamage picks the reaction by hit direction; the group's three clips by swing strength
+        const char* nm = hitClips[move == 2 ? 2 : Rand(2)];
+        std::string key = nm ? nm : "";
+        for (char& ch : key) ch = (char)std::tolower((unsigned char)ch);
+        auto c = m_clips.find(key);
+        a.hitClip = c != m_clips.end() ? &c->second : nullptr;
+        a.hitTime = 0.0f;
+        return best;
+    }
+    a.health = 0.0f;
+    const bool dead = Damage(best, 0.0f, true);
+    if (killed) *killed = dead;
+    return best;
+}
+
 bool Peds::Damage(int actor, float damage, bool head) {
     if (actor < 0 || (size_t)actor >= m_actors.size()) return false;
     Actor& a = m_actors[(size_t)actor];
@@ -355,6 +399,11 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
             a.animTime += dt;
             if (groundAt) { const float g = groundAt(a.x, a.y, a.z + 1.0f); if (g > -1e5f) a.z += (g - a.z) * std::min(1.0f, 10.0f * dt); }
             continue;
+        }
+        if (a.hitClip) {   // a melee hit reaction plays out before the ped carries on
+            a.hitTime += dt;
+            if (a.hitTime >= a.hitClip->duration) a.hitClip = nullptr;
+            else continue;
         }
         const float pdx = player.x - a.x, pdy = player.y - a.y, pd = std::sqrt(pdx * pdx + pdy * pdy);
         // Gunfire or an aimed weapon close by: run away from CJ for a while.
@@ -436,8 +485,8 @@ void Peds::Draw(D3DRenderer& r) {
         auto it = m_models.find(a.model);
         if (it == m_models.end() || !it->second.valid) continue;
         Model& m = it->second;
-        const AnimClip* clip = a.dead ? a.deathClip : a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
-        Pose(m, clip, a.dead && clip ? std::min(a.animTime, clip->duration * 0.999f) : a.animTime);
+        const AnimClip* clip = a.dead ? a.deathClip : a.hitClip ? a.hitClip : a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
+        Pose(m, clip, a.dead && clip ? std::min(a.animTime, clip->duration * 0.999f) : a.hitClip && !a.dead ? a.hitTime : a.animTime);
         // Stand the posed feet on the ground: the animation sets the pelvis height, the bind pose does not.
         float footZ = 1e9f;
         for (const MeshVertex& v : m.skinned) footZ = std::min(footZ, v.z);

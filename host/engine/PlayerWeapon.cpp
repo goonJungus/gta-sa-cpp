@@ -28,6 +28,7 @@ struct GunSpec {
     const char* crouchReload;
     bool continuous;        // keeps firing while the button is held
     const char* firePoor = nullptr;   // the fire clip of the poor skill group (weapon.dat 'bad' groups)
+    bool melee = false;     // a melee weapon: weapon.dat MELEE row, swung through data\melee.dat
 };
 
 namespace {
@@ -49,6 +50,25 @@ const GunSpec kSpecs[] = {
     {"M4", "M4", "rifle_fire", "rifle_crouchfire", "rifle_load", "rifle_crouchload", true, "rifle_fire_poor"},
     {"COUNTRYRIFLE", "Country rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
     {"SNIPERRIFLE", "Sniper rifle", "weapon_sniper", "weapon_sniper", "rifle_load", "rifle_crouchload", false},
+};
+
+// weapon.dat MELEE rows, in slot order: model, base combo and fight data come from the file.
+const GunSpec kMeleeSpecs[] = {
+    {"BRASSKNUCKLE", "Brass knuckles", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"GOLFCLUB", "Golf club", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"NIGHTSTICK", "Nightstick", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"KNIFE", "Knife", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"BASEBALLBAT", "Baseball bat", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"SHOVEL", "Shovel", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"POOLCUE", "Pool cue", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"KATANA", "Katana", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"CHAINSAW", "Chainsaw", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"DILDO1", "Purple dildo", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"DILDO2", "Dildo", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"VIBE1", "Vibrator", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"VIBE2", "Silver vibrator", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"FLOWERS", "Flowers", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
+    {"CANE", "Cane", nullptr, nullptr, nullptr, nullptr, false, nullptr, true},
 };
 
 std::string LowerStr(std::string s) {
@@ -145,8 +165,15 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
     if (!wf) { std::fprintf(stderr, "[GUN] data\\weapon.dat not found\n"); return; }
     struct Row { std::vector<std::string> t; };
     std::vector<std::vector<std::string>> rows;
+    std::vector<std::vector<std::string>> meleeRows;   // name MELEE ranges model -1 slot baseCombo numCombos flags stealth
     for (std::string line; std::getline(wf, line);) {
-        if (line.empty() || line[0] != '$') continue;
+        if (line.empty()) continue;
+        if ((unsigned char)line[0] == 0xA3) {   // the melee row marker (pound sign, ANSI)
+            std::vector<std::string> t = Tokens(line.substr(1));
+            if (t.size() >= 11 && t[1] == "MELEE") meleeRows.push_back(t);
+            continue;
+        }
+        if (line[0] != '$') continue;
         std::vector<std::string> t = Tokens(line);
         if (t.size() >= 26) rows.push_back(t);
     }
@@ -160,38 +187,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
     ImgLoader gta3;
     const bool haveImg = gta3.Open(gameDir + "\\models\\gta3.img");
 
-    for (const GunSpec& sp : kSpecs) {
-        const std::vector<std::string>* row = nullptr;
-        for (const auto& t : rows) {
-            if (t[1] != sp.name) continue;
-            if (!row || t[14] == std::to_string(s_weaponSkill)) row = &t;   // the player's skill row (0 poor, 1 std), else the first
-        }
-        if (!row) continue;
-        Gun g;
-        g.spec = &sp;
-        g.fireClip = s_weaponSkill == 0 && sp.firePoor ? sp.firePoor : sp.fire;
-        g.name = sp.label;
-        g.clipSize = std::atoi((*row)[9].c_str());
-        g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
-        g.loopEnd = (float)std::atof((*row)[19].c_str()) * kFrame;
-        g.fireTime = (float)std::atof((*row)[20].c_str()) * kFrame;
-        g.loop2Start = (float)std::atof((*row)[21].c_str()) * kFrame;
-        g.loop2End = (float)std::atof((*row)[22].c_str()) * kFrame;
-        g.fire2Time = (float)std::atof((*row)[23].c_str()) * kFrame;
-        g.moveSpeed = (float)std::atof((*row)[17].c_str());
-        g.damage = (float)std::atof((*row)[10].c_str());
-        g.range = (float)std::atof((*row)[4].c_str());
-        g.accuracy = (float)std::atof((*row)[16].c_str());
-        g.targetRange = (float)std::atof((*row)[3].c_str());
-        // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
-        g.flags = (unsigned)std::strtoul((*row)[25].c_str(), nullptr, 16);
-        g.aimWithArm = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x2) != 0;
-        g.twin = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x800) != 0;
-        g.reloadTime = 1.0f;
-        g.fireOffset[0] = (float)std::atof((*row)[11].c_str());
-        g.fireOffset[1] = (float)std::atof((*row)[12].c_str());
-        g.fireOffset[2] = (float)std::atof((*row)[13].c_str());
-        const int model = std::atoi((*row)[5].c_str());
+    auto loadModel = [&](Gun& g, int model) {
         auto it = ide.find(model);
         if (it != ide.end() && haveImg) {
             const std::vector<uint8_t> dffData = gta3.Extract(it->second.dff + ".dff");
@@ -259,11 +255,68 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
                 std::fprintf(stderr, "[GUN] %s barrel %.0f %.0f %.0f (flash %s)\n", g.name.c_str(), g.barrel[0], g.barrel[1], g.barrel[2], fcount ? "yes" : "no");
             }
         }
+    };
+
+    for (const GunSpec& sp : kSpecs) {
+        const std::vector<std::string>* row = nullptr;
+        for (const auto& t : rows) {
+            if (t[1] != sp.name) continue;
+            if (!row || t[14] == std::to_string(s_weaponSkill)) row = &t;   // the player's skill row (0 poor, 1 std), else the first
+        }
+        if (!row) continue;
+        Gun g;
+        g.spec = &sp;
+        g.fireClip = s_weaponSkill == 0 && sp.firePoor ? sp.firePoor : sp.fire;
+        g.name = sp.label;
+        g.clipSize = std::atoi((*row)[9].c_str());
+        g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
+        g.loopEnd = (float)std::atof((*row)[19].c_str()) * kFrame;
+        g.fireTime = (float)std::atof((*row)[20].c_str()) * kFrame;
+        g.loop2Start = (float)std::atof((*row)[21].c_str()) * kFrame;
+        g.loop2End = (float)std::atof((*row)[22].c_str()) * kFrame;
+        g.fire2Time = (float)std::atof((*row)[23].c_str()) * kFrame;
+        g.moveSpeed = (float)std::atof((*row)[17].c_str());
+        g.damage = (float)std::atof((*row)[10].c_str());
+        g.range = (float)std::atof((*row)[4].c_str());
+        g.accuracy = (float)std::atof((*row)[16].c_str());
+        g.targetRange = (float)std::atof((*row)[3].c_str());
+        // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
+        g.flags = (unsigned)std::strtoul((*row)[25].c_str(), nullptr, 16);
+        g.aimWithArm = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x2) != 0;
+        g.twin = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x800) != 0;
+        g.reloadTime = 1.0f;
+        g.fireOffset[0] = (float)std::atof((*row)[11].c_str());
+        g.fireOffset[1] = (float)std::atof((*row)[12].c_str());
+        g.fireOffset[2] = (float)std::atof((*row)[13].c_str());
+        loadModel(g, std::atoi((*row)[5].c_str()));
         g.ammo = g.clipSize;
         g.total = g.clipSize * 6;
         m_guns.push_back(std::move(g));
     }
-    std::fprintf(stderr, "[GUN] %zu weapons\n", m_guns.size());
+    // melee weapons follow the firearms (the default selection stays the first gun)
+    for (const GunSpec& sp : kMeleeSpecs) {
+        const std::vector<std::string>* row = nullptr;
+        for (const auto& t : meleeRows) if (t[0] == sp.name) row = &t;
+        if (!row) continue;
+        Gun g;
+        g.spec = &sp;
+        g.name = sp.label;
+        g.comboName = (*row)[7];
+        g.range = (float)std::atof((*row)[3].c_str());
+        g.flags = 0;
+        g.clipSize = g.ammo = g.total = 0;
+        if (std::atoi((*row)[8].c_str()) > 1) g.comboName += "#";   // numbered by the fight style
+        loadModel(g, std::atoi((*row)[4].c_str()));
+        m_guns.push_back(std::move(g));
+    }
+    m_meleeOk = Melee::Load(gameDir, m_meleeTable);
+    for (Gun& g : m_guns)
+        if (g.spec->melee) {
+            std::string n = g.comboName;
+            if (!n.empty() && n.back() == '#') n = n.substr(0, n.size() - 1) + "_1";
+            g.combo = m_meleeTable.Find(n);
+        }
+    std::fprintf(stderr, "[GUN] %zu weapons, %zu combos\n", m_guns.size(), m_meleeTable.combos.size());
 }
 
 void PlayerPed::ShutdownGuns(D3DRenderer& r) {
@@ -278,18 +331,22 @@ void PlayerPed::ShutdownGuns(D3DRenderer& r) {
 
 // Select a weapon (-1 = fists); resets the aim state.
 void PlayerPed::SelectGun(int index) {
-    m_gun = index >= 0 && index < (int)m_guns.size() ? index : -1;
+    m_gun = m_melee = -1;
+    if (index >= 0 && index < (int)m_guns.size()) (m_guns[index].spec->melee ? m_melee : m_gun) = index;
+    FightEnd(true);
     m_reloading = m_firing = false;
     m_attackCounter = 0.0f;   // CPlayerPed::MakeChangesForNewWeapon
     for (Assoc& a : m_assocs) if (a.partial) { a.dead = true; a.blend = 0.0f; }
 }
 
 void PlayerPed::NextGun() {
-    SelectGun(m_gun + 1 >= (int)m_guns.size() ? -1 : m_gun + 1);
+    const int cur = WeaponIndex();
+    SelectGun(cur + 1 >= (int)m_guns.size() ? -1 : cur + 1);
 }
 
 void PlayerPed::PrevGun() {
-    SelectGun(m_gun < 0 ? (int)m_guns.size() - 1 : m_gun - 1);
+    const int cur = WeaponIndex();
+    SelectGun(cur < 0 ? (int)m_guns.size() - 1 : cur - 1);
 }
 
 void PlayerPed::RefillAmmo() {
@@ -302,7 +359,7 @@ IDirect3DTexture9* PlayerPed::GunIconAt(int i) const { return i >= 0 && i < (int
 int PlayerPed::GunClipAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].ammo : 0; }
 int PlayerPed::GunTotalAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].total : 0; }
 int PlayerPed::GunClipSizeAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].clipSize : 0; }
-const char* PlayerPed::GunName() const { return m_gun >= 0 ? m_guns[m_gun].name.c_str() : "Fists"; }
+const char* PlayerPed::GunName() const { return WeaponIndex() >= 0 ? m_guns[WeaponIndex()].name.c_str() : "Fists"; }
 // CPlayerPed::GetWeaponRadiusOnScreen @ 00609cd0: the crosshair circle size.
 float PlayerPed::WeaponRadiusOnScreen() const {
     if (m_gun < 0) return 0.0f;
@@ -314,11 +371,11 @@ float PlayerPed::WeaponRadiusOnScreen() const {
     return std::max(0.2f, m_ducking ? radius * 0.5f : radius);
 }
 
-const char* PlayerPed::GunId() const { return m_gun >= 0 && m_guns[m_gun].spec ? m_guns[m_gun].spec->name : ""; }
+const char* PlayerPed::GunId() const { return WeaponIndex() >= 0 && m_guns[WeaponIndex()].spec ? m_guns[WeaponIndex()].spec->name : ""; }
 int PlayerPed::GunAmmo() const { return m_gun >= 0 ? m_guns[m_gun].ammo : 0; }
 int PlayerPed::GunClipSize() const { return m_gun >= 0 ? m_guns[m_gun].clipSize : 0; }
 int PlayerPed::GunTotalAmmo() const { return m_gun >= 0 ? m_guns[m_gun].total : 0; }
-IDirect3DTexture9* PlayerPed::GunIcon() const { return m_gun >= 0 ? m_guns[m_gun].icon : nullptr; }
+IDirect3DTexture9* PlayerPed::GunIcon() const { return WeaponIndex() >= 0 ? m_guns[WeaponIndex()].icon : nullptr; }
 
 // Armor soaks the hit first, like CPed::InflictDamage.
 void PlayerPed::Hurt(float amount) {
@@ -490,7 +547,7 @@ bool PlayerPed::MuzzleWorld(float x, float y, float feetZ, float out[3]) const {
 }
 
 void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
-    if (m_gun < 0) return;
+    if (m_gun < 0 && m_melee < 0) return;
     const int f = m_frameOfBone[kBoneRHand];
     if (f < 0 || f >= (int)m_globals.size()) return;
     IDirect3DDevice9* dev = r.GetDevice();
@@ -501,7 +558,7 @@ void PlayerPed::DrawGun(D3DRenderer& r, float x, float y, float feetZ) {
     // from the left hand turned 180 degrees about X then moved (0.04, -0.05, 0), both pre-concatenated.
     DrawGunAt(r, m_globals[f], w, m_flash > 0.0f);
     const int fl = m_frameOfBone[34];
-    if (m_guns[m_gun].twin && fl >= 0 && fl < (int)m_globals.size()) {
+    if (m_gun >= 0 && m_guns[m_gun].twin && fl >= 0 && fl < (int)m_globals.size()) {
         const RwMat lm = LeftGunMatrix();
         if (std::getenv("GTA_IKDBG")) {
             static int n = 0;
@@ -538,7 +595,7 @@ void PlayerPed::DrawGunAt(D3DRenderer& r, const RwMat& h, const float w[4][4], b
             o[i * 4 + j] = v;
         }
     dev->SetTransform(D3DTS_WORLD, &out);
-    Gun& g = m_guns[m_gun];
+    Gun& g = m_guns[m_gun >= 0 ? m_gun : m_melee];
     for (D3DRenderMesh* m : g.meshes) r.DrawMesh(m);
     if (flash && !g.muzzle.empty()) {
         // the flash atomic: additive, no depth write, a little bigger or smaller every shot
