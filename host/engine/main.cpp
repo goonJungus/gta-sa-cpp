@@ -237,7 +237,10 @@ static float g_aimEye[3] = {0, 0, 0}, g_aimDir[3] = {0, 1, 0};   // the camera r
 // the screen centre; the rewrite crosshair is centred.
 static float g_chairX = 0.5f, g_chairY = 0.5f;
 static float g_aspect = 16.0f / 9.0f;   // render width / height
-static float g_camFovScale = 1.0f;      // aim camera zoom: tan(fov / 2) scale
+static float g_camFovScale = 1.0f;
+static int g_lockPed = -1;              // locked-on pedestrian (CPlayerPed::m_pTargetedObject), -1 none
+static float g_lockPos[3] = {0, 0, 0};  // its aim point
+static D3DMATRIX g_lastView = {};       // the frame's view matrix (lock-on marker projection)      // aim camera zoom: tan(fov / 2) scale
 // CCamera::Find3rdPersonCamTargetVector: the ray from the camera through the crosshair.
 static void CrosshairRay(float yaw, float pitch, float out[3]) {
     const float cp = cosf(pitch), sp = sinf(pitch);
@@ -2993,6 +2996,78 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     pin.aim = ((GameKey(VK_RBUTTON) | GameKey('Z')) & 0x8000) != 0 || s_fireAim > 0.0f;
                 }
                 {
+                    // Lock-on (CPlayerPed::FindWeaponLockOnTarget @ 0060dc50): retail locks only without the
+                    // mouse aim (joypad or the classic control setting): aiming with the pad trigger, or
+                    // [Input] LockOn=1 for the mouse. The target holds while it is alive and in range.
+                    static const bool s_lockMouse = GetPrivateProfileIntA("Input", "LockOn", 0, g_iniPath) != 0 || getenv("GTA_LOCKON");
+                    const bool padAim = g_pad.Connected() && g_pad.LT() > 0.35f;
+                    const bool lockMode = pin.aim && g_cj.GunIndex() >= 0 && (padAim || s_lockMouse);
+                    const float chest[3] = {playerX, playerY, playerZ - EYE_HEIGHT + 1.15f};
+                    auto visible = [&](size_t i) {
+                        float tp[3];
+                        g_peds.TargetPoint(i, false, tp);
+                        return !worldReady || g_world.RayCast(chest[0], chest[1], chest[2], tp[0], tp[1], tp[2]) >= 0.99f;
+                    };
+                    const float range = g_cj.TargetRange();
+                    auto pick = [&](float facing, int skip, int side) {   // side 0: best; -1 / +1: next to the left / right
+                        int best = -1;
+                        float bestP = -10000.0f, bestA = 10.0f;
+                        for (size_t i = 0; i < g_peds.Count(); i++) {
+                            if ((int)i == skip || !g_peds.Alive(i)) continue;
+                            const float dx = g_peds.X(i) - playerX, dy = g_peds.Y(i) - playerY;
+                            const float dist = sqrtf(dx * dx + dy * dy);
+                            if (dist > range) continue;
+                            float ang = atan2f(dy, dx) - facing;
+                            while (ang > 3.14159265f) ang -= 6.2831853f;
+                            while (ang < -3.14159265f) ang += 6.2831853f;
+                            if (side != 0) {   // FindNextWeaponLockOnTarget: the nearest by angle on that side
+                                if (ang * (float)side >= 0.0f || fabsf(ang) > 3.0f) continue;   // + is left
+                                if (fabsf(ang) < bestA && visible(i)) { bestA = fabsf(ang); best = (int)i; }
+                                continue;
+                            }
+                            // CPlayerPed::EvaluateTarget: priority 0.1 * (1 - angle / 140) / dist^(1/4)
+                            float mult = 1.0f - fabsf(ang) * 57.29578f / 140.0f;
+                            if (dist > 1.0f) mult /= sqrtf(sqrtf(dist));
+                            const float pr = 0.1f * mult;
+                            if (pr > bestP && visible(i)) { bestP = pr; best = (int)i; }
+                        }
+                        return best;
+                    };
+                    static bool s_wasLock = false, s_prevL = false, s_prevR = false;
+                    if (!lockMode) g_lockPed = -1;
+                    else if (!s_wasLock) g_lockPed = pick(g_cj.Heading(), -1, 0);
+                    else if (g_lockPed >= 0) {
+                        const float dx = g_peds.X(g_lockPed) - playerX, dy = g_peds.Y(g_lockPed) - playerY;
+                        if ((size_t)g_lockPed >= g_peds.Count() || !g_peds.Alive(g_lockPed) || sqrtf(dx * dx + dy * dy) > range) g_lockPed = -1;
+                    }
+                    // shift target left / right: pad d-pad (CPad::ShiftTargetLeftJustDown / Right)
+                    const bool lDown = g_pad.Connected() && g_pad.Down(Gamepad::DPAD_LEFT), rDown = g_pad.Connected() && g_pad.Down(Gamepad::DPAD_RIGHT);
+                    if (lockMode && g_lockPed >= 0 && ((lDown && !s_prevL) || (rDown && !s_prevR))) {
+                        const float cdx = g_peds.X(g_lockPed) - playerX, cdy = g_peds.Y(g_lockPed) - playerY;
+                        const int n = pick(atan2f(cdy, cdx), g_lockPed, lDown ? 1 : -1);
+                        if (n >= 0) g_lockPed = n;
+                    }
+                    s_prevL = lDown; s_prevR = rDown;
+                    s_wasLock = lockMode;
+                    pin.lockOn = g_lockPed >= 0;
+                    if (pin.lockOn) {
+                        // CPlayerPed::ProcessControl: the head (bone 5) within the weapon's head range, else the spine
+                        const float dx = g_peds.X(g_lockPed) - playerX, dy = g_peds.Y(g_lockPed) - playerY;
+                        g_peds.TargetPoint(g_lockPed, sqrtf(dx * dx + dy * dy) <= g_cj.TargetHeadRange(), pin.lockPos);
+                        for (int k = 0; k < 3; k++) g_lockPos[k] = pin.lockPos[k];
+                        // CCam::Process_AimWeapon with a target: the angles turn toward it at 0.1 rad per 1/50 s
+                        const float ex = pin.lockPos[0] - g_aimEye[0], ey = pin.lockPos[1] - g_aimEye[1], ez = pin.lockPos[2] - g_aimEye[2];
+                        const float wantYaw = atan2f(ey, ex), wantPitch = atan2f(ez, sqrtf(ex * ex + ey * ey));
+                        float dyaw = wantYaw - yaw;
+                        while (dyaw > 3.14159265f) dyaw -= 6.2831853f;
+                        while (dyaw < -3.14159265f) dyaw += 6.2831853f;
+                        const float step = 0.1f * 50.0f * dt;
+                        yaw += std::clamp(dyaw, -step, step);
+                        pitch += std::clamp(wantPitch - pitch, -step, step);
+                        pin.camYaw = yaw; pin.camPitch = pitch;
+                    }
+                }
+                {
                     static bool s_prevFire = false, s_prevReload = false, s_prevNext = false;
                     const bool fireKey = ((GameKey(VK_LBUTTON) | GameKey(VK_RETURN)) & 0x8000) != 0 && !g_menu.IsOpen() && !g_wheelOpen;
                     // Classic uses the retail PC bindings: E / wheel down next weapon, Q / wheel up previous,
@@ -3271,9 +3346,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     }
                 }
                 g_renderer.SetViewMatrix(view);
+                g_lastView = view;
                 camPosX = co.eye[0]; camPosY = co.eye[1]; camPosZ = co.eye[2];
                 for (int i = 0; i < 3; i++) { g_aimEye[i] = co.eye[i]; g_aimDir[i] = co.dir[i]; }
                 if (!co.firstPerson) CrosshairRay(yaw, pitch, g_aimDir);   // bullets go through the crosshair
+                if (g_lockPed >= 0) {   // locked on: the shot goes at the target (CWeapon::Fire with the target entity)
+                    float d[3] = {g_lockPos[0] - co.eye[0], g_lockPos[1] - co.eye[1], g_lockPos[2] - co.eye[2]};
+                    const float l = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                    if (l > 1e-3f) for (int k = 0; k < 3; k++) g_aimDir[k] = d[k] / l;
+                }
                 g_hideCjHead = co.hideHead;
                 nearClip = co.nearClip;
             } else if (!thirdPerson) {
@@ -3736,6 +3817,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.aiming = g_cj.Aiming();
             hd.crossX = g_chairX; hd.crossY = g_chairY;
             hd.crossRadius = g_cj.WeaponRadiusOnScreen();
+            hd.lockOn = false;
+            if (g_lockPed >= 0 && (size_t)g_lockPed < g_peds.Count()) {   // project the target for the marker
+                const D3DMATRIX proj = MatrixPerspectiveFov(g_fovDeg * 3.14159f / 180.0f, (float)WIDTH / (float)HEIGHT, 0.5f, 3000.0f);
+                const float* v = &g_lastView._11;
+                const float* pm = &proj._11;
+                const float pw[4] = {g_lockPos[0], g_lockPos[1], g_lockPos[2], 1.0f};
+                float vv[4] = {}, cc[4] = {};
+                for (int j = 0; j < 4; j++) for (int k = 0; k < 4; k++) vv[j] += pw[k] * v[k * 4 + j];
+                for (int j = 0; j < 4; j++) for (int k = 0; k < 4; k++) cc[j] += vv[k] * pm[k * 4 + j];
+                if (cc[3] > 0.1f) {
+                    hd.lockOn = true;
+                    hd.lockX = (cc[0] / cc[3] * 0.5f + 0.5f) * (float)WIDTH;
+                    hd.lockY = (0.5f - cc[1] / cc[3] * 0.5f) * (float)HEIGHT;
+                    const float dx = g_lockPos[0] - playerX, dy = g_lockPos[1] - playerY;
+                    hd.lockSize = 1.0f - sqrtf(dx * dx + dy * dy) * 0.02f;
+                    hd.lockHealth = g_peds.HealthFrac((size_t)g_lockPed);
+                }
+            }
             hd.spread = std::min(1.0f, sqrtf(g_cj.VelX() * g_cj.VelX() + g_cj.VelY() * g_cj.VelY()) / 6.0f);
             hd.firstPerson = g_playerCam.FirstPerson(hs.cameraStyle);
             hd.x = playerX; hd.y = playerY; hd.z = playerZ - EYE_HEIGHT;

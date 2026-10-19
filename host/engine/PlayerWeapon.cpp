@@ -182,6 +182,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.damage = (float)std::atof((*row)[10].c_str());
         g.range = (float)std::atof((*row)[4].c_str());
         g.accuracy = (float)std::atof((*row)[16].c_str());
+        g.targetRange = (float)std::atof((*row)[3].c_str());
         // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
         g.aimWithArm = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x2) != 0;
         g.twin = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x800) != 0;

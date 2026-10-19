@@ -4,6 +4,7 @@
 // civilians that stand or wander on the ground; no AI beyond walking, no reactions yet.
 
 #include <cstdint>
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -31,6 +32,14 @@ public:
     float Y(size_t i) const { return m_actors[i].y; }
     float Z(size_t i) const { return m_actors[i].z; }
     size_t Count() const { return m_actors.size(); }
+    bool Alive(size_t i) const { return i < m_actors.size() && !m_actors[i].dead; }
+    float HealthFrac(size_t i) const { return i < m_actors.size() ? std::max(0.0f, m_actors[i].health) / 100.0f : 0.0f; }
+    // Lock-on aim point (CPlayerPed::ProcessControl: m_nTargetBone): the head (bone 5, +0.05) within the
+    // weapon's head range, else the spine (bone 3, +0.2). Bind-pose heights above the feet.
+    void TargetPoint(size_t i, bool head, float out[3]) const {
+        const Actor& a = m_actors[i];
+        out[0] = a.x; out[1] = a.y; out[2] = a.z + (head ? 1.62f : 1.15f);
+    }
     void Clear() { m_actors.clear(); }
     // Advance animation and wandering. groundAt gives the ground height or a value below -1e5.
     // `player` is where CJ stands; `threat` is true while CJ aims or fires a weapon, which makes

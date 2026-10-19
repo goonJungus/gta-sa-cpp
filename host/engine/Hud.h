@@ -66,7 +66,11 @@ struct HudData {
     const char* weaponName = "";
     bool aiming = false;
     float crossX = 0.5f, crossY = 0.5f;
-    float crossRadius = 0.2f;              // CPlayerPed::GetWeaponRadiusOnScreen   // crosshair, fraction of the screen (CCamera::m_f3rdPersonCHairMultX / Y)
+    float crossRadius = 0.2f;              // CPlayerPed::GetWeaponRadiusOnScreen
+    bool lockOn = false;                   // a locked-on target: CWeaponEffects marker instead of the crosshair
+    float lockX = 0, lockY = 0;            // its screen position, pixels
+    float lockSize = 1.0f;                 // 1 - distance * 0.02
+    float lockHealth = 1.0f;               // 0..1: red .. green   // crosshair, fraction of the screen (CCamera::m_f3rdPersonCHairMultX / Y)
     float spread = 0.0f;           // 0..1 crosshair widening (moving, firing)
     bool firstPerson = false;
     // Radar and map
@@ -125,6 +129,7 @@ private:
     void Bar(Fe2d& g, float x, float y, float w, float h, float pct, uint32_t color, bool rewrite);
     void Text(Fe2d& g, FeFont::Style style, float x, float y, const std::string& s, float scaleX, float scaleY,
               uint32_t color, FeFont::Align align, int edge);
+    void DrawLockOn(Fe2d& g, const HudData& d, float sh);
     void Vignette(Fe2d& g, float sw, float sh, uint32_t rgb, float strength);
     void RoundedRect(std::vector<Fe2d::Vert>& out, float x0, float y0, float x1, float y1, float r,
                      uint32_t color) const;
@@ -145,6 +150,8 @@ private:
     float m_time = 0.0f;
     float m_weaponFade = 0.0f, m_moneyFade = 0.0f, m_vitalsFade = 1.0f, m_wantedFade = 0.0f;
     float m_hitTimer = 0.0f;
+    float m_lockRot = 0.0f, m_lockPulse = 0.0f;   // CWeaponEffects crosshair rotation and pulse
+    bool m_lockGrow = false;
     bool m_hitKill = false;
     int m_lastMoney = 0, m_lastWanted = 0;
     bool m_moneyInit = false, m_lastArmed = false;
