@@ -47,6 +47,7 @@ endif()
 if(WIN32)
     add_executable(gta_standalone WIN32
         host/engine/main.cpp
+        host/engine/Speech.cpp
         host/engine/World.cpp
         host/engine/TimeCycle.cpp
         host/engine/D3DRenderer.cpp
