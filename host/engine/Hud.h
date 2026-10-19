@@ -118,7 +118,7 @@ public:
     // A flat white wash that fades out: the camera flash (a = 0..1).
     void Flash(D3DRenderer& r, float a);
     // The sniper scope (black surround, circle, cross hairs) or the camera viewfinder (corner brackets).
-    void Scope(D3DRenderer& r, bool camera);
+    void Scope(D3DRenderer& r, bool camera, bool rocket = false);
 
     // A hit confirmed on a target (rewrite hit marker); kill = a heavier one.
     void Hit(bool kill) { m_hitTimer = 0.25f; m_hitKill = kill; }

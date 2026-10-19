@@ -3386,9 +3386,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 {   // sniper / country rifle / camera aim through the scope: wheel zooms 70 -> 15 (camera 3)
                     const int gt = g_cj.GunIndex() >= 0 ? g_cj.GunType(g_cj.GunIndex()) : 0;
-                    g_scoped = g_cj.Aiming() && (gt == 33 || gt == 34 || gt == 43);
+                    g_scoped = g_cj.Aiming() && (gt == 33 || gt == 34 || gt == 43 || gt == 35 || gt == 36);
                     if (g_scoped) {
-                        if (g_wheelSteps) { g_scopeFov = std::clamp(g_scopeFov * std::pow(1.084f, -(float)g_wheelSteps), gt == 43 ? 3.0f : 15.0f, 70.0f); g_wheelSteps = 0; }
+                        if (gt == 35 || gt == 36) g_scopeFov = 70.0f; else if (g_wheelSteps) { g_scopeFov = std::clamp(g_scopeFov * std::pow(1.084f, -(float)g_wheelSteps), gt == 43 ? 3.0f : 15.0f, 70.0f); g_wheelSteps = 0; }
                         ci.scope = true;
                         ci.scopeFov = g_scopeFov;
                         ci.aimWeapon = false;
@@ -4181,7 +4181,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
             hd.blips = g_blips;
-            if (g_hudReady && g_scoped) g_hud.Scope(g_renderer, g_cj.GunIndex() >= 0 && g_cj.GunType(g_cj.GunIndex()) == 43);
+            if (g_hudReady && g_scoped) { const int sgt = g_cj.GunIndex() >= 0 ? g_cj.GunType(g_cj.GunIndex()) : 0; g_hud.Scope(g_renderer, sgt == 43, sgt == 35 || sgt == 36); }
             if (g_hudReady) g_hud.Goggles(g_renderer, g_cj.Goggles());
             if (g_hudReady && g_camFlash > 0.0f) { g_hud.Flash(g_renderer, g_camFlash); g_camFlash = std::max(0.0f, g_camFlash - dt * 3.0f); }
             g_hud.Draw(g_renderer, hd);
