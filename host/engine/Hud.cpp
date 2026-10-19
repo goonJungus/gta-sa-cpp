@@ -317,6 +317,26 @@ void Hud::DrawRadar(Fe2d& g, const HudData& d, float cx, float cy, float hw, flo
     }
     g.DrawTris(nullptr, ring.data(), (int)ring.size());
 
+    // Script blips: a short-range one only inside the radar, the rest pinned to the rim.
+    for (const RadarBlip& b : d.blips) {
+        if (b.display == 0 || b.display == 1) continue;
+        float bx, by;
+        toScreen(b.x, b.y, bx, by);
+        float ox = bx - cx, oy = by - cy;
+        const float fx = std::fabs(ox) > 1e-3f ? 0.86f * hw / std::fabs(ox) : 1e9f;
+        const float fy = std::fabs(oy) > 1e-3f ? 0.86f * hh / std::fabs(oy) : 1e9f;
+        const float f = std::min(1.0f, std::min(fx, fy));
+        if (b.shortRange && f < 1.0f) continue;
+        const float s = std::min(hw, hh) * 0.2f;
+        if (const char* nm = RadarBlipSpriteName(b.sprite)) {
+            if (IDirect3DTexture9* tx = Sprite(nm)) RotatedSprite(g, tx, cx + ox * f, cy + oy * f, s, s, 0.0f, Alpha(0xFFFFFFFF, alpha));
+        } else {
+            const float q = s * 0.25f;
+            g.DrawRect(cx + ox * f - q - 1, cy + oy * f - q - 1, cx + ox * f + q + 1, cy + oy * f + q + 1, Alpha(0xFF000000, alpha));
+            g.DrawRect(cx + ox * f - q, cy + oy * f - q, cx + ox * f + q, cy + oy * f + q, Alpha(b.colour, alpha));
+        }
+    }
+
     // Waypoint blip, pinned to the rim when it is out of range.
     if (d.hasWaypoint) {
         float bx, by;
@@ -563,6 +583,22 @@ void Hud::DrawLockOn(Fe2d& g, const HudData& d, float sh) {
             v[k] = {d.lockX + ((p[k * 2] - mx) * 0.75f + mx) * u, d.lockY + ((p[k * 2 + 1] - my) * 0.75f + my) * u, 0, 0, col};
         g.DrawTris(nullptr, v, 3);
     }
+}
+
+const char* RadarBlipSpriteName(int sprite) {
+    static const char* const kNames[] = {
+        nullptr, nullptr, "radar_centre", "arrow", "radar_north", "radar_airYard", "radar_ammugun", "radar_barbers",
+        "radar_BIGSMOKE", "radar_boatyard", "radar_burgerShot", "radar_bulldozer", "radar_CATALINAPINK",
+        "radar_CESARVIAPANDO", "radar_chicken", "radar_CJ", "radar_CRASH1", "radar_diner", "radar_emmetGun",
+        "radar_enemyAttack", "radar_fire", "radar_girlfriend", "radar_hostpitaL", "radar_LocoSyndicate",
+        "radar_MADDOG", "radar_mafiaCasino", "radar_MCSTRAP", "radar_modGarage", "radar_OGLOC", "radar_pizza",
+        "radar_police", "radar_propertyG", "radar_propertyR", "radar_race", "radar_RYDER", "radar_saveGame",
+        "radar_school", "radar_qmark", "radar_SWEET", "radar_tattoo", "radar_THETRUTH", "radar_waypoint",
+        "radar_TorenoRanch", "radar_triads", "radar_triadsCasino", "radar_tshirt", "radar_WOOZIE", "radar_ZERO",
+        "radar_dateDisco", "radar_dateDrink", "radar_dateFood", "radar_truck", "radar_cash", "radar_flag",
+        "radar_gym", "radar_impound", "radar_light", "radar_runway", "radar_gangB", "radar_gangP", "radar_gangY",
+        "radar_gangN", "radar_gangG", "radar_spray"};
+    return sprite >= 0 && sprite < (int)(sizeof(kNames) / sizeof(kNames[0])) ? kNames[sprite] : nullptr;
 }
 
 // ---- Rewrite (modern) ----

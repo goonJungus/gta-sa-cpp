@@ -20,6 +20,7 @@
 #include "Fe2d.h"
 #include "FeFont.h"
 #include "FeText.h"
+#include "Hud.h"
 
 class D3DRenderer;
 class Hud;
@@ -94,6 +95,7 @@ public:
         double playSec = 0;
         float distFoot = 0;
         int shots = 0, reloads = 0, jumps = 0, hurt = 0, ammoClip = 0, ammoTotal = 0;
+        std::vector<RadarBlip> blips;   // script blips for the map and its legend
     };
     void SetHud(Hud* h) { m_hud = h; }
     void SetInfo(const PlayerInfo& i) { m_info = i; }

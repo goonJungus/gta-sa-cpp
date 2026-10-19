@@ -240,7 +240,9 @@ static float g_aspect = 16.0f / 9.0f;   // render width / height
 static float g_camFovScale = 1.0f;
 static int g_lockPed = -1;              // locked-on pedestrian (CPlayerPed::m_pTargetedObject), -1 none
 static float g_lockPos[3] = {0, 0, 0};  // its aim point
-static D3DMATRIX g_lastView = {};       // the frame's view matrix (lock-on marker projection)      // aim camera zoom: tan(fov / 2) scale
+static D3DMATRIX g_lastView = {};
+static std::vector<RadarBlip> g_blips;  // CRadar::ms_RadarTrace
+static int g_nextBlip = 1;       // the frame's view matrix (lock-on marker projection)      // aim camera zoom: tan(fov / 2) scale
 // CCamera::Find3rdPersonCamTargetVector: the ray from the camera through the crosshair.
 static void CrosshairRay(float yaw, float pitch, float out[3]) {
     const float cp = cosf(pitch), sp = sinf(pitch);
@@ -1362,6 +1364,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             Log("SCM: player placed at %.1f %.1f %.1f", x, y, z);
         };
         s_scm.host.playerPos = [&](float& x, float& y, float& z) { x = playerX; y = playerY; z = playerZ - 1.75f; };
+        s_scm.host.addBlip = [](float x, float y, float z, int sprite, bool shortRange) {
+            RadarBlip b;
+            b.handle = g_nextBlip++; b.x = x; b.y = y; b.z = z; b.sprite = sprite; b.shortRange = shortRange;
+            b.display = sprite ? 2 : 3;
+            g_blips.push_back(b);
+            Log("SCM: blip %d sprite %d at %.1f %.1f %s", b.handle, sprite, x, y, shortRange ? "(short range)" : "");
+            return b.handle;
+        };
+        s_scm.host.removeBlip = [](int h) { g_blips.erase(std::remove_if(g_blips.begin(), g_blips.end(), [h](const RadarBlip& b) { return b.handle == h; }), g_blips.end()); };
+        s_scm.host.blipDisplay = [](int h, int mode) { for (RadarBlip& b : g_blips) if (b.handle == h) b.display = mode; };
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
     }
     bool prevV = false;       // edge-detect for V key
@@ -3724,6 +3736,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             pi.shots = st.shots; pi.reloads = st.reloads; pi.jumps = st.jumps; pi.hurt = st.hurt;
             pi.ammoClip = g_cj.GunAmmo(); pi.ammoTotal = g_cj.GunTotalAmmo();
             g_menu.SetHud(&g_hud);
+            pi.blips = g_blips;
             g_menu.SetInfo(pi);
         }
 
@@ -3884,6 +3897,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.camYaw = yaw; hd.heading = g_cj.Heading();
             hd.zone = g_hud.ZoneAt(hd.x, hd.y, hd.z);
             hd.hasWaypoint = g_menu.Waypoint(hd.wpX, hd.wpY);
+            if (static bool s_bt = false; !s_bt && getenv("GTA_BLIPTEST")) {   // dev: a few sprite blips around CJ
+                s_bt = true;
+                const int sp[4] = {35, 10, 6, 21};
+                for (int i = 0; i < 4; i++) {
+                    RadarBlip b; b.handle = g_nextBlip++; b.sprite = sp[i]; b.shortRange = i == 2;
+                    b.x = playerX + (i - 1.5f) * 60.0f; b.y = playerY + 80.0f * (i % 2 ? 1 : -1); b.z = playerZ;
+                    g_blips.push_back(b);
+                }
+            }
+            hd.blips = g_blips;
             g_hud.Draw(g_renderer, hd);
         }
         if (g_hudReady) g_hud.Brightness(g_renderer, g_menu.Settings().brightness);
