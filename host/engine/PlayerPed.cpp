@@ -1640,7 +1640,7 @@ bool PlayerPed::BoneWorldPos(int boneId, float x, float y, float feetZ, float ou
 }
 
 void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHead) {
-    if (!m_ready) return;
+    if (!m_ready || m_hideGun) return;   // the scope view shows no body at all
     IDirect3DDevice9* dev = r.GetDevice();
     if (!dev) return;
     // Ped models face +Y; heading 0 faces +X.
@@ -1652,7 +1652,7 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
         r.UpdateMeshVertices(p.mesh, p.skinned.data(), (uint32_t)p.skinned.size());
         r.DrawMesh(p.mesh);
     }
-    DrawGun(r, x, y, feetZ);
+    if (!m_hideGun) DrawGun(r, x, y, feetZ);
 }
 
 // ---- CTaskSimpleSwim @ 00688930 -------------------------------------------

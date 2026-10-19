@@ -3027,7 +3027,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     // is held (trackpads have no easy right click) and for a moment after.
                     static float s_fireAim = 0.0f;
                     const bool fireDown = ((GameKey(VK_LBUTTON) | GameKey(VK_RETURN)) & 0x8000) != 0;
-                    if (pin.rewrite && g_cj.GunIndex() >= 0 && fireDown) s_fireAim = 0.6f;
+                    const int gi = g_cj.GunIndex();
+                    const bool heavyFire = gi >= 16 && gi <= 19;   // flamethrower, minigun, spray can, extinguisher fire without aiming
+                    if ((pin.rewrite || heavyFire) && gi >= 0 && fireDown) s_fireAim = 0.6f;
                     else s_fireAim = std::max(0.0f, s_fireAim - dt);
                     pin.aim = ((GameKey(VK_RBUTTON) | GameKey('Z')) & 0x8000) != 0 || s_fireAim > 0.0f;
                 }
@@ -3550,7 +3552,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     g_dummy.Draw(g_renderer, d.x, d.y, d.z);
                 }
             }
-            if (cjReady && !scripted && !flyover) { g_cj.Draw(g_renderer, playerX, playerY, feetZ, g_hideCjHead); return; }
+            if (cjReady && !scripted && !flyover) { g_cj.SetHideGun(g_scoped); g_cj.Draw(g_renderer, playerX, playerY, feetZ, g_hideCjHead); return; }
             if (!thirdPerson) return;
             if (!playerMesh) return;
             float hy = yaw * 0.5f;
