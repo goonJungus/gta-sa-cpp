@@ -1,0 +1,119 @@
+# Regex on a decomp class folder name or a loose _global function name -> a substring that must appear in a ROADMAP.md line.
+# EXCLUDED: not gameplay (compiler runtime, copy protection, retail-only middleware) - listed in ROADMAP.md under "Not ported on purpose".
+# First matching rule wins.
+^(CRT|std|exception|_other|_securom|HASP|Hoodlum|QTMLClient|SlotState|Header|rng|ULI|WeightedValue|switchD_.*|tColLighting|D3D(IndexDataBuffer|ResourceSystem|TextureBuffer)|RenderBuffer)$	EXCLUDED
+^(CRT|_.*|calls_.*|Catch.*|nullsub.*|unk_.*|caseD.*|FID_conflict.*|return_.*|str_.*|get_0x.*|entry|new|delete|copy_environ|cvtdate|findenv|flsall|fast_error_exit|setSBCS|shortsort|siglookup|Securom.*|DoHaspChecks|IsAlreadyRunning)$	EXCLUDED
+# tasks
+^CTask(Simple)?(Choking|Drown.*|OnFire|PlayerOnFire|ComplexOnFire|ComplexInWater)$	Choking animation
+^CTaskComplex(Enter|Leave|Drag|Steal|Shuffle|CarSlow|ScreamInCar|Die InCar|DieInCar|GoToCarDoor|GoToBoat|GetOnBoat).*	Enter and exit
+^CTaskSimpleCar.*	Enter and exit
+^CTaskSimple(BikeJacked|PickUpBike)$	Bikes, mopeds
+^CTask(Simple|Complex)(Fight|FightingControl|Stealth.*|Kill.*|HitResponse|HitByGunResponse|HitPedWithCar|HurtPed.*|KillPedWithCar)$	Melee gaps
+^CTaskSimple(StealthKill)$	Stealth kill
+^CTask(Simple|Complex)?(GangDriveBy|UseGun|GunControl|ThrowControl|Throw|HoldEntity|PickUpEntity|PutDownEntity|PassObject)$	Driveby shooting
+^CTaskSimpleUseGun.*	Driveby shooting
+^CTaskSimple(IK.*)$	CPedIK full
+^CTaskSimpleJetPack$	Jetpack
+^CTask(Simple|Complex)(Swim)$	Swimming
+^CTask(Simple|Complex)(Climb|Jump|InAir.*|Land|Fall.*|StuckInAir|MoveBackAndJump|GetUp.*|InAirAndLand|FallAndGetUp)$	Ladder climbing, vaults
+^CTaskComplex(Cop.*|PolicePursuit|ArrestPed|WanderCop|KillCriminal|WaitForBackup)$	Police tasks
+^CTaskSimpleArrestPed$	Police tasks
+^CTaskSimpleGiveCPR$	CPR and medic
+^CTaskComplex(Medic.*|WanderMedic|TreatAccident|ExtinguishFires|DriveFireTruck|UseWaterCannon)$	Emergency services
+^CTaskComplex(Gang.*|WanderGang|FollowLeader.*|LeaveGroup|BeInGroup|BeInCouple|Partner.*)$	Gang followers
+^CTaskSimpleLeaveGroup$	Gang followers
+^CTaskComplex(Evasive.*|Cower|SeekCoverUntilTargetDead|SignalAtPed|ReactToGunAimedAt|FleeShooting|Flee.*|SmartFlee.*|WanderFlee)$	Dive, evasive step, cover
+^CTaskSimple(Evasive.*|Cower|HandsUp|ShakeFist)$	Dive, evasive step, cover
+^CTaskSimple(Die|DieInCar|Dead|BeHit|HitBy.*|HitHead|HitWall|HitFrom.*|Fall)$	Ped hit reactions
+^CTaskComplex(Die|DieInCar|LeaveCarAndDie|FallToDeath|DiveFromAttachedEntityAndGetUp)$	Ped hit reactions
+^CTaskComplexUseSwatRope$	Rope, swat rope
+^CTaskInterior.*	Entry and exit
+^CTask(Complex)?(Prostitute.*|WanderProstitute|ProstituteSolicit)$	Ped types
+^CTask.*(Attractor|Scripted.*Brain|UseEffect|UseClosestFree.*)$	Ped attractors
+^CTask(Simple|Complex)?(Sequence|UseSequence|Pause|Say|Facial|Chat|Wander.*|GoTo.*|Seek.*|Follow.*|Track.*|Walk.*|Stand.*|Sit.*|Turn.*|Achieve.*|Wait.*|Stare.*|Observe.*|Cross.*|Sunbathe|Investigate.*|Look.*|Hit.*|Road.*|Avoid.*|Be.*|Destroy.*|DriveTo.*|Drive.*|Pass.*|Play.*|Run.*|Set.*|Slide.*|Clear.*|Affect.*|Finish.*|Create.*|Do.*|Animation|Anim|Duck.*|Fall.*|Get.*|Hand.*|Hold.*|Lean.*|Pick.*|Put.*|Use.*|Manager|Pool|Sequences|Categories|Allocator.*|Complex|Gun.*|Jump|Steal.*|Stuck.*|Smart.*|Shake.*|Signal.*|Screen.*|Arrest.*|Car.*)$	Ped tasks:
+^CTask.*	Ped tasks:
+# events and decisions
+^CEvent(Damage|Vehicle.*|Danger|DeadPed|Death|GunShot.*|GunAimedAt|OnFire|InAir|StuckInAir|SeenCop|SeenPanickedPed|HitByWaterCannon|KnockOffBike|GotKnockedOverByCar|CarUpsideDown|CopCarBeingStolen|DraggedOutCar|SoundQuiet|Scripted.*|ScriptCommand|Attractor|Leader.*|PlayerCommand.*|DontJoinPlayerGroup|NewGangMember|Acquaintance.*|PedToChase|PedToFlee|PassObject|LeanOnVehicle|Escalator)$	Event system
+^CEvent.*	Event system
+^CAcquaintance|^CDecision.*	Decision makers
+^CPed(Group.*|Groups|List)$	Ped group AI
+^CGroupEventHandler|^CInformGroupEvent.*|^CInformFriendsEventQueue	Ped group AI
+^CFormation$	Gang followers
+^CPed.*Attractor.*|^CAttractorScanner	Ped attractors
+^CPed(GeometryAnalyser|Placement)$	Ped geometry analyser
+^CPedIK$|^IKChain.*|^BoneNode.*	CPedIK full
+^CPedClothesDesc|^CClothes.*|^CPlayerSkin	clothes.dat and the full clothes catalogue
+^CPedDamageResponseCalculator	Ped hit reactions
+^CPed(Intelligence.*|Pool|ModelInfo|SaveStructure|ModelInfo)$	Ped tasks:
+^CPed$|^CPlayerPed.*|^CPlayerInfo|^CPlayerRelationshipRecorder|^CMentalState	CPlayerInfo full
+^CCivilianPed|^CCopPed|^CEmergencyPed	Ped types
+^CPedPlacer|^CPed.*	Ped tasks:
+# physical, vehicles
+^CPhysical$|^CPlaceable$|^CEntity$|^cBuoyancy$|^CMatrix.*|^CQuaternion$|^CSimpleTransform$|^CVector.*|^CRect$|^CBox$|^CSphere$|^CBoundingBox$|^CMaths$|^CGeneral$|^CCurves$|^CPlaceable	CPhysical full
+^cTransmission|^cHandlingDataMgr	CPhysical full
+^CAutomobile$|^CVehicle$|^CDamageManager$|^CBouncingPanel$|^CDoor$	Real suspension
+^CBike$|^CBmx$|^CQuadBike$	Bikes, mopeds
+^CBoat$	Boats:
+^CPlane$|^CPlaneBanners$|^CPlaneTrail.*	Planes:
+^CHeli$	Helicopters:
+^CTrain$|^CTrainNode$	Trains and trams
+^CTrailer$	Trailers and towing
+^CMonsterTruck$|^CWaterCannon.*	Special vehicles
+^CCarCtrl$|^CCarAI$|^CAutoPilot$|^CCarPathLink$|^CStuckCarCheck$|^CUpsideDownCarCheck$|^CCarGenerator$|^CTheCarGenerators$	Traffic AI
+^CCarEnterExit$	Enter and exit
+^CVehicleModelInfo$|^CVehicleAnimGroup.*|^CLoadedCarGroup$|^CCustomCar.*|^CCarFXRenderer$|^CCustomCarEnvMapPipeline$|^CCustomCarPlateMgr$|^CSpecialPlateHandler$	Vehicle modification garages
+^CVehiclePool|^CVehicleSaveStructure|^CVehicleScanner|^CVehiclePotentialCollisionScanner|^CCurrentVehicle|^CStoredCar|^CVehicleRecording|^tReplay.*	Car recording playback
+^CGarage$|^CGarages$|^CSaveGarage$|^CShopping$	Vehicle modification garages
+^CCranes$|^CCrane$|^CBridge$|^CMovingThings$|^CEscalator.*|^CAnimatedBuilding$|^CRope.*|^CHandObject	CCranes, CBridge
+^CRemote$	CRemote and RC
+# world, ai, pop
+^CPathFind$|^CPathNode$|^CNodeRoute.*|^CPointRoutePool|^CPointList|^CRoadBlocks$	Path nodes
+^CPopulation$|^CPopCycle$|^CLoadMonitor$	Population:
+^CWanted$|^CCrime$|^CSetPiece.*|^CSearchLight$	Wanted level:
+^CGang.*|^CGangWars.*	Gang wars and turf
+^CAccident.*	Emergency services
+^CPickup.*|^CPickups$	Pickups:
+^CShopping$|^CShot.*	Shopping tables
+^CEntryExit.*|^Interior.*|^Furniture.*|^CCullZones$	Entry and exit
+^CWeather$|^CWindModifiers$	Weather:
+^CWaterLevel$|^CClouds$|^WaterCreature.*	Water:
+^Fx.*|^CPlantMgr$|^CPlant.*|^CPPTriPlantBuffer|^CGrassRenderer|^ProcObjectMan_c|^ProcSurfaceInfo_c|^SurfaceInfos_c|^CCoronas$|^CRegisteredCorona|^CBrightLights$|^CPointLights$|^CSpecialFX$|^CShinyTexts$|^CMirrors$|^CLines$|^CSprite.*	Particle and effects system
+^CSkidmarks$|^CBulletTrace.*|^CGlass$|^CFallingGlassPane$|^CRubbish$|^CBirds$|^CBreak.*|^Break.*	World dynamics
+^CShadows$|^CStaticShadow$|^CRealTimeShadow.*|^CShadowCamera$|^CStencil.*|^CMotionBlurStreaks|^CRegisteredMotionBlurStreak|^CMBlur$|^CPostEffects$	Visual effects
+^CBuilding.*|^CDummy.*|^CObject.*|^CObjectData|^CObjectSaveStructure|^CIplDefPool|^CIplStore|^CColStore|^CTxdStore|^CStreaming.*|^CStreamedScripts|^CFileLoader|^CFileMgr|^CDirectory|^CAnim(Manager|Blend.*)|^CAnimBlend.*|^CAnimManager	CStreaming full
+^CBaseModelInfo|^CModelInfo.*|^CAtomicModelInfo|^CClumpModelInfo|^CDamageAtomicModelInfo|^CLodAtomicModelInfo|^CLodTimeModelInfo|^CTimeModelInfo|^CWeaponModelInfo|^C2dEffect|^CScripted2dEffects|^CVisibilityPlugins|^CRenderer|^CCustomBuilding.*|^COccl.*|^CActiveOccluder|^COcclusion|^CModelInfoAccelerator	Occlusion and cull zones
+^CColAccel|^CColBox|^CColDisk|^CColLine|^CCollision.*|^CColModel.*|^CColSphere|^CColTrianglePlane|^CColourSet|^CTempColModels|^CCompressedMatrix.*|^CColStore|^CCollisionData	Prop physics gaps
+^CPools$|^CPool.*|^CPtr.*|^CEntryInfo.*|^CReferences$|^CQuadTree.*|^COct.*|^CWorld$|^CWorldScan$|^CGridRef$|^CScanner.*|^CEntityScanner|^CObjectScanner|^CEntitySeekPos.*	CPhysical full
+^CWeapon$|^CWeaponInfo$|^CWeaponEffects$|^CProjectile.*|^CBulletInfo$|^CExplosion$|^CFire.*|^CCreepingFire$	CBulletInfo, CShotInfo
+^CCover.*|^CHandShaker	CCover
+^CCheat$	Cheat codes
+^CStats$|^CStatDisp.*|^CClock$|^CDate$|^CTimeInfo$|^CTimer$|^CTimeCycle$|^CTheZones$|^CZone.*|^CPlaceName$	Stats:
+^CTheScripts$|^CRunningScript$|^CScript.*|^CMissionCleanup$|^COnscreen.*|^CMessages$|^CMissionTextOffsets$|^CCutscene.*|^CConversation.*|^CStreamedScripts$|^CDarkel$|^CStuntJumpManager$|^CTagManager$|^CCheckpoint.*|^C3dMarker.*|^CHud.*|^CRadar$|^CMenu.*|^CControllerConfigManager$|^CControllerState$|^CPad$|^CKey.*|^CMouse.*|^CJoySticks$|^CFont.*|^CText$|^CLocalisation$|^CCredits$|^CLoadingScreen$|^CUserDisplay$|^CIdleCam$|^CCamera$|^CCam$|^CGame$|^CGameLogic$|^CGenericGameStorage$|^C_PcSave$|^CSimpleVariablesSaveStructure$|^CReplay$|^CRestart$|^CInterestingEvents$|^CDebug$|^CIniFile$|^CGamma$|^CDraw$|^CData$|^CGridRef$|^CMemory.*|^CCarCtrl	Mission flow
+^CAE.*	Audio engine
+^CAudio.*	Audio engine
+^VideoPlayer$|^RenderWare$	Not ported on purpose
+# loose _global functions
+^(Rw|Rp|Rt|Rx|rw|rp|rt|rx|_rw|Im2D|Im3D|Atomic.*|atomic.*|Clump.*|clump.*|Camera.*|Frame.*|Geometry.*|Material.*|Node.*|Pipeline.*|Skin.*|NVC.*|Plugin.*|Lights.*|Get(First|Atomic|Frame|Anim|Current|Boat|Okay|OkAnd|Texture|Pipeline).*|Set(Atomic|Alpha|Comp|Filter|Frame|Pipeline|Ped|Vehicle|Texture|Marker|Atomic).*|force.*|Remove(Atomic|Refs|Objects|Window|IfRef|Upgrade|AllUpgrades).*|Add(Texture|Atomic).*|Disable.*|Mark.*|Cloned.*|Clone.*|Find(Upgrade|Replacement).*|Copy.*|Calculate.*|Calc.*|Convert.*|Choose.*|Count.*|IsValidCompRule|ListOf.*|Define.*|Defined.*|Render(AddTri_|Begin|End|Effects|Scene|Debug.*)|DoRWStuff.*|Do(Fade)|Material.*|Shadow.*).*	RenderWare replacement
+^(ps.*|Rs.*|rs.*|App.*|Attach.*|Check.*|Create(Input|Debug.*)|Destroy.*|Dialog.*|di[A-Z].*|DelayLoad.*|D3D.*|DXCHECK|Enum.*|FillAvailable.*|FreeVideo.*|Get(Best|Video|Mouse|MillisecondTime|OSW|CurrentKeyPressed|dvd|Filename).*|getDvd.*|GTA.*|Handle(Key|Pad).*|Idle|Init(Dialog|ialise|ialiseGame|ialiseLanguage|UserDirectories|ModelIndices)|Initialise.*|IsForeground.*|IsVideo.*|IsEnvironment.*|Keyboard.*|Keystates|Message.*|NOTSA.*|PadHandler|Set(VideoMode)|Shutdown|WinMain|Frontend.*|Game.*|JPeg.*|Obrs.*|Flush.*|LittleTest|LoadingScreen.*|Render(Menus|2dStuff)|Terminate)$	Platform layer
+^(Gxt.*|Ascii.*|MakeUpper.*|GetLetter.*|GetCharacterPos.*|GetScriptLetterSize|Modify.*|ClipRadar.*|IsPointInsideRadar|LineRadar.*|Is.*PointerValid.*|IsObjectPointerValid.*)$	fonts.dat
+^(FindPlayer.*|GetEvent.*|Get.*Pool|GetPlayerRelationshipRecorder|GetPed.*|GetTask.*|GetPatrol.*|GetNodeRoute.*|GetPointRoute.*|GetPtr.*|GetEntryInfo.*|GetColModelPool|GetDummyPool|GetObjectPool|GetBuildingPool|GetVehiclePool)$	CPlayerInfo full
+^(Cd.*)$	CStreaming full
+^(BreakableConstructor|BreakableDestructor|BreakablePluginAttach|BreakableStream.*)$	World dynamics
+^(ActivateDirectional|AddAnExtraDirectionalLight|DeActivateDirectional|RemoveExtraDirectionalLights|ReSetAmbient.*|SetAmbient.*|SetDirectional.*|SetFlashy.*|SetFullAmbient|SetLights.*|SetBrightMarker.*|StoreAndSetLights.*|RestoreLights.*|SetLightColoursFor.*|GetDayNightBalance)$	Visual effects
+^(SetLightsForInfraredVision.*|SetLightsForNightVision)$	Misc weapons
+^(AddWaterPolyToZone)$	Water:
+^(CamShakeNoPos)$	Cheat codes
+^(FireOneInstantHitRound)$	CBulletInfo, CShotInfo
+^(SayJacked|SayJacking|PlayAnnouncement|ProcessTrainAnnouncements|FindCutsceneAudioTrackId)$	Audio engine
+^(RoadsignGenerateTextRaster|RoadsignGetLineAndRow)$	Custom road signs
+^(Is(Lamp|Teleport|Dummy|Entity|Ped|Vehicle|Building|Object)Post|IsLampPost|IsTeleportPointValid|IsPointInside.*|IsPointWithinArbitraryArea|IsAlreadyRunning|DoesCarGroupHaveModelId|DoesInfiniteLineTouchScreen|FindClosestPtOnLine|ClosestSquaredDistanceBetweenFiniteLines|CrossProduct|DotProduct|Multiply3x3|Invert|RotateVec.*|GetMoveSpeed|GetTurnSpeed|SetIsStanding|MoveMem|MoveColModelMemory|MoveGeometryMemory|GetBoundingBox|GetRandomNumberInRange.*)$	CPhysical full
+^(LOSBlockedBetweenPeds|MarkSurroundingEntitiesForCollisionWithTrain|FindNearestUnclaimedDestination|SetIfCollisionIsRequired.*|SetIfIplIsRequired.*|SetIfInteriorIplIsRequired|LinkLods|LoadModels|InitModelIndices|HasAnimGroupLoaded|SetMotionAnimGroup|GetClothesModelFromName|MatchAllModelStrings|MatchModelStringUint16|GetListOfComponentsNotUsedByRules|ConvertBoneTag2BoneName|ConvertPedNode2BoneTag|GetNameAndDamage|GetPlantDensity|GetSavedGameDateAndTime|CalculateColPointInsideBox|CalcScreenCoors|GetTextureCorners|ResetMadeInvisibleObjects|CopyObjectsCB|ShadowRenderTriangleCB|SetAtomicModelInfoFlags|Get2DEffectAtomic.*|GetPipelineID|SetPipelineID|IsBuildingPointerValid|ChooseComponent|CountCompsInRule|BuildCatchObject)$	Occlusion and cull zones
+^(uses_.*|calls_.*|near_.*|unk.*|operator_.*|terminate|Unwind|write_.*|WellBufferMe|TypeMatch|TextCopy|cfl\.zip|ValidateVersion|AllocateMemoryAndRead)$	EXCLUDED
+^(Win32_.*|TheGame|WriteRaster)$	Platform layer
+^(Transform.*|VectorSub|TxdParent.*|t2dEffectPlugin.*|(clear|set)ClumpForAllAtomicsFlagCB|TestModelIndices|TidyUpModelInfo2)$	RenderWare replacement
+^(CCustomRoadsignMgr)$	Custom road signs
+^(CRenPar)$	Particle and effects system
+^(CTrafficLights|TrainHitStuff)$	Traffic AI
+^(CVehicle_.*)$	Real suspension
+^(CPatrolRoutePool_.*)$	Path nodes
+^(TestLineAgainstWater|WorldReplace.*Lights.*)$	Water:
