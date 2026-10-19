@@ -69,6 +69,8 @@
 
 static D3DRenderer g_renderer;
 static Projectiles g_proj;   // thrown weapons in flight
+struct FirePatch { float pos[3]; float left; };   // a molotov's burning ground: CFireManager fires, kept burning for a few seconds
+static std::vector<FirePatch> g_firePatches;
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
 static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
 static Sky g_sky;        // CClouds: moon, stars, low clouds
@@ -3751,6 +3753,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     };
                     std::vector<Projectiles::Event> pev;
                     if (worldReady) g_proj.Update(dt, env, pev);
+                    for (size_t i = 0; i < g_firePatches.size();) {   // burning ground: flames and smoke while it lasts, hurts whoever stands in it
+                        FirePatch& fp = g_firePatches[i];
+                        fp.left -= dt;
+                        if (fp.left <= 0.0f) { g_firePatches.erase(g_firePatches.begin() + (long)i); continue; }
+                        g_fx.Fire(fp.pos);
+                        if (rand() % 8 == 0) g_fx.Smoke(fp.pos, 0.5f);
+                        const float dx = playerX - fp.pos[0], dy = playerY - fp.pos[1], dz = playerZ - EYE_HEIGHT - fp.pos[2];
+                        if (dx * dx + dy * dy < 1.0f && std::fabs(dz) < 2.0f) g_cj.Hurt(10.0f * dt);
+                        i++;
+                    }
                     for (const Projectiles::Event& e : pev) {
                         if (e.kind == Projectiles::Kind::Explode) {
                             Log("BOOM %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
@@ -3768,6 +3780,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             Log("FIRE %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
                             g_fx.Fire(e.pos); g_fx.Fire(e.pos); g_fx.Smoke(e.pos, 0.5f);
                             g_peds.Explosion(e.pos, 3.0f);
+                            for (int k = 0; k < 6; k++) {   // the spread: several fires around the impact
+                                const float a = (float)k * 1.0472f, r = k ? 1.0f + 0.4f * (float)(k % 3) : 0.0f;
+                                g_firePatches.push_back({{e.pos[0] + std::cos(a) * r, e.pos[1] + std::sin(a) * r, e.pos[2]}, 5.0f + 1.5f * (float)(k % 4)});
+                            }
                         } else {
                             static int s_gas = 0;
                             if (s_gas++ % 20 == 0) Log("GAS %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
