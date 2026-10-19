@@ -1420,7 +1420,7 @@ void PlayerPed::ApplyAimIK(const Input& in) {
             if (cl > 1e-4f) for (int k = 0; k < 3; k++) c[k] /= cl;
         };
         turnTorso(right, a);
-        if (m_frameOfBone[24] >= 0) {
+        if (m_frameOfBone[24] >= 0 && (m_guns[m_gun].flags & 0x1)) {   // heavy weapons (no CanAim) keep the clip's hold
             // The torso turns (yaw within +-50 degrees) until the gun lies along the aim: the clip's
             // own holding angle (the sniper rifle sits well off the body axis) is taken out here,
             // then the elevation is levelled the same way.

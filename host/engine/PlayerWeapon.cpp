@@ -295,6 +295,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.spec = &sp;
         g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
         g.fireClip = s_weaponSkill == 0 && sp.firePoor ? sp.firePoor : sp.fire;
+        g.slot = std::atoi((*row)[7].c_str());
         g.name = sp.label;
         g.clipSize = std::atoi((*row)[9].c_str());
         g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
@@ -331,6 +332,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
         g.name = sp.label;
         g.comboName = (*row)[7];
+        g.slot = std::atoi((*row)[6].c_str());
         g.range = (float)std::atof((*row)[3].c_str());
         g.flags = 0;
         g.clipSize = g.ammo = g.total = 0;
@@ -348,6 +350,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
         g.name = sp.label;
         g.clipSize = 1;
+        g.slot = std::atoi((*row)[7].c_str());
         g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
         g.loopEnd = (float)std::atof((*row)[19].c_str()) * kFrame;
         g.fireTime = (float)std::atof((*row)[20].c_str()) * kFrame;       // WEAPON_throw
@@ -440,6 +443,13 @@ int PlayerPed::GunClipAt(int i) const { return i >= 0 && i < (int)m_guns.size() 
 int PlayerPed::GunTotalAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].total : 0; }
 int PlayerPed::GunClipSizeAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].clipSize : 0; }
 const char* PlayerPed::GunName() const { return WeaponIndex() >= 0 ? m_guns[WeaponIndex()].name.c_str() : "Fists"; }
+// CWeapon::FireInstantHit only grows the attack counter when the shot has spread: (100 - ped accuracy) /
+// weapon accuracy, the player's accuracy 95 with a CanAim (flag 0x1) weapon, else 100; shotguns none.
+bool PlayerPed::AttackSpread(const Gun& g) const {
+    const std::string id = g.spec ? g.spec->name : "";
+    return (g.flags & 0x1) && id != "SHOTGUN" && id != "SAWNOFF" && id != "SPAS12";
+}
+
 // CPlayerPed::GetWeaponRadiusOnScreen @ 00609cd0: the crosshair circle size.
 float PlayerPed::WeaponRadiusOnScreen() const {
     if (m_gun < 0) return 0.0f;
@@ -571,7 +581,7 @@ void PlayerPed::UpdateGun(const Input& in) {
             m_shotDone = true;
             g.ammo--;
             m_shotEvents++;
-            m_attackCounter += g.damage * 0.04f;   // CWeapon::FireInstantHit
+            m_attackCounter += AttackSpread(g) ? g.damage * 0.04f : 0.0f;   // CWeapon::FireInstantHit
             m_lastShotLeft = false;
             if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0 && g.type < 35) m_flash = 0.06f;   // the silenced pistol and the heavy weapons have no flash
             std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
@@ -582,7 +592,7 @@ void PlayerPed::UpdateGun(const Input& in) {
             m_shotLeftDone = true;
             g.ammo--;
             m_shotEvents++;
-            m_attackCounter += g.damage * 0.04f;   // CWeapon::FireInstantHit
+            m_attackCounter += AttackSpread(g) ? g.damage * 0.04f : 0.0f;   // CWeapon::FireInstantHit
             m_lastShotLeft = true;
             m_flashL = 0.06f;
             std::fprintf(stderr, "[GUN] shot %s (left) ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);
@@ -601,7 +611,7 @@ void PlayerPed::UpdateGun(const Input& in) {
                     m_shotDone = true;
                     g.ammo--;
                     m_shotEvents++;
-                    m_attackCounter += g.damage * 0.04f;
+                    m_attackCounter += AttackSpread(g) ? g.damage * 0.04f : 0.0f;
                     m_lastShotLeft = false;
                     if (std::strcmp(sp.name, "PISTOL_SILENCED") != 0 && g.type < 35) m_flash = 0.06f;
                     std::fprintf(stderr, "[GUN] shot %s ammo %d/%d\n", g.name.c_str(), g.ammo, g.clipSize);

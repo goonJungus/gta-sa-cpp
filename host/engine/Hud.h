@@ -157,6 +157,8 @@ private:
     D3DRenderer* m_r = nullptr;
     bool m_ready = false;
     Fe2d m_2d;
+    IDirect3DTexture9* m_grain = nullptr;   // CPostEffects grain raster: random grey, random alpha
+    int m_gogglesPrev = 0;
     FeFont m_font;
     FeText m_text;
     ImgLoader m_gta3;

@@ -36,7 +36,11 @@ void PlayerPed::UpdateThrow(const Input& in) {
     Gun& g = m_guns[m_melee];
 
     if (g.detonator) {   // WEAPON_FIRE_USE: CWorld::UseDetonator, no animation
-        if (in.fireJust && g.total > 0 && !m_busy) { m_detonatePending = true; g.total = 1; }
+        if (in.fireJust && g.total > 0 && !m_busy) {   // CWeapon::Fire: ammo 1, then spent, so the detonator goes
+            m_detonatePending = true;
+            g.total = 0;
+            SwitchAfterEmpty();
+        }
         return;
     }
 
@@ -115,7 +119,7 @@ void PlayerPed::UpdateThrow(const Input& in) {
         t = Throw();
         m_switchToDetonator = false;
         if (det >= 0) SelectGun(det);
-        else if (out) SelectGun(-1);
+        else if (out) SwitchAfterEmpty();
     }
 }
 
@@ -180,6 +184,26 @@ void PlayerPed::ThrowFire(const Input& in) {
             m_switchToDetonator = g.total < 1;
         }
     }
+}
+
+// The spent detonator starts the search at slot 8 when a satchel is held there; anything else one slot
+// down from its own. Each slot down takes the first weapon in it with ammo; slot 0 is the fists.
+// Slots 9-11 are passed over: retail went from the detonator straight to the minigun past the camera
+// and goggles.
+void PlayerPed::SwitchAfterEmpty() {
+    const int cur = WeaponIndex();
+    if (cur < 0) return;
+    const Gun& c = m_guns[cur];
+    int s = c.slot - 1;
+    if (c.detonator)
+        for (const Gun& g : m_guns) if (g.slot == 8 && g.type == kSatchel && g.total > 0) s = 8;
+    for (; s > 0; s--)
+        for (size_t i = 0; i < m_guns.size(); i++) {
+            const Gun& g = m_guns[i];
+            if (g.slot != s || (int)i == cur || (s >= 9 && s <= 11)) continue;   // retail skips camera, gifts and goggles (seen: detonator -> minigun)
+            if (g.ammo + g.total > 0) { SelectGun((int)i); return; }
+        }
+    SelectGun(-1);
 }
 
 int PlayerPed::DetonatorIndex() const {

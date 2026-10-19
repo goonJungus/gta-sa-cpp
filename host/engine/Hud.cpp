@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -66,6 +67,19 @@ bool Hud::Init(D3DRenderer& r, const std::string& gameDir) {
     for (const TxdTexture& t : TxdLoader::Load(gameDir + "\\models\\hud.txd"))
         if (IDirect3DTexture9* tex = Upload(r, t)) m_sprites[TxdLoader::KeyOf(t.name)] = tex;
     m_haveImg = m_gta3.Open(gameDir + "\\models\\gta3.img");
+    {   // the grain raster (CPostEffects::m_pGrainRaster): every byte random
+        std::vector<uint8_t> px(64 * 64 * 4);
+        uint32_t s = 0x1234567u;
+        for (uint8_t& b : px) { s = s * 1103515245u + 12345u; b = (uint8_t)(s >> 16); }
+        for (size_t i = 0; i < px.size(); i += 4) px[i + 1] = px[i + 2] = px[i + 3] = px[i];
+        m_grain = r.CreateTexture(64, 64, D3DFMT_A8R8G8B8, px.data(), (uint32_t)px.size());
+    }
+    for (const char* wt : {"camera.txd", "sniper.txd"}) {   // the scope crosshairs live in the weapon TXDs
+        const std::vector<uint8_t> data = m_haveImg ? m_gta3.Extract(wt) : std::vector<uint8_t>();
+        if (!data.empty())
+            for (const TxdTexture& t : TxdLoader::LoadFromMemory(data.data(), data.size()))
+                if (IDirect3DTexture9* tex = Upload(r, t)) m_sprites[TxdLoader::KeyOf(t.name)] = tex;
+    }
     // info.zon: name, type, box, island, GXT key
     std::ifstream zf(gameDir + "\\data\\info.zon");
     for (std::string line; std::getline(zf, line);) {
@@ -88,6 +102,7 @@ void Hud::Shutdown() {
     m_font.Shutdown();
     if (!m_r) return;
     for (auto& kv : m_sprites) if (kv.second) m_r->DestroyTexture(kv.second);
+    if (m_grain) { m_r->DestroyTexture(m_grain); m_grain = nullptr; }
     m_sprites.clear();
     for (IDirect3DTexture9*& t : m_tiles) if (t) { m_r->DestroyTexture(t); t = nullptr; }
     m_ready = false;
@@ -184,15 +199,52 @@ void Hud::RotatedSprite(Fe2d& g, IDirect3DTexture9* tex, float cx, float cy, flo
     g.DrawTris(tex, tris, 6);
 }
 
+// CPostEffects::NightVision / InfraredVision. Retail also relights the world for the goggles (ambient and
+// directional pure green, or blue with red peds); here the frame is brightened instead, then filtered.
 void Hud::Goggles(D3DRenderer& r, int mode) {
+    const int prev = m_gogglesPrev;
+    m_gogglesPrev = mode;
     if (!m_ready || !r.GetDevice() || mode < 44) return;
+    IDirect3DDevice9* d = r.GetDevice();
     const float sw = (float)r.Width(), sh = (float)r.Height();
-    const uint32_t col = mode == 44 ? Alpha(0xFF10FF20, 0.22f) : Alpha(0xFF2040FF, 0.22f);
     Fe2d& g = m_2d;
-    g.Begin(r.GetDevice());
-    const Fe2d::Vert q[6] = {{0, 0, 0, 0, col}, {sw, 0, 0, 0, col}, {0, sh, 0, 0, col},
-                             {sw, 0, 0, 0, col}, {sw, sh, 0, 0, col}, {0, sh, 0, 0, col}};
-    g.DrawTris(nullptr, q, 6);
+    g.Begin(d);
+    auto full = [&](uint32_t c, IDirect3DTexture9* t, float u0, float v0, float u1, float v1) {
+        const Fe2d::Vert q[6] = {{0, 0, u0, v0, c}, {sw, 0, u1, v0, c}, {0, sh, u0, v1, c},
+                                 {sw, 0, u1, v0, c}, {sw, sh, u1, v1, c}, {0, sh, u0, v1, c}};
+        g.DrawTris(t, q, 6);
+    };
+    // the relight stand-in: frame doubled (src * dest + dest)
+    d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_DESTCOLOR);
+    d->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+    full(0xFFFFFFFF, nullptr, 0, 0, 0, 0);
+    if (mode == 44) {
+        if (prev != 44) {   // the switch-on flash: m_fNightVisionSwitchOnFXTime (50) additive passes of 8
+            d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+            full(0xFFFFFFFF, nullptr, 0, 0, 0, 0);
+        }
+        d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ZERO);   // dest *= (32, 255, 32)
+        d->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_SRCCOLOR);
+        full(0xFF20FF20, nullptr, 0, 0, 0, 0);
+    } else {
+        d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);    // the blurred additive passes, colour (255, 60, 40)
+        d->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+        full(0xFF3C0A06, nullptr, 0, 0, 0, 0);
+        d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ZERO);   // dest *= (255, 64, 255)
+        d->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_SRCCOLOR);
+        full(0xFFFF40FF, nullptr, 0, 0, 0, 0);
+    }
+    d->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    d->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    if (m_grain) {   // CPostEffects::Grain: white at the strength (48 night, 64 infrared), uv 0..1.5*W/640, wrapped
+        d->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP);
+        d->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP);
+        const float ux = 1.5f * sw / 640.0f, uy = sh / sw * ux;
+        const float ou = (float)(std::rand() % 64) / 64.0f, ov = (float)(std::rand() % 64) / 64.0f;
+        full(((mode == 44 ? 48u : 64u) << 24) | 0xFFFFFFu, m_grain, ou, ov, ou + ux, ov + uy);
+        d->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        d->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    }
     g.End();
 }
 
@@ -201,6 +253,40 @@ void Hud::Scope(D3DRenderer& r, bool camera, bool rocket) {
     const float sw = (float)r.Width(), sh = (float)r.Height();
     const float cx = sw * 0.5f, cy = sh * 0.5f;
     Fe2d& g = m_2d;
+    // CHud::DrawCrossHairs: the camera and sniper draw the weapon TXD's <model>CROSSHAIR, the rocket
+    // launchers hud.txd's siterocket; one texture quarter drawn four times, mirrored round the centre.
+    {
+        IDirect3DTexture9* tex = Sprite(rocket ? "siterocket" : camera ? "cameraCrosshair" : "SNIPERcrosshair");
+        const float qx = (rocket ? 24.0f : camera ? 256.0f : 210.0f) * sw / 640.0f;
+        const float qy = (rocket ? 24.0f : camera ? 192.0f : 210.0f) * sh / 448.0f;
+        const float ox = rocket ? 20.0f * sw / 640.0f : 0.0f, oy = rocket ? 20.0f * sh / 448.0f : 0.0f;
+        if (tex) {
+            std::vector<Fe2d::Vert> v;
+            for (int sx = -1; sx <= 1; sx += 2)
+                for (int sy = -1; sy <= 1; sy += 2) {
+                    const float x0 = cx + sx * ox, x1 = x0 + sx * qx, y0 = cy + sy * oy, y1 = y0 + sy * qy;
+                    // the inner edge (u or v = 1) touches the centre; mirrored quarters flip the outer side
+                    const float ui = 1.0f, uo = 0.0f, vi = 1.0f, vo = 0.0f;
+                    const uint32_t c = 0xFFFFFFFF;
+                    const Fe2d::Vert q[6] = {{x0, y0, ui, vi, c}, {x1, y0, uo, vi, c}, {x0, y1, ui, vo, c},
+                                             {x1, y0, uo, vi, c}, {x1, y1, uo, vo, c}, {x0, y1, ui, vo, c}};
+                    v.insert(v.end(), q, q + 6);
+                }
+            g.Begin(r.GetDevice());
+            g.DrawTris(tex, v.data(), (int)v.size());
+            if (!camera && !rocket) {   // the sniper view is black past the scope's square
+                const uint32_t k = 0xFF000000;
+                const float l = cx - qx, rr = cx + qx, t0 = cy - qy, b0 = cy + qy;
+                const Fe2d::Vert bars[24] = {{0, 0, 0, 0, k}, {l, 0, 0, 0, k}, {0, sh, 0, 0, k}, {l, 0, 0, 0, k}, {l, sh, 0, 0, k}, {0, sh, 0, 0, k},
+                                             {rr, 0, 0, 0, k}, {sw, 0, 0, 0, k}, {rr, sh, 0, 0, k}, {sw, 0, 0, 0, k}, {sw, sh, 0, 0, k}, {rr, sh, 0, 0, k},
+                                             {l, 0, 0, 0, k}, {rr, 0, 0, 0, k}, {l, t0, 0, 0, k}, {rr, 0, 0, 0, k}, {rr, t0, 0, 0, k}, {l, t0, 0, 0, k},
+                                             {l, b0, 0, 0, k}, {rr, b0, 0, 0, k}, {l, sh, 0, 0, k}, {rr, b0, 0, 0, k}, {rr, sh, 0, 0, k}, {l, sh, 0, 0, k}};
+                g.DrawTris(nullptr, bars, 24);
+            }
+            g.End();
+            return;
+        }
+    }
     g.Begin(r.GetDevice());
     std::vector<Fe2d::Vert> v;
     auto quad = [&](float x0, float y0, float x1, float y1, uint32_t c) {

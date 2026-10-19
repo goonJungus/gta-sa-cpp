@@ -127,6 +127,7 @@ public:
     void SelectGun(int index);          // -1 = fists
     void NextGun();                     // cycles through the list, then fists
     void PrevGun();                     // the other way
+    void SwitchAfterEmpty();            // CPlayerPed::ProcessWeaponSwitch: out of ammo, the next lower slot with ammo
     int GunIndex() const { return m_gun; }   // the firearm in hand, -1 for fists or a melee weapon
     int WeaponIndex() const { return m_gun >= 0 ? m_gun : m_melee; }   // anything in hand, -1 = fists
     float WeaponRadiusOnScreen() const;   // CPlayerPed::GetWeaponRadiusOnScreen
@@ -344,6 +345,7 @@ private:
         const GunSpec* spec = nullptr;
         bool thrown = false, detonator = false;                              // grenade family / detonator
         int type = 0;                                                        // eWeaponType
+        int slot = 0;                                                        // weapon.dat weapon slot (0 fists .. 12 detonator)
         const char* fireClip = nullptr;                                      // standing fire clip (poor skill uses its own)
         std::string name;
         int clipSize = 0, ammo = 0, total = 0;
@@ -366,6 +368,7 @@ private:
         std::vector<IDirect3DTexture9*> textures;
     };
     std::vector<Gun> m_guns;
+    bool AttackSpread(const Gun& g) const;
     int m_gun = -1;     // the firearm in hand
     int m_melee = -1;   // the melee weapon in hand (fists when both are -1)
     int m_shotEvents = 0, m_reloadEvents = 0, m_dryEvents = 0;
