@@ -356,7 +356,10 @@ private:
     struct DynBody {
         int inst = -1;
         ObjDef def;
-        float c[3] = {0, 0, 0}, hx[3] = {0, 0, 0};   // model-space box centre and half extents
+        float c[3] = {0, 0, 0}, hx[3] = {0, 0, 0};   // model-space box centre and half extents (the union, broad phase)
+        // The retail COL parts, relative to the centre in model space: boxes (h = half extents) and spheres (r).
+        struct Part { bool sphere = false; float c[3] = {0, 0, 0}, h[3] = {0, 0, 0}, r = 0.0f; };
+        std::vector<Part> parts;
         float p[3] = {0, 0, 0};                       // centre of the box in the world
         float R[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};   // row i = world image of local axis i
         float v[3] = {0, 0, 0}, w[3] = {0, 0, 0};
