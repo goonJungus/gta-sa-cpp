@@ -316,3 +316,11 @@ Each decomp class family that has no line above. Source: decomp `src/<Class>` fo
 - [ ] Cell phone missions, Vigilante, Burglary, Beta items, Mission replay menu (w 1)
 - [ ] Hot-key and mission skip handling, "Mission passed" screens with the reward music (w 1)
 - [ ] Credits, game over, endgame ending (w 1)
+
+## Platform layer, render pipeline and exclusions
+Tracked so every retail function has a home. `python3 scripts/coverage.py <decomp src dir>` maps every decomp class folder and loose function to a roadmap line through `scripts/coverage_map.txt` and exits non-zero when one is unmapped; run it after touching either file.
+
+- [ ] Platform layer: window, message loop, D3D9 device init and reset, video modes, gamepad and keyboard polling (Rs*/ps*/di* family, WinMain, Idle) (w 3)
+- [ ] RenderWare replacement: clump, atomic, frame, geometry, material, skin, pipeline, light and 2D/3D immediate-mode behaviour reproduced by the engine (Rw*/Rp*/Rt*/Rx* family) (w 5)
+- [ ] Not ported on purpose: CRT and C++ runtime internals, copy protection (SecuROM, HASP), QuickTime and video-player glue, Ghidra artefacts (w 0)
+- [ ] gta_quick.dat: the quick-load world list used by the retail debug start (w 0)
