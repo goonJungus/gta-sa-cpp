@@ -207,7 +207,7 @@ const MoveSet kSets[] = {{"idle_stance", "walk_player", "run_player", "walk_star
 int PlayerPed::MoveSetId() const {
     static const struct { const char* gun; int set; } kGuns[] = {
         {"SHOTGUN", 1}, {"SPAS12", 1}, {"AK47", 1}, {"M4", 1}, {"COUNTRYRIFLE", 1}, {"SNIPERRIFLE", 1},
-        {"ROCKET", 2}, {"HEATSEEKER", 2}, {"CHAINSAW", 3}, {"FLAMETHROWER", 3}, {"MINIGUN", 3}};
+        {"RLAUNCHER", 2}, {"RLAUNCHER_HS", 2}, {"CHAINSAW", 3}, {"FTHROWER", 3}, {"MINIGUN", 3}};
     const char* id = GunId();
     for (const auto& g : kGuns)
         if (!strcmp(id, g.gun)) return g.set;
@@ -249,7 +249,7 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         if (anims.Open(gameDir + "\\anim\\anim.img")) {
             IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), m_clips, true);
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
-            for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw", "grenade"})   // melee groups
+            for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw", "grenade", "rocket", "flame", "spraycan", "goggles", "camera"})   // melee groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
             for (const char* g : {"colt45", "silenced", "python", "shotgun", "buddy", "uzi", "rifle", "sniper"})   // weapon groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
