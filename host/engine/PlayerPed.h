@@ -206,6 +206,7 @@ private:
     void ShoulderBoneRotation();
     void ApplyRewritePose();
     void ApplyAimIK(const Input& in);
+    void ApplySwimPitch();
     void UpdateArmChain(int side, bool want, const float target[3], float dt);
     void RotateTorsoForArm(const float target[3]);
     void ApplyFootIK(const Input& in);
