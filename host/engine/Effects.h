@@ -25,6 +25,7 @@ public:
     // Smoke rising from a damaged engine (dark 0..1) and a car blowing up.
     void Gas(const float p[3]);   // a tear gas cloud puff
     void Smoke(const float p[3], float dark);
+    void Spray(const float p[3], uint32_t rgb);   // a paint / foam puff from the spray can or extinguisher
     void Fire(const float p[3]);
     void Explosion(const float p[3]);
     // A tracer streak from a to b.
