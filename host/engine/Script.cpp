@@ -1,5 +1,7 @@
 #include "Script.h"
 
+#include <cstdlib>
+
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -167,6 +169,8 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
     auto fail = [&]() { t.pc = start; t.stoppedAt = op; return false; };
     Arg a, b;
     t.executed++;
+    if (static const char* tr = std::getenv("GTA_SCMTRACE"); tr && t.executed < 400 && t.name == tr)
+        std::fprintf(stderr, "[SCMTRACE] %s %06X %04X\n", t.name.c_str(), start, op);
 
     auto readValue = [&](const Arg& x, bool isFloat, ScmThread& th) -> int32_t {
         if (x.type == 2 || x.type == 3) return Var(th, x);
@@ -329,7 +333,6 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
     };
     auto out = [&](size_t i, int32_t v) { if (i < args.size() && (args[i].type == 2 || args[i].type == 3)) Var(t, args[i]) = v; };
     auto outF = [&](size_t i, float v) { out(i, AsBits(v)); };
-    (void)result;
     switch (op) {
     case 0x0053:   // CREATE_PLAYER(id, x, y, z) -> player handle
         if (host.setPlayerPos) host.setPlayerPos(num(1), num(2), num(3));
@@ -344,6 +347,24 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
     }
     case 0x00A1:   // SET_CHAR_COORDINATES(char, x, y, z)
         if (inum(0) == 1 && host.setPlayerPos) host.setPlayerPos(num(1), num(2), num(3));
+        return true;
+    case 0x018A:   // ADD_BLIP_FOR_COORD(x, y, z) -> blip
+        out(3, host.addBlip ? host.addBlip(num(0), num(1), num(2), 0, false) : 0);
+        return true;
+    case 0x02A7:   // ADD_SPRITE_BLIP_FOR_CONTACT_POINT(x, y, z, sprite) -> blip
+    case 0x02A8:   // ADD_SPRITE_BLIP_FOR_COORD(x, y, z, sprite) -> blip
+    case 0x04CE:   // ADD_SHORT_RANGE_SPRITE_BLIP_FOR_CONTACT_POINT(x, y, z, sprite) -> blip
+    case 0x0570:   // ADD_SHORT_RANGE_SPRITE_BLIP_FOR_COORD(x, y, z, sprite) -> blip
+        out(4, host.addBlip ? host.addBlip(num(0), num(1), num(2), inum(3), op == 0x04CE || op == 0x0570) : 0);
+        return true;
+    case 0x0164:   // REMOVE_BLIP(blip)
+        if (host.removeBlip) host.removeBlip(inum(0));
+        return true;
+    case 0x018B:   // CHANGE_BLIP_DISPLAY(blip, mode)
+        if (host.blipDisplay) host.blipDisplay(inum(0), inum(1));
+        return true;
+    case 0x0256:   // IS_PLAYER_PLAYING(player): the player is always alive and in control here
+        result = true;
         return true;
     case 0x00C0:   // SET_TIME_OF_DAY(hour, minute)
         if (host.setTime) host.setTime(inum(0), inum(1));

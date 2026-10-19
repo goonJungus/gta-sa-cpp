@@ -838,6 +838,12 @@ void FeMenu::DrawMap(Fe2d& g) {
             toScreen(m_wpX, m_wpY, px, py);
             m_hud->RotatedSprite(g, m_hud->Sprite("radar_waypoint"), px, py - bs * 0.3f, bs, bs, 0.0f, 0xFFFFFFFF);
         }
+        for (const RadarBlip& b : m_info.blips) {   // CRadar::DrawBlips on the map: every sprite blip
+            if (b.display == 0 || b.display == 1) continue;
+            toScreen(b.x, b.y, px, py);
+            if (const char* nm = RadarBlipSpriteName(b.sprite)) m_hud->RotatedSprite(g, m_hud->Sprite(nm), px, py, bs, bs, 0.0f, 0xFFFFFFFF);
+            else { const float q = bs * 0.25f; g.DrawRect(px - q - 1, py - q - 1, px + q + 1, py + q + 1, 0xFF000000); g.DrawRect(px - q, py - q, px + q, py + q, b.colour); }
+        }
         toScreen(m_info.x, m_info.y, px, py);
         m_hud->RotatedSprite(g, m_hud->Sprite("radar_centre"), px + 2, py + 2, bs * 1.25f, bs * 1.25f, 1.5707963f - m_info.heading, 0xE0000000);
         m_hud->RotatedSprite(g, m_hud->Sprite("radar_centre"), px, py, bs, bs, 1.5707963f - m_info.heading, 0xFFFFFFFF);
@@ -846,7 +852,10 @@ void FeMenu::DrawMap(Fe2d& g) {
     if (m_set.mapLegend && m_hud) {
         const float rowH = Sy(26), pad = Sx(10);
         const float x1 = r - Sx(24), y0 = t + Sy(90);
-        const int rows = 1 + (m_wpSet ? 1 : 0);
+        std::vector<int> kinds;   // one legend row per sprite kind on the map (retail CRadar::DrawLegend, LG_xx)
+        for (const RadarBlip& b : m_info.blips)
+            if (b.sprite > 4 && b.sprite != 41 && b.display >= 2 && std::find(kinds.begin(), kinds.end(), b.sprite) == kinds.end()) kinds.push_back(b.sprite);
+        const int rows = 1 + (m_wpSet ? 1 : 0) + (int)kinds.size();
         m_font.SetStyle(FeFont::SUBTITLES);
         m_font.SetScale(Sx(0.4f), Sy(0.9f));
         m_font.SetEdge(2);
@@ -858,6 +867,13 @@ void FeMenu::DrawMap(Fe2d& g) {
         if (m_wpSet) {
             m_hud->RotatedSprite(g, m_hud->Sprite("radar_waypoint"), x1 - w + Sx(22), ry, Sy(24), Sy(24), 0.0f, 0xFFFFFFFF);
             m_font.Print(g, x1 - w + Sx(42), ry - m_font.LineHeight() * 0.5f, m_text.Get("LG_64"));
+            ry += rowH;
+        }
+        for (int k : kinds) {
+            char key[8];
+            std::snprintf(key, sizeof(key), "LG_%02d", k);
+            m_hud->RotatedSprite(g, m_hud->Sprite(RadarBlipSpriteName(k)), x1 - w + Sx(22), ry, Sy(24), Sy(24), 0.0f, 0xFFFFFFFF);
+            m_font.Print(g, x1 - w + Sx(42), ry - m_font.LineHeight() * 0.5f, m_text.Get(key));
             ry += rowH;
         }
         m_hud->RotatedSprite(g, m_hud->Sprite("radar_centre"), x1 - w + Sx(22), ry, Sy(24), Sy(24), 0.0f, 0xFFFFFFFF);

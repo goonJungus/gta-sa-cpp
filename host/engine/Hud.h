@@ -41,6 +41,19 @@ struct WheelItem {
     bool melee = false;
 };
 
+// A radar blip (CRadar::ms_RadarTrace): a sprite blip from the scripts, drawn on the radar (a
+// short-range one only while it is in range, others pinned to the rim) and on the pause map.
+struct RadarBlip {
+    int handle = 0;
+    float x = 0, y = 0, z = 0;
+    int sprite = 0;               // CRadar::RadarBlipFileNames index (0 = a plain coloured marker)
+    bool shortRange = false;
+    int display = 2;              // CHANGE_BLIP_DISPLAY: 0 none, 1 marker only, 2 blip only, 3 both
+    uint32_t colour = 0xFFE10000;
+};
+// CRadar::RadarBlipFileNames @ 008d0720: the sprite of each blip id.
+const char* RadarBlipSpriteName(int sprite);
+
 struct HudData {
     float dt = 0.016f;
     bool rewrite = false;
@@ -82,6 +95,7 @@ struct HudData {
     bool wheel = false;            // weapon wheel up
     std::vector<WheelItem> wheelItems;
     int wheelSel = 0;              // highlighted slot
+    std::vector<RadarBlip> blips;  // script blips
     bool hasWaypoint = false;      // map waypoint blip
     float wpX = 0, wpY = 0;
 };
