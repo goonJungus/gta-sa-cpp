@@ -2986,11 +2986,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.camYaw = yaw;
                 pin.camPitch = pitch;
                 {   // classic third person aims through the offset crosshair (camera ray of the last frame's eye)
-                    const bool classicTp = g_menu.Settings().cameraStyle == PlayerCamera::kClassic && thirdPerson;
+                    const bool classicTp = g_menu.Settings().cameraStyle == PlayerCamera::kClassic && (cjReady || thirdPerson);   // CJ always has the player camera
                     g_aspect = (float)WIDTH / (float)HEIGHT;
                     g_chairX = classicTp ? 0.53f : 0.5f;
                     g_chairY = classicTp ? 0.4f : 0.5f;
-                    pin.haveAimRay = thirdPerson && !g_playerCam.FirstPerson(g_menu.Settings().cameraStyle);
+                    pin.haveAimRay = (cjReady || thirdPerson) && !g_playerCam.FirstPerson(g_menu.Settings().cameraStyle);
                     CrosshairRay(yaw, pitch, pin.aimDir);
                     for (int k = 0; k < 3; k++) pin.aimEye[k] = g_aimEye[k];
                 }
