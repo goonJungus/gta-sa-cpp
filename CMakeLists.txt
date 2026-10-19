@@ -69,6 +69,8 @@ if(WIN32)
         host/engine/PlayerPed.cpp
         host/engine/PlayerFootIK.cpp
         host/engine/PlayerWeapon.cpp
+        host/engine/PlayerMelee.cpp
+        host/engine/Melee.cpp
         host/engine/Vehicle.cpp
         host/engine/Script.cpp
         host/engine/VorbisDecoder.cpp

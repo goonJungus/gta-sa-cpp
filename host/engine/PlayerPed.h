@@ -24,9 +24,11 @@
 
 #include "D3DRenderer.h"
 #include "IfpLoader.h"
+#include "Melee.h"
 #include "Movement.h"
 #include "SkinnedDff.h"
 
+#include <algorithm>
 #include <deque>
 #include <functional>
 #include <string>
@@ -125,7 +127,8 @@ public:
     void SelectGun(int index);          // -1 = fists
     void NextGun();                     // cycles through the list, then fists
     void PrevGun();                     // the other way
-    int GunIndex() const { return m_gun; }
+    int GunIndex() const { return m_gun; }   // the firearm in hand, -1 for fists or a melee weapon
+    int WeaponIndex() const { return m_gun >= 0 ? m_gun : m_melee; }   // anything in hand, -1 = fists
     float WeaponRadiusOnScreen() const;   // CPlayerPed::GetWeaponRadiusOnScreen
     float TargetRange() const { return m_gun >= 0 ? m_guns[m_gun].targetRange : 0.0f; }
     // CWeaponInfo::GetTargetHeadRange: (skill + 2) * weapon range * 0.04
@@ -150,6 +153,22 @@ public:
     float GunRange() const { return m_gun >= 0 ? m_guns[m_gun].range : 2.0f; }
     void RefillAmmo();                  // every gun back to a full stock (shooting range)
     bool GunMelee() const { return m_gun < 0; }
+    // Melee (PlayerMelee.cpp): CTaskSimpleFight on data\melee.dat.
+    // The strike sphere of a swing that reached its hit frame this update.
+    struct Strike {
+        float pos[3] = {0, 0, 0};   // sphere centre, world (ped origin = feet + 1)
+        float radius = 0.4f;
+        float damage = 0.0f;        // move damage x GetFatAndMuscleModifier(4)
+        int move = 0;               // Melee::MoveIdx
+        bool sword = false;         // SWORD combo: HIT_3 force-death 50%
+        int hitAudio = 0, altHitAudio = 0;
+        float heading = 0.0f;       // attacker facing
+        bool ground = false;        // AGROUND: only a fallen ped is hit
+        std::string hitClips[3];    // the combo's anim group hit reactions (HIT_1..3)
+    };
+    bool TakeStrike(Strike& out) { if (!m_strikePending) return false; out = m_strike; m_strikePending = false; return true; }
+    void SetFightStyle(int style) { m_fightStyle = std::clamp(style, 0, 3); }   // UNARMED_1..4
+    bool Fighting() const { return m_fight.active; }
     bool Reloading() const { return m_reloading; }
     IDirect3DTexture9* GunIcon() const; // hud icon texture, or null (fists)
     // One-shot events for sound and effects, taken by the host each frame.
@@ -234,6 +253,9 @@ private:
     void LoadGuns(D3DRenderer& r, const std::string& gameDir);
     void ShutdownGuns(D3DRenderer& r);
     void UpdateGun(const Input& in);
+    void UpdateMelee(const Input& in);
+    const Melee::Combo* CurrentCombo() const;
+    float FatMuscleModifier() const;
     void DrawGunAt(D3DRenderer& r, const RwMat& hand, const float world[4][4], bool flash);
     RwMat LeftGunMatrix() const;   // the twin gun's frame: left hand, X 180, then (0.04, -0.05, 0)
     void DrawGun(D3DRenderer& r, float x, float y, float feetZ);
@@ -307,13 +329,16 @@ private:
     float damage = 10.0f, range = 30.0f;                                 // weapon.dat damage and weapon range
         bool twin = false;                                                   // flag 0x800: a gun in each hand (pro skill)
         bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
+        const Melee::Combo* combo = nullptr;                                 // melee: its data\melee.dat combo
+        std::string comboName;                                               // melee: weapon.dat base combo (data\melee.dat), numbered by fight style for UNARMED
         float fireOffset[3] = {0, 0, 0};
         std::vector<D3DRenderMesh*> meshes;
         std::vector<D3DRenderMesh*> muzzle;     // the muzzle flash atomic, drawn only on a shot
         std::vector<IDirect3DTexture9*> textures;
     };
     std::vector<Gun> m_guns;
-    int m_gun = -1;
+    int m_gun = -1;     // the firearm in hand
+    int m_melee = -1;   // the melee weapon in hand (fists when both are -1)
     int m_shotEvents = 0, m_reloadEvents = 0, m_dryEvents = 0;
     static constexpr float kBreathMax = 39.0f;   // seconds under water (CStats air in lung, untrained)
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = kBreathMax, m_damageFlash = 0.0f;
@@ -340,6 +365,23 @@ private:
     float m_swimPitch = 0.0f;                  // m_fRotationX: positive dives
     float m_swimVelZ = 0.0f;
     const AnimClip* m_swimClip = nullptr;
+
+    // CTaskSimpleFight
+    Melee::Table m_meleeTable;
+    bool m_meleeOk = false;
+    int m_fightStyle = 0;
+    float m_fatStat = 0.0f, m_muscleStat = 0.0f;   // 0..1, SetBodyShape
+    struct Fight {
+        bool active = false;
+        const Melee::Combo* combo = nullptr;
+        int move = 0;                 // Melee::MoveIdx in progress
+        const AnimClip* clip = nullptr;
+        bool hitDone = false, queued = false;
+    } m_fight;
+    bool m_strikePending = false;
+    Strike m_strike;
+    void FightStart(const Input& in, int move);
+    void FightEnd(bool abrupt);
 
     Movement m_move;                           // rewrite handling
 };

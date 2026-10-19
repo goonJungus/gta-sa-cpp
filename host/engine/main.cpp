@@ -1326,6 +1326,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         PlayerPed::SetWeaponSkill(std::clamp(skill, 0, 2));
     }
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
+    if (cjReady) {   // [Player] FightStyle: 0 normal, 1 boxing, 2 kung fu, 3 kick boxing; GTA_FIGHTSTYLE overrides
+        int fs = GetPrivateProfileIntA("Player", "FightStyle", 0, g_iniPath);
+        if (const char* e = getenv("GTA_FIGHTSTYLE")) fs = atoi(e);
+        g_cj.SetFightStyle(fs);
+    }
     g_vehicles.Init(g_renderer, GameDir());
     g_peds.Init(g_renderer, GameDir());
     if (const char* e = getenv("GTA_PEDS")) g_crowdTarget = atoi(e);
@@ -3120,7 +3125,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (!g_wheelOpen && s_qHeld > 0.18f && g_cj.GunCount() > 0 && !g_menu.IsOpen()) {
                             g_wheelOpen = true;
                             g_wheelX = g_wheelY = 0.0f;
-                            g_wheelSel = g_cj.GunIndex() + 1;
+                            g_wheelSel = g_cj.WeaponIndex() + 1;
                         }
                     } else {
                         if (g_wheelOpen) {
@@ -3668,6 +3673,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_menuReady && cjReady) {
             if (!g_menu.IsOpen() && !g_devPaused) {
                 evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
+                {   // CTaskSimpleFight strike: the sphere against the crowd
+                    PlayerPed::Strike sk;
+                    if (g_cj.TakeStrike(sk) && !sk.ground) {
+                        const char* hc[3] = {sk.hitClips[0].c_str(), sk.hitClips[1].c_str(), sk.hitClips[2].c_str()};
+                        const float ap[2] = {playerX, playerY};
+                        bool killed = false;
+                        const int hp = g_peds.MeleeStrike(sk.pos, sk.radius, sk.damage, ap, sk.sword && sk.move == 2, hc, sk.move, &killed);
+                        if (hp >= 0) {
+                            Log("MELEE HIT %d move %d dmg %.1f kill %d", hp, sk.move, sk.damage, (int)killed);
+                            if (g_hudReady) g_hud.Hit(killed);
+                            g_fx.Blood(sk.pos);
+                            g_audio.Impact(0.0f);
+                        }
+                    }
+                }
                 st.shots += evShots; st.reloads += evReload;
                 g_fx.Update(dt);
                 if (worldReady && !g_devNoClip) {   // water splashes and landing dust
@@ -3867,9 +3887,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 s_wind += (fall - s_wind) * std::min(1.0f, dt * 3.0f);
                 g_audio.Ambient(g_menu.IsOpen() ? 0.4f : 1.0f, rainy ? 1.0f : 0.0f, s_wind);
             }
-            if (cjReady && g_cj.GunIndex() != s_lastGun) {
+            if (cjReady && g_cj.WeaponIndex() != s_lastGun) {
                 if (s_lastGun != -2) g_audio.WeaponSwitch();
-                s_lastGun = g_cj.GunIndex();
+                s_lastGun = g_cj.WeaponIndex();
             }
             if (cjReady && !g_menu.IsOpen() && !g_devPaused) {
                 const char* gid = g_cj.GunId();

@@ -249,6 +249,8 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         if (anims.Open(gameDir + "\\anim\\anim.img")) {
             IfpLoader::LoadFromMemory(anims.Extract("parachute.ifp"), m_clips, true);
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
+            for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw"})   // melee groups
+                IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
             for (const char* g : {"colt45", "silenced", "python", "shotgun", "buddy", "uzi", "rifle", "sniper"})   // weapon groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
         }
@@ -1424,8 +1426,11 @@ void PlayerPed::ApplyAimIK(const Input& in) {
 
 // ---- Frame update ----
 
-void PlayerPed::Update(const Input& in) {
+void PlayerPed::Update(const Input& inRaw) {
     if (!m_ready) return;
+    Input inFight = inRaw;   // CTaskSimpleFight: a standing swing takes the stick away
+    if (m_fight.active && m_fight.move != Melee::kMoving) inFight.stickX = inFight.stickY = 0.0f;
+    const Input& in = m_fight.active ? inFight : inRaw;
     const float dt = in.dt;
     if (MoveSetId() != m_moveSet) {   // CPed::ReApplyMoveAnims: swap the move set in place
         const MoveSet &from = kSets[m_moveSet], &to = kSets[MoveSetId()];
@@ -1524,6 +1529,7 @@ void PlayerPed::Update(const Input& in) {
         if (wantStance) ControlStance(in);
         else if (!m_busy) { if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false); ControlOnFoot(in); }
         else { if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false); m_ratio = 0.0f; }
+        UpdateMelee(in);
     }
 
     // Dev: GTA_CJPOSE="clip:seconds" freezes CJ in one frame of one clip.
@@ -1767,6 +1773,8 @@ void PlayerPed::ControlSwim(const Input& in) {
 void PlayerPed::SetBodyShape(float fat, float muscle) {
     fat = std::clamp(fat, 0.0f, 1.0f);
     muscle = std::clamp(muscle, 0.0f, 1.0f);
+    m_fatStat = fat;
+    m_muscleStat = muscle;
     if (fat + muscle > 1.0f) { const float k = 1.0f / (fat + muscle); fat *= k; muscle *= k; }
     const float r[3] = {1.0f - fat - muscle, fat, muscle};
     for (Part& p : m_parts) {
@@ -1949,8 +1957,14 @@ void PlayerPed::ControlStance(const Input& in) {
         const float f = std::max(0.0f, ly), b = std::max(0.0f, -ly), r = std::max(0.0f, lx), l = std::max(0.0f, -lx);
         const float tot = f + b + r + l;
         const float k = tot > 1.0f ? 1.0f / tot : 1.0f;
-        if (m_gun < 0 && Clip("fightidle")) {   // no gun in hand: the boxing stance, not a gun hold
-            ws[n++] = {"fightidle", 1.0f - std::min(1.0f, tot * k), false, true, 8.0f};
+        std::string idleName = "fightidle";   // melee: the combo's own idle when melee.dat says OWN_IDLE
+        if (const Melee::Combo* mc = CurrentCombo(); mc && mc->Has(0x400)) {
+            const std::vector<std::string>& cl = Melee::GroupClips(mc->group);
+            if (cl.size() > 9) { idleName = cl[9]; for (char& ch : idleName) ch = (char)std::tolower((unsigned char)ch); }
+        }
+        if (!Clip(idleName.c_str())) idleName = "fightidle";
+        if (m_gun < 0 && Clip(idleName.c_str())) {   // no gun in hand: the boxing stance, not a gun hold
+            ws[n++] = {idleName.c_str(), 1.0f - std::min(1.0f, tot * k), false, true, 8.0f};
             ws[n++] = {"fightsh_fwd", f * k, true, true, 8.0f};
             ws[n++] = {"fightsh_bwd", b * k, true, true, 8.0f};
             ws[n++] = {"fightsh_right", r * k, true, true, 8.0f};
