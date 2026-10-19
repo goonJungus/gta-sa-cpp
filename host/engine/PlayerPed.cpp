@@ -2023,7 +2023,10 @@ void PlayerPed::ControlStance(const Input& in) {
             ws[n++] = {"fightsh_right", r * k, true, true, 8.0f};
             ws[n++] = {"fightsh_left", l * k, true, true, 8.0f};
         } else {
-            ws[n++] = {"gun_stand", 1.0f - std::min(1.0f, tot * k), false, true, 8.0f};
+            // CTaskSimpleUseGun::SetMoveAnim: an arm-aimed gun (flag 0x2) idles on the plain idle (blend 8),
+            // a torso-aimed one on gun_stand
+            const bool armGun = m_gun >= 0 && m_guns[m_gun].aimWithArm;
+            ws[n++] = {armGun ? "idle_stance" : "gun_stand", 1.0f - std::min(1.0f, tot * k), false, true, 8.0f};
             ws[n++] = {"gunmove_fwd", f * k, true, true, 8.0f};
             ws[n++] = {"gunmove_bwd", b * k, true, true, 8.0f};
             ws[n++] = {"gunmove_r", r * k, true, true, 8.0f};
