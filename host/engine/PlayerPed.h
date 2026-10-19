@@ -119,6 +119,7 @@ public:
     // in the right hand, with the aim / fire / reload clips while aiming.
     void SelectGun(int index);          // -1 = fists
     void NextGun();                     // cycles through the list, then fists
+    void PrevGun();                     // the other way
     int GunIndex() const { return m_gun; }
     float WeaponRadiusOnScreen() const;   // CPlayerPed::GetWeaponRadiusOnScreen
     int GunCount() const;                 // guns carried (the wheel lists these plus the fists)

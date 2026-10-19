@@ -285,6 +285,10 @@ void PlayerPed::NextGun() {
     SelectGun(m_gun + 1 >= (int)m_guns.size() ? -1 : m_gun + 1);
 }
 
+void PlayerPed::PrevGun() {
+    SelectGun(m_gun < 0 ? (int)m_guns.size() - 1 : m_gun - 1);
+}
+
 void PlayerPed::RefillAmmo() {
     for (Gun& g : m_guns) { g.ammo = g.clipSize; g.total = g.clipSize * 60; }
 }

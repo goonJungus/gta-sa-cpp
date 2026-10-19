@@ -2354,8 +2354,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (g_menu.IsOpen()) g_menu.OnKey(keys[k]);
                     else if (keys[k] == VK_ESCAPE) g_menu.Open();
                 }
-                if (g_menu.IsOpen() && g_wheelSteps) g_menu.OnWheel(g_wheelSteps);
-                g_wheelSteps = 0;
+                if (g_menu.IsOpen() && g_wheelSteps) { g_menu.OnWheel(g_wheelSteps); g_wheelSteps = 0; }
                 if (g_menu.IsOpen()) {
                     // Pointer in backbuffer pixels (the client may differ from
                     // the render size when --res is used borderless).
@@ -2996,11 +2995,25 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 {
                     static bool s_prevFire = false, s_prevReload = false, s_prevNext = false;
                     const bool fireKey = ((GameKey(VK_LBUTTON) | GameKey(VK_RETURN)) & 0x8000) != 0 && !g_menu.IsOpen() && !g_wheelOpen;
-                    const bool relKey = (GameKey('R') & 0x8000) != 0, nextKey = (GameKey('Q') & 0x8000) != 0;
+                    // Classic uses the retail PC bindings: E / wheel down next weapon, Q / wheel up previous,
+                    // no reload key (an empty clip reloads by itself), no weapon wheel.
+                    const bool classicKeys = !pin.rewrite;
+                    const bool relKey = !classicKeys && (GameKey('R') & 0x8000) != 0;
+                    const bool nextKey = !classicKeys && (GameKey('Q') & 0x8000) != 0;
                     pin.fireHeld = fireKey;
                     pin.fireJust = fireKey && !s_prevFire;
                     pin.reloadJust = relKey && !s_prevReload;
-                    pin.autoReload = pin.rewrite && g_menu.Settings().autoReload;
+                    pin.autoReload = classicKeys || g_menu.Settings().autoReload;
+                    if (classicKeys && !g_menu.IsOpen()) {
+                        static bool s_prevE = false, s_prevQ = false;
+                        const bool eKey = (GameKey('E') & 0x8000) != 0, qKey = (GameKey('Q') & 0x8000) != 0;
+                        if (eKey && !s_prevE) g_cj.NextGun();
+                        if (qKey && !s_prevQ) g_cj.PrevGun();
+                        for (; g_wheelSteps < 0; g_wheelSteps++) g_cj.NextGun();
+                        for (; g_wheelSteps > 0; g_wheelSteps--) g_cj.PrevGun();
+                        s_prevE = eKey; s_prevQ = qKey;
+                    }
+                    g_wheelSteps = 0;   // unused notches never pile up
                     // Q: a tap cycles the guns, holding it brings up the weapon wheel.
                     static float s_qHeld = 0.0f;
                     if (nextKey) {
