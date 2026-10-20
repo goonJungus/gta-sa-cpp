@@ -369,6 +369,70 @@ int Peds::MeleeStrike(const float centre[3], float radius, float damage, const f
     return best;
 }
 
+bool Peds::FallenNear(float x, float y, float heading, float range) const {
+    const float fx = std::cos(heading), fy = std::sin(heading);
+    for (const Actor& a : m_actors) {
+        if (!a.dead) continue;
+        const float dx = a.x - x, dy = a.y - y;
+        const float d = std::sqrt(dx * dx + dy * dy);
+        if (d > range || (d > 0.3f && (dx * fx + dy * fy) / d < 0.5f)) continue;
+        return true;
+    }
+    return false;
+}
+
+bool Peds::WhipTarget(float x, float y, float heading) const {
+    const float fx = std::cos(heading), fy = std::sin(heading), rx = std::sin(heading), ry = -std::cos(heading);
+    for (const Actor& a : m_actors) {
+        if (a.dead) continue;
+        const float dx = a.x - x, dy = a.y - y;
+        if (dx * dx + dy * dy >= 1.0f) continue;
+        const float fwd = dx * fx + dy * fy;
+        if (fwd <= 0.0f || std::fabs(dx * rx + dy * ry) / fwd >= 0.5773f) continue;
+        return true;
+    }
+    return false;
+}
+
+int Peds::StompStrike(const float centre[3], float radius) const {
+    int best = -1;
+    float bestD = 1e9f;
+    for (size_t i = 0; i < m_actors.size(); i++) {
+        const Actor& a = m_actors[i];
+        if (!a.dead) continue;
+        const float dx = a.x - centre[0], dy = a.y - centre[1];
+        const float d = std::sqrt(dx * dx + dy * dy);
+        if (d > radius + 0.6f || d >= bestD) continue;   // a body lying down is long, not a 0.35 m capsule
+        bestD = d; best = (int)i;
+    }
+    return best;
+}
+
+int Peds::StealthTarget(float x, float y, float heading) const {
+    const float fx = std::cos(heading), fy = std::sin(heading);
+    int best = -1;
+    float bestD = 1e9f;
+    for (size_t i = 0; i < m_actors.size(); i++) {
+        const Actor& a = m_actors[i];
+        if (a.dead || a.fleeTimer > 0.0f || a.burning) continue;
+        const float dx = a.x - x, dy = a.y - y;
+        const float d = std::sqrt(dx * dx + dy * dy);
+        if (d > 1.4f || d < 1e-3f || (dx * fx + dy * fy) / d < 0.5f) continue;
+        if (std::cos(a.heading) * -dx + std::sin(a.heading) * -dy >= 0.0f) continue;   // it faces us
+        if (d < bestD) { bestD = d; best = (int)i; }
+    }
+    return best;
+}
+
+bool Peds::StealthKill(int actor) {
+    if (actor < 0 || (size_t)actor >= m_actors.size()) return false;
+    if (!Damage(actor, 0.0f, true)) return false;
+    Actor& a = m_actors[(size_t)actor];
+    auto c = m_clips.find("kill_knife_ped_die");
+    if (c != m_clips.end()) a.deathClip = &c->second;
+    return true;
+}
+
 bool Peds::Damage(int actor, float damage, bool head) {
     if (actor < 0 || (size_t)actor >= m_actors.size()) return false;
     Actor& a = m_actors[(size_t)actor];

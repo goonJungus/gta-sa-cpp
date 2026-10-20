@@ -510,6 +510,8 @@ void PlayerPed::Hurt(float amount) {
 // the reload clip and back. blendSeconds = 0: the retail snap.
 void PlayerPed::UpdateGun(const Input& in) {
     if (m_gun < 0) return;
+    if (m_fight.active && m_fight.special) return;
+    if (m_meleeOk && in.whipTarget && in.fireJust) return;   // RequirePistolWhip: UpdateMelee swings instead   // the butt comes down instead of a shot
     Gun& g = m_guns[m_gun];
     const GunSpec& sp = *g.spec;
     m_flash = std::max(0.0f, m_flash - in.dt);

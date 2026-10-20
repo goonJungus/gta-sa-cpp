@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 
 namespace {
 
@@ -36,11 +37,15 @@ float PlayerPed::FatMuscleModifier() const {
     return std::min(2.0f, 1.0f + (muscle - 50.0f) / 950.0f + (fat - 200.0f) * 0.5f / 800.0f);
 }
 
-void PlayerPed::FightStart(const Input& in, int move) {
-    const Melee::Combo* c = CurrentCombo();
+namespace {
+constexpr int kBlockMove = Melee::kMoveCount;   // FightX_Block: the group's clip 8, ABLOCK times
+}
+
+void PlayerPed::FightStart(const Input& in, int move, const Melee::Combo* use) {
+    const Melee::Combo* c = use ? use : CurrentCombo();
     if (!c) return;
     const std::vector<std::string>& cl = Melee::GroupClips(c->group);
-    const size_t idx = move == Melee::kMoving ? 4 : (size_t)move;
+    const size_t idx = move == kBlockMove ? 8 : move == Melee::kMoving ? 4 : (size_t)move;
     if (idx >= cl.size()) return;
     const AnimClip* clip = Clip(LowerName(cl[idx]).c_str());
     if (!clip) return;
@@ -50,29 +55,61 @@ void PlayerPed::FightStart(const Input& in, int move) {
     a->partial = true;
     a->blend = 0.0f;
     a->delta = 8.0f;
+    a->time = 0.0f;
+    a->playing = true;
     m_fight.active = true;
     m_fight.combo = c;
     m_fight.move = move;
     m_fight.clip = clip;
     m_fight.hitDone = false;
     m_fight.queued = false;
+    m_fight.special = use != nullptr;
+    m_fight.block = move == kBlockMove;
+    std::fprintf(stderr, "[MELEE] %s move %d clip %s%s\n", c->name.c_str(), move, clip->name.c_str(), m_fight.special ? " special" : "");
     (void)in;
 }
 
 void PlayerPed::FightEnd(bool abrupt) {
     if (m_fight.active && m_fight.clip)
-        if (Assoc* a = Get(m_fight.clip)) a->delta = abrupt ? -16.0f : -8.0f;
+        if (Assoc* a = Get(m_fight.clip)) { a->playing = true; a->delta = abrupt ? -16.0f : -8.0f; }
     m_fight = Fight();
 }
 
-void PlayerPed::UpdateMelee(const Input& in) {
+bool PlayerPed::MeleeHit(float fromX, float fromY, float worldX, float worldY, int strength) {
+    if (m_seated) return true;
+    m_heading = m_aimHeading = std::atan2(fromY - worldY, fromX - worldX);
+    if (Blocking()) return false;
     const Melee::Combo* c = CurrentCombo();
+    const std::vector<std::string>& gc = Melee::GroupClips(c ? c->group : "melee_1");
+    const size_t idx = 5 + (size_t)std::clamp(strength, 0, 2);
+    if (idx < gc.size())
+        if (const AnimClip* h = Clip(LowerName(gc[idx]).c_str())) {
+            FightEnd(true);
+            Assoc* a = Add(h, false, false);
+            a->partial = true;
+            a->blend = 0.0f;
+            a->delta = 8.0f;
+            a->time = 0.0f;
+            a->playing = true;
+            a->autoRemove = true;
+        }
+    return true;
+}
+
+void PlayerPed::UpdateMelee(const Input& in) {
+    const Melee::Combo* c = m_fight.active && m_fight.special ? m_fight.combo : CurrentCombo();
     if (m_fight.active && c != m_fight.combo) FightEnd(true);
-    if (!c) return;
+    if (m_fight.active && !m_fight.special && m_gun >= 0) FightEnd(true);
 
     if (m_fight.active) {
         Assoc* a = Get(m_fight.clip);
         if (!a || a->dead) { m_fight = Fight(); return; }
+        if (m_fight.block) {   // held guard: the clip waits at ABLOCK hit while the button stays down
+            if (in.aim && in.duckHeld && a->time >= c->blockHit) { a->time = c->blockHit; a->playing = false; }
+            else a->playing = true;
+            if (a->finished) FightEnd(false);
+            return;
+        }
         const Melee::Move& mv = c->moves[m_fight.move];
         if (!m_fight.hitDone && a->time >= mv.hit) {
             // the strike sphere: ped position plus the heading-rotated level offset
@@ -96,17 +133,54 @@ void PlayerPed::UpdateMelee(const Input& in) {
         } else if (m_fight.hitDone && in.fireJust) {
             m_fight.queued = true;
         }
+        // AGROUND: the stomp loops back to the ground-loop frame while the button stays down
+        if (m_fight.hitDone && m_fight.move == Melee::kGround && in.fireHeld && in.groundTarget && a->time >= mv.chain) {
+            a->time = mv.groundLoop;
+            m_fight.hitDone = false;
+            return;
+        }
         if (m_fight.hitDone && m_fight.queued && a->time >= mv.chain) {
             int next = -1;
-            if (m_fight.move == Melee::kAttack1 && c->Has(1)) next = Melee::kAttack2;
+            if (m_fight.special) next = -1;
+            else if (m_fight.move == Melee::kAttack1 && c->Has(1)) next = Melee::kAttack2;
             else if (m_fight.move == Melee::kAttack2 && c->Has(2)) next = Melee::kAttack3;
             if (next >= 0) { FightStart(in, next); return; }
         }
         if (a->finished) FightEnd(false);
         return;
     }
+    if (m_busy || m_inAir || m_swimming || m_climbing || m_seated) return;
 
-    if (in.fireJust && !m_busy && !m_inAir && !m_swimming && !m_climbing) {
+    // CTaskSimpleUseGun PISTOLWHIP: a gun in the aim, a standing ped within a metre in front, the butt comes down
+    if (m_gun >= 0 && m_aiming && in.fireJust && in.whipTarget) {
+        if (const Melee::Combo* w = m_meleeTable.Find("PISTOL_WHIP"))
+            FightStart(in, m_ducking ? Melee::kAttack2 : Melee::kAttack1, w);
+        return;
+    }
+    // CTaskSimpleStealthKill: the knife in hand, locked on, an unaware ped's back in reach
+    if (m_melee >= 0 && m_guns[m_melee].comboName == "KNIFE" && m_gun < 0 && in.aim && in.fireJust && in.stealthTarget) {
+        if (const AnimClip* k = Clip("kill_knife_player")) {
+            m_heading = m_aimHeading = std::atan2(in.stealthPos[1] - in.worldY, in.stealthPos[0] - in.worldX);
+            Blend(k, false, false, 8.0f);
+            m_busy = true;
+            m_busySoft = false;
+            m_busyClip = k;
+            m_busyNext = nullptr;
+            m_stealthPending = true;
+            std::fprintf(stderr, "[MELEE] stealth kill\n");
+            return;
+        }
+    }
+    if (!c) return;
+    // the kick of a locked-on fist fight (KICK_STD): jump while the guard is up
+    if (m_gun < 0 && m_melee < 0 && in.aim && in.jumpDown) {
+        if (const Melee::Combo* k = m_meleeTable.Find("KICK_STD")) { FightStart(in, Melee::kAttack1, k); return; }
+    }
+    // the guard: the duck button while locked on
+    if (m_gun < 0 && in.aim && in.duckHeld) { FightStart(in, kBlockMove); return; }
+
+    if (in.fireJust) {
+        if (in.groundTarget && c->Has(4)) { FightStart(in, Melee::kGround); return; }
         const bool running = m_ratio > 1.5f;
         FightStart(in, running && c->Has(8) ? Melee::kMoving : Melee::kAttack1);
     }

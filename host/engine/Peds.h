@@ -63,6 +63,16 @@ public:
     // Returns the actor index hit or -1; *killed tells whether it died.
     int MeleeStrike(const float centre[3], float radius, float damage, const float attackerPos[2], bool sword3,
                     const char* const hitClips[3], int move, bool* killed);
+    // CTaskSimpleFight::FindTargetOnGround: a fallen (dead) ped within `range` in front of (x, y) facing `heading`.
+    bool FallenNear(float x, float y, float heading, float range) const;
+    // CTaskSimpleUseGun::RequirePistolWhip: a live ped within a metre in front, inside a 60 degree cone.
+    bool WhipTarget(float x, float y, float heading) const;
+    // CTaskSimpleStealthKill: the live, unaware ped within 1.4 m in front of (x, y) with its back to us, or -1.
+    int StealthTarget(float x, float y, float heading) const;
+    // The takedown: the victim plays KILL_Knife_Ped_Die and stays down. Returns true when it died.
+    bool StealthKill(int actor);
+    // A stomp (AGROUND): the nearest fallen ped the sphere reaches, or -1. It bleeds and takes nothing more.
+    int StompStrike(const float centre[3], float radius) const;
     // CExplosion: peds inside `radius` take min(1, 2 (R - d) / R) * 250 (d from the centre to the ped
     // origin, one metre above the feet); survivors flee. Returns the number killed.
     int Explosion(const float centre[3], float radius);

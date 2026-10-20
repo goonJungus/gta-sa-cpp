@@ -1946,7 +1946,8 @@ void PlayerPed::ControlStance(const Input& in) {
 
     // Duck on / off: DuckJustDown. CanPedDuck: retail refuses while running or
     // sprinting; the rewrite (EnableCrouchLocomotion) allows it from a run.
-    if (in.duckJust && !m_ducking && (in.rewrite || (m_ratio <= 1.0f && !in.sprint))) {
+    const bool guard = in.aim && m_gun < 0 && m_meleeOk;   // the duck button is the fist fight's block
+    if (in.duckJust && !m_ducking && !guard && (in.rewrite || (m_ratio <= 1.0f && !in.sprint))) {
         m_ducking = true;
         m_duckX = m_duckY = 0.0f;
         m_sprintBeforeDuck = in.sprint;   // sprint already held is ignored until released
