@@ -1576,6 +1576,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             was = down;
             return hit;
         };
+        g_sg.menuInput = [] {   // Up, Down and Return or Space on the press; GTA_MENUKEYS="u,d,a" feeds one edge per frame for tests
+            static bool wu = false, wd = false, wa = false;
+            static const char* feed = getenv("GTA_MENUKEYS");
+            static int fi = 0;
+            const bool u = (GameKey(VK_UP) & 0x8000) != 0, d = (GameKey(VK_DOWN) & 0x8000) != 0;
+            const bool a = (GameKey(VK_RETURN) & 0x8000) || (GameKey(VK_SPACE) & 0x8000);
+            int r = (u && !wu ? 1 : 0) | (d && !wd ? 2 : 0) | (a && !wa ? 4 : 0);
+            wu = u; wd = d; wa = a;
+            if (feed && feed[fi]) {
+                const char ch = feed[fi++];
+                r |= ch == 'u' ? 1 : ch == 'd' ? 2 : ch == 'a' ? 4 : 0;
+            }
+            return r;
+        };
         g_sg.showPlayer = [&](bool on) { g_cutHideCj = !on; Log("SCRIPT: player %s", on ? "shown" : "hidden"); };
         g_sg.groundAt = [&](float x, float y) { return g_world.GetGroundHeight(x, y, playerZ + 50.0f); };
         s_scm.command = [](ScmMachine::Call& c) { return g_sg.Handle(c); };
