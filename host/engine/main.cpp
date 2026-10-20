@@ -3437,9 +3437,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 static float s_fatCounterMs = 0.0f;
                 const int rate = g_cj.ExerciseRate();
                 {
+                    static const float s_statTime = getenv("GTA_STATTIME") ? (float)atof(getenv("GTA_STATTIME")) : 1.0f;   // dev: speed up the activity counters
                     float carSpd = 0.0f;
                     if (g_driveCar >= 0) { const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar); carSpd = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy) / 50.0f; }
-                    const int up = Stats::UpdateActivity(dt, rate, g_cj.Swimming(), g_cj.Underwater(), g_driveCar >= 0, carSpd, true);
+                    const int up = Stats::UpdateActivity(dt * s_statTime, rate, g_cj.Swimming(), g_cj.Underwater(), g_driveCar >= 0, carSpd, true);
                     if (up == Stats::STAT_MAX_HEALTH) g_cj.SetMaxHealth(Stats::Get(Stats::STAT_MAX_HEALTH) / 5.69f);
                     if (up >= 0) {
                         if (g_hudReady) g_hud.StatUpdate(Stats::Get(up) / 10.0f);
