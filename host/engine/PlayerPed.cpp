@@ -675,7 +675,12 @@ void PlayerPed::ControlInAir(const Input& in) {
         m_airVelY = m_velY;
         m_busy = false;
         m_busyNext = nullptr;
-        if (in.jumped) Blend(launch, false, false, 8.0f);
+        if (in.jumped) {
+            if (Assoc* a = Blend(launch, false, false, 8.0f)) a->speed = m_jumpMod;   // StartLaunchAnim
+            m_airVelX *= m_jumpMod;   // CTaskSimpleJump::Launch scales the take-off speed
+            m_airVelY *= m_jumpMod;
+            if (getenv("GTA_STATDBG")) std::fprintf(stderr, "[JUMP] launch speed %.3f air vel %.2f %.2f\n", m_jumpMod, m_airVelX, m_airVelY);
+        }
     }
     m_airTime += in.dt;
     m_minVelZ = std::min(m_minVelZ, in.velZ);
@@ -784,6 +789,8 @@ void PlayerPed::Land(const Input& in) {
             if (m_landClip) {   // layered over the run, not replacing it
                 Assoc* l = Add(m_landClip, false, false);
                 l->blend = 0.5f;
+                l->speed *= m_jumpMod;   // CTaskSimpleLand::ProcessPed
+                if (getenv("GTA_STATDBG")) std::fprintf(stderr, "[JUMP] land speed %.3f\n", l->speed);
             }
         } else {
             busy("fall_land", nullptr, true);
