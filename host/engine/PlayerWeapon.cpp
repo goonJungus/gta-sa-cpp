@@ -17,6 +17,7 @@
 #include <fstream>
 #include <sstream>
 #include "WeaponStats.h"
+#include "WeaponInfo.h"
 
 // The clip names of each weapon's anim group (AnimAssocAnimations): fire,
 // crouch fire, reload, crouch reload. Missing ones are null.
@@ -197,10 +198,10 @@ void PlayerPed::ApplyGunRow(Gun& g, int skill) {
     g.slot = std::atoi(row[7].c_str());
     g.clipSize = std::atoi(row[9].c_str());
     g.loopStart = (float)std::atof(row[18].c_str()) * kFrame;
-    g.loopEnd = (float)std::atof(row[19].c_str()) * kFrame;
+    g.loopEnd = WeaponTable::LoopEnd(g.loopStart, (float)std::atof(row[19].c_str()) * kFrame);
     g.fireTime = (float)std::atof(row[20].c_str()) * kFrame;
     g.loop2Start = (float)std::atof(row[21].c_str()) * kFrame;
-    g.loop2End = (float)std::atof(row[22].c_str()) * kFrame;
+    g.loop2End = WeaponTable::LoopEnd(g.loop2Start, (float)std::atof(row[22].c_str()) * kFrame);
     g.fire2Time = (float)std::atof(row[23].c_str()) * kFrame;
     g.moveSpeed = (float)std::atof(row[17].c_str());
     g.damage = (float)std::atof(row[10].c_str());
@@ -231,6 +232,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
     std::ifstream wf(gameDir + "\\data\\weapon.dat");
     std::ifstream idef(gameDir + "\\data\\default.ide");
     if (!wf) { std::fprintf(stderr, "[GUN] data\\weapon.dat not found\n"); return; }
+    WeaponTable::Load(gameDir);
     struct Row { std::vector<std::string> t; };
     std::vector<std::vector<std::string>> rows;
     std::vector<std::vector<std::string>> meleeRows;   // name MELEE ranges model -1 slot baseCombo numCombos flags stealth
@@ -373,10 +375,10 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         g.clipSize = 1;
         g.slot = std::atoi((*row)[7].c_str());
         g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
-        g.loopEnd = (float)std::atof((*row)[19].c_str()) * kFrame;
+        g.loopEnd = WeaponTable::LoopEnd(g.loopStart, (float)std::atof((*row)[19].c_str()) * kFrame);
         g.fireTime = (float)std::atof((*row)[20].c_str()) * kFrame;       // WEAPON_throw
         g.loop2Start = (float)std::atof((*row)[21].c_str()) * kFrame;
-        g.loop2End = (float)std::atof((*row)[22].c_str()) * kFrame;
+        g.loop2End = WeaponTable::LoopEnd(g.loop2Start, (float)std::atof((*row)[22].c_str()) * kFrame);
         g.fire2Time = (float)std::atof((*row)[23].c_str()) * kFrame;      // WEAPON_throwu
         g.damage = (float)std::atof((*row)[10].c_str());
         g.range = (float)std::atof((*row)[4].c_str());
