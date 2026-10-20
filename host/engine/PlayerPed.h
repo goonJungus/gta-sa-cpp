@@ -79,6 +79,11 @@ public:
         bool autoReload = false;              // rewrite: an emptied clip reloads by itself
         bool duckJust = false;                // CPad::DuckJustDown
         bool aim = false;                     // CPad::GetTarget (aim button held)
+        bool duckHeld = false;                // the duck button is down (blocks while locked on with the fists)
+        bool groundTarget = false;            // a fallen ped lies in reach in front (CTaskSimpleFight::FindTargetOnGround)
+        bool stealthTarget = false;           // an unaware ped stands within reach with its back to CJ (CTaskSimpleStealthKill)
+        float stealthPos[2] = {0, 0};         // where it stands
+        bool whipTarget = false;              // a standing ped is close in front (CTaskSimpleUseGun::RequirePistolWhip)
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
         float carSteer = 0.0f;                // seated: CVehicle::m_fSteerAngle, radians, positive = left
         float carSpeed = 0.0f;                // seated: the car's speed, m/s
@@ -188,6 +193,12 @@ public:
     bool TakeStrike(Strike& out) { if (!m_strikePending) return false; out = m_strike; m_strikePending = false; return true; }
     void SetFightStyle(int style) { m_fightStyle = std::clamp(style, 0, 3); }   // UNARMED_1..4
     bool Fighting() const { return m_fight.active; }
+    // CTaskSimpleStealthKill: true once, when the knife takedown starts (the host kills the victim).
+    bool TakeStealth() { const bool p = m_stealthPending; m_stealthPending = false; return p; }
+    // A melee hit on CJ (CTaskSimpleFight::BeHitWhileBlocking / the CEventDamage reaction): turns to the attacker
+    // and plays HIT_1..3 of the held weapon's group. Returns false when the guard took it (no damage).
+    bool MeleeHit(float fromX, float fromY, float worldX, float worldY, int strength);
+    bool Blocking() const { return m_fight.active && m_fight.block; }   // FightA_Block held: hits on CJ are shrugged off
     // Thrown weapons (PlayerThrow.cpp): CTaskSimpleThrowProjectile. A projectile leaves the hand at the
     // fire frame of the throw clip; the host owns it from there (Projectiles.h).
     struct Launch {
@@ -232,6 +243,7 @@ public:
     bool Dead() const { return m_health <= 0.0f; }
     bool Ducking() const { return m_ducking; }
     bool Aiming() const { return m_aiming; }
+    bool FistLock() const { return m_aiming && m_gun < 0 && m_meleeOk; }   // locked on with the fists: jump is the kick
     // Horizontal velocity CJ's animation moves him at this frame (m/s, world).
     float VelX() const { return m_velX; }
     float VelY() const { return m_velY; }
@@ -432,8 +444,10 @@ private:
         int move = 0;                 // Melee::MoveIdx in progress
         const AnimClip* clip = nullptr;
         bool hitDone = false, queued = false;
+        bool special = false;         // KICK_STD / PISTOL_WHIP rather than the held weapon's combo
+        bool block = false;           // FightX_Block: holds between blockHit and blockChain while the button stays down
     } m_fight;
-    bool m_strikePending = false;
+    bool m_strikePending = false, m_stealthPending = false;
     Strike m_strike;
     // CTaskSimpleThrowProjectile
     struct Throw {
@@ -470,7 +484,7 @@ private:
     const AnimClip* m_gogglesClip = nullptr;
     bool m_launchPending = false, m_detonatePending = false, m_switchToDetonator = false;
     std::function<bool(const float*, const float*)> m_wallProbe;   // segment a -> b hits the world
-    void FightStart(const Input& in, int move);
+    void FightStart(const Input& in, int move, const Melee::Combo* use = nullptr);
     void FightEnd(bool abrupt);
 
     Movement m_move;                           // rewrite handling

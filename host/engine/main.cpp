@@ -260,6 +260,7 @@ static float g_aimEye[3] = {0, 0, 0}, g_aimDir[3] = {0, 1, 0};   // the camera r
 static float g_chairX = 0.5f, g_chairY = 0.5f;
 static float g_aspect = 16.0f / 9.0f;   // render width / height
 static float g_camFovScale = 1.0f;
+static int g_stealthPed = -1;            // the ped a knife takedown would hit
 static int g_lockPed = -1;              // locked-on pedestrian (CPlayerPed::m_pTargetedObject), -1 none
 static float g_lockPos[3] = {0, 0, 0};  // its aim point
 static D3DMATRIX g_lastView = {};
@@ -2981,13 +2982,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
             if (cjReady && !g_devNoClip && worldReady && !g_cj.Climbing() && !swimming) {
                 const float feet = playerZ - EYE_HEIGHT;
-                if (onGround && !g_cj.Busy() && jumpJustDown)   // launch from the ground
+                if (onGround && !g_cj.Busy() && jumpJustDown && !g_cj.FistLock())   // launch from the ground
                     climbStarted = g_cj.TryStartClimb(playerX, playerY, feet, true, climbScan);
                 else if (!onGround && velZ > -10.0f && sqrtf(g_cj.VelX() * g_cj.VelX() + g_cj.VelY() * g_cj.VelY()) > 0.05f * 50.0f)
                     climbStarted = g_cj.TryStartClimb(playerX, playerY, feet, false, climbScan);   // grab mid-jump
                 if (climbStarted) { onGround = true; velZ = 0.0f; Log("CLIMB start at (%.2f, %.2f, %.2f) %s", playerX, playerY, feet, onGround ? "" : ""); }
             }
-            if (onGround && !swimming && !(cjReady && g_cj.Busy()) && jumpJustDown && !climbStarted) {
+            if (onGround && !swimming && !(cjReady && g_cj.Busy()) && jumpJustDown && !climbStarted && !(cjReady && g_cj.FistLock())) {
                 velZ = JUMP_VEL;
                 onGround = false;
                 jumped = true;
@@ -3050,6 +3051,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     static bool s_prevDuck = false;
                     const bool duckKey = (GameKey('C') & 0x8000) != 0;
                     pin.duckJust = duckKey && !s_prevDuck;
+                    pin.duckHeld = duckKey;
+                    if (g_peds.Ready()) {
+                        pin.groundTarget = g_peds.FallenNear(playerX, playerY, g_cj.Heading(), 1.4f);
+                        pin.whipTarget = g_peds.WhipTarget(playerX, playerY, g_cj.Heading());
+                        g_stealthPed = g_peds.StealthTarget(playerX, playerY, g_cj.Heading());
+                        pin.stealthTarget = g_stealthPed >= 0;
+                        if (g_stealthPed >= 0) { pin.stealthPos[0] = g_peds.X((size_t)g_stealthPed); pin.stealthPos[1] = g_peds.Y((size_t)g_stealthPed); }
+                    }
                     s_prevDuck = duckKey;
                     // Right mouse or Z aims. The rewrite also aims while the fire button
                     // is held (trackpads have no easy right click) and for a moment after.
@@ -3772,7 +3781,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
                 {   // CTaskSimpleFight strike: the sphere against the crowd
                     PlayerPed::Strike sk;
-                    if (g_cj.TakeStrike(sk) && !sk.ground) {
+                    if (g_cj.TakeStealth() && g_stealthPed >= 0 && g_peds.StealthKill(g_stealthPed)) {
+                        Log("MELEE STEALTH KILL %d", g_stealthPed);
+                        if (g_hudReady) g_hud.Hit(true);
+                        const float bp[3] = {g_peds.X((size_t)g_stealthPed), g_peds.Y((size_t)g_stealthPed), g_peds.Z((size_t)g_stealthPed) + 1.0f};
+                        g_fx.Blood(bp);
+                        g_audio.Impact(0.0f);
+                    }
+                    const bool struck = g_cj.TakeStrike(sk);
+                    if (struck && sk.ground) {
+                        // AGROUND: the stomp on a fallen ped
+                        if (g_peds.StompStrike(sk.pos, sk.radius) >= 0) {
+                            Log("MELEE STOMP dmg %.1f", sk.damage);
+                            if (g_hudReady) g_hud.Hit(false);
+                            g_fx.Blood(sk.pos);
+                            g_audio.Impact(0.0f);
+                        }
+                    } else if (struck) {
                         const char* hc[3] = {sk.hitClips[0].c_str(), sk.hitClips[1].c_str(), sk.hitClips[2].c_str()};
                         const float ap[2] = {playerX, playerY};
                         bool killed = false;
@@ -3786,6 +3811,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             if (g_hudReady) g_hud.Hit(killed);
                             g_fx.Blood(sk.pos);
                             g_audio.Impact(0.0f);
+                        } else if (worldReady) {
+                            // CTaskSimpleFight::FightHitCar / FightHitObj: the sphere against a car body or a loose prop
+                            const float dir[3] = {std::cos(sk.heading), std::sin(sk.heading), 0.0f};
+                            const float org[3] = {ap[0], ap[1], sk.pos[2]};
+                            float tc = 0.0f;
+                            const int car = g_vehicles.Ready() ? g_vehicles.Trace(org, dir, 0.7f + sk.radius, &tc) : -1;
+                            if (car >= 0 && car != g_driveCar) {
+                                Log("MELEE HIT CAR %d move %d", car, sk.move);
+                                g_vehicles.Damage(car, sk.damage * 0.25f);
+                                g_audio.Impact(0.0f);
+                            } else if (g_world.DynShoot(org, dir, 0.7f + sk.radius, sk.damage * 2.0f, 0) >= 0) {
+                                Log("MELEE HIT OBJECT move %d", sk.move);
+                                g_audio.Impact(0.0f);
+                            }
                         }
                     }
                 }
