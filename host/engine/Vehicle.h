@@ -78,6 +78,8 @@ struct VehicleInstance {
     bool removed = false;             // deleted by the script: not drawn, shot or entered
     float doomV = 0.0f, doomH = 0.05f;   // m_fDoomVerticalRotation / m_fDoomHorizontalRotation: turret yaw and pitch
     float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
+    bool hasRot = false;              // a recorded playback owns the orientation: rot is right, forward, up (CMatrix)
+    float rot[9] = {};
 };
 
 class Vehicles {
