@@ -289,6 +289,35 @@ static int  g_keyQueueN = 0;
 static int  g_wheelSteps = 0;   // mouse wheel notches since the last frame
 static char g_iniPath[MAX_PATH] = {};    // <exe_dir>\gtasa_cpp.ini
 
+// [Outfit] in the ini: the worn clothes as player.img file stems, M0..M9 per model slot and T0..T17 per texture part.
+static void SaveOutfit(const PedClothesDesc& d) {
+    char k[8];
+    for (int i = 0; i < CLOTHES_MODEL_TOTAL; i++) {
+        std::snprintf(k, sizeof k, "M%d", i);
+        const std::string& n = Clothes::Name(d.modelKeys[i]);
+        WritePrivateProfileStringA("Outfit", k, d.modelKeys[i] && !n.empty() ? n.c_str() : nullptr, g_iniPath);
+    }
+    for (int i = 0; i < CLOTHES_TEXTURE_TOTAL; i++) {
+        std::snprintf(k, sizeof k, "T%d", i);
+        const std::string& n = Clothes::Name(d.textureKeys[i]);
+        WritePrivateProfileStringA("Outfit", k, d.textureKeys[i] && !n.empty() ? n.c_str() : nullptr, g_iniPath);
+    }
+}
+static bool LoadOutfit(PedClothesDesc& d) {
+    bool any = false;
+    char k[8], v[64];
+    for (int i = 0; i < CLOTHES_MODEL_TOTAL; i++) {
+        std::snprintf(k, sizeof k, "M%d", i);
+        if (GetPrivateProfileStringA("Outfit", k, "", v, sizeof v, g_iniPath) && v[0]) { d.SetModel(v, (ClothesModelPart)i); any = true; }
+    }
+    for (int i = 0; i < CLOTHES_TEXTURE_TOTAL; i++) {
+        std::snprintf(k, sizeof k, "T%d", i);
+        if (GetPrivateProfileStringA("Outfit", k, "", v, sizeof v, g_iniPath) && v[0]) { d.textureKeys[i] = Clothes::Key(v); any = true; }
+    }
+    return any;
+}
+
+
 static void LoadSettings(FeSettings& s) {
     s.frameLimit = (int)GetPrivateProfileIntA("Display", "FrameLimit", 0, g_iniPath);
     if (s.frameLimit != 60 && s.frameLimit != 120 && s.frameLimit != 144) s.frameLimit = 0;
@@ -1381,6 +1410,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         float mus = GetPrivateProfileIntA("Player", "Muscle", 0, g_iniPath) / 100.0f;
         if (const char* e = getenv("GTA_FAT")) fat = (float)atof(e);
         if (const char* e = getenv("GTA_MUSCLE")) mus = (float)atof(e);
+        if (PedClothesDesc d = g_cj.Outfit(); LoadOutfit(d)) g_cj.SetOutfit(d);   // [Outfit]
         if (const char* e = getenv("GTA_GUN")) g_cj.SelectGun(atoi(e));   // dev: weapon index
         if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
         g_statFat = fat * 1000.0f; g_statMuscle = mus * 1000.0f;
@@ -3255,6 +3285,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         }
                     }
                     g_cj.SetOutfit(d);
+                }
+                if (static PedClothesDesc saved = g_cj.Outfit(); !(saved == g_cj.Outfit()) && frame > 5) {   // a changed outfit is kept
+                    saved = g_cj.Outfit();
+                    if (!getenv("GTA_OUTFIT")) SaveOutfit(saved);
                 }
                 if (getenv("GTA_JETPACK") && frame == 5) g_cj.StartJetpack();   // dev: the jetpack without typing the cheat
                 switch (Cheat::Take()) {   // CCheat::AddToCheatString hit
