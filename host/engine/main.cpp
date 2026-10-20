@@ -59,6 +59,7 @@
 #include "BulletInfo.h"
 #include "ShotInfo.h"
 #include "Pickups.h"
+#include "EntryExit.h"
 #include "WeaponInfo.h"
 #include "Speech.h"
 #include "Delirium.h"
@@ -79,6 +80,7 @@
 #include "WaterCannon.h"
 
 static D3DRenderer g_renderer;
+static EntryExit g_enex;     // CEntryExitManager: the doors to the interiors
 static Pickups g_pickups;   // CPickups: 620 slots
 static WaterCannons g_waterCannons;   // CWaterCannons
 static std::vector<std::array<float, 3>> g_tankBooms;   // rhino shells that landed this frame
@@ -1516,7 +1518,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
         g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud;
         g_sg.wantedLevel = [] { return g_wanted; }; g_sg.setWantedLevel = [](int w) { g_wanted = w; };
-        g_sg.pickups = &g_pickups; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
+        g_sg.pickups = &g_pickups; g_sg.enex = &g_enex;
+        g_sg.getArea = [] { return g_world.Area(); };
+        g_sg.setArea = [](int a) { g_world.SetArea(a); g_enex.ForceArea(a); }; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
         g_sg.playerInCar = [] { return g_driveCar >= 0; };
         g_sg.playerCar = [] { return g_driveCar; };
         g_sg.groundAt = [&](float x, float y) { return g_world.GetGroundHeight(x, y, playerZ + 50.0f); };
@@ -1581,6 +1585,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("WORLD INIT: %s (loaded %zu models dedup, %zu solid boxes)",
             worldReady ? "OK" : "FAIL", g_world.LoadedModelCount(), g_world.SolidBoxCount());
         if (worldReady) {
+            g_enex.Load(GameDir());
+            g_enex.setArea = [](int a) { g_world.SetArea(a); };
+            if (const char* ga = getenv("GTA_AREA")) { g_enex.ForceArea(atoi(ga)); Log("DEV: start in area %d", atoi(ga)); }   // test: begin inside an interior
             g_world.onDynSmash = [](const float* p) { g_fx.Impact(p, 1.0f); g_fx.Smoke(p, 0.3f); g_audio.Impact(0.0f); };
             g_world.onDynExplode = [](const float* p) { g_dynBooms.push_back({p[0], p[1], p[2]}); };
             // Data-driven spawn: stream once so ground COL tris are loaded,
@@ -2371,6 +2378,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // distance deterministically (collision test, not a timing test).
         if (g_autoWalk || getenv("GTA_KEYS")) dt = 1.0f / 60.0f;   // headless motion tests: fixed step
         if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); g_sg.Update(dt); }
+        if (worldReady && playMode) {
+            g_enex.warp = [&](float x, float y, float z, float hdg, int area) {
+                playerX = camPosX = x; playerY = camPosY = y; playerZ = camPosZ = z - 1.0f + 0.05f + EYE_HEIGHT;   // z is the ped centre, 1 m above the feet
+                yaw = hdg * 0.01745329f + 1.5707963f; velZ = 0.0f; onGround = false;
+                for (int i = 0; i < 60; i++) g_world.Stream(playerX, playerY, playerZ - EYE_HEIGHT);
+                Log("ENEX: warped to %.1f %.1f %.1f area %d", x, y, z, area);
+            };
+            const int hr = ((int)(g_gameSeconds / 3600.0f)) % 24;
+            g_enex.Update(dt, playerX, playerY, playerZ - EYE_HEIGHT + 1.0f, g_driveCar >= 0, hr);
+        }
 
         // ---- Dev/test keys (ignored in the scripted/flyover capture modes) ----
         if (playMode && !scripted && !flyover) {
@@ -4022,6 +4039,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_peds.Draw(g_renderer);
             g_proj.Draw(g_renderer, g_cj);
             { const float camPos3[3] = {camPosX, camPosY, camPosZ};
+            g_enex.DrawMarkers(g_renderer, camPos3, (uint32_t)g_bulletMs, ((int)(g_gameSeconds / 3600.0f)) % 24);
             g_pickups.Draw(g_renderer, (uint32_t)g_bulletMs, camPos3,
                            [&](int w, const float m[4][4]) { g_cj.DrawGunModel(g_renderer, g_cj.GunIndexOfType(w), m); },
                            [&](const float m[4][4]) { g_cj.DrawJetpackPickup(g_renderer, m); }); }
@@ -5034,6 +5052,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_hud.Draw(g_renderer, hd);
         }
         if (scmRun && g_hudReady) g_hud.DrawScript(g_renderer, g_sg.Overlay());
+        else if (g_hudReady && g_enex.Fade() > 0.0f) { ScriptOverlay eo; eo.fade = g_enex.Fade(); g_hud.DrawScript(g_renderer, eo); }
         if (g_hudReady) g_hud.Brightness(g_renderer, g_menu.Settings().brightness);
 
         // ---- SA pause menu + the dev key list beside it ----

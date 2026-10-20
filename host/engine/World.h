@@ -66,6 +66,10 @@ public:
 
     // Per-frame streaming decision based on the player's feet position.
     void Stream(float px, float py, float pz);
+    // The interior the player is in (CGame::currArea). Placements of any other area neither draw
+    // nor collide, except area 13.
+    void SetArea(int a) { m_area = a; }
+    int Area() const { return m_area; }
 
     // Draw every instance currently in range (call inside BeginFrame/EndFrame,
     // after the view/proj matrices are set). This is the OPAQUE pass: it draws
@@ -196,6 +200,7 @@ private:
         int32_t lodTwin = -1;      // extra LOD on the same spot as this LOD: draw with it
         bool isGround = false;    // classified ground (terrain tris + no solid boxes)
         int32_t dyn = -1;         // m_dyn index: a physics prop (object.dat mass < 99999)
+        uint8_t area = 0;         // CEntity::m_nAreaCode: 0 outdoors, 13 every area, else an interior
         bool hidden = false;      // smashed / blown up: not drawn, no collision
         // --- runtime (Stream / Render) ---
         bool needed = false;
@@ -269,6 +274,15 @@ private:
     D3DMATRIX InstTransform(const Inst& in) const;
 
     ImgLoader* m_img = nullptr;
+    ImgLoader m_intImg;            // models\gta_int.img: interior models, txds, collision, streams
+    bool m_intOpen = false;
+    int m_area = 0;
+    bool HasAsset(const std::string& n) const { return m_img->HasFile(n) || (m_intOpen && m_intImg.HasFile(n)); }
+    std::vector<uint8_t> ExtractAsset(const std::string& n) const {
+        if (m_img->HasFile(n)) return m_img->Extract(n);
+        return m_intOpen ? m_intImg.Extract(n) : std::vector<uint8_t>();
+    }
+    void LoadStreamsFrom(ImgLoader& img, bool interior);
     D3DRenderer* m_renderer = nullptr;
     std::string m_gameDir;
 

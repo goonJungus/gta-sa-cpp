@@ -321,6 +321,8 @@ bool GameWorld::Init(ImgLoader& img, D3DRenderer& renderer, const std::string& g
     m_gameDir = gameDir;
     m_frame = 0;
 
+    m_intOpen = m_intImg.Open(gameDir + "\\models\\gta_int.img");
+    std::fprintf(stderr, "[World] gta_int.img: %s\n", m_intOpen ? "open" : "missing");
     if (!LoadIdes(gameDir)) return false;
     LoadRoadsignFont();
     LoadTextIpls(gameDir);
@@ -393,6 +395,8 @@ void GameWorld::Shutdown() {
     m_byId.clear();
     m_byName.clear();
     m_img = nullptr;
+    m_intImg.Close();
+    m_intOpen = false;
 }
 
 // ------------------------------------------------------------------ loading
@@ -501,6 +505,11 @@ bool GameWorld::LoadTextIpls(const std::string& gameDir) {
 }
 
 void GameWorld::LoadStreams() {
+    LoadStreamsFrom(*m_img, false);
+    if (m_intOpen) LoadStreamsFrom(m_intImg, true);
+}
+
+void GameWorld::LoadStreamsFrom(ImgLoader& img, bool interior) {
     static const char* regionKeys[] = {"lae2", "lae", "lahills", "lan",  "lan2",
                                        "las",  "las2", "law",    "law2", "lawn",
                                        "sfn",  "sfs",  "sfse",   "sfe",  "sfw",
@@ -509,22 +518,22 @@ void GameWorld::LoadStreams() {
                                        "countryw", "levelmap", "seabed"};
     size_t parsed = 0, kept = 0, skippedArea = 0, skippedModel = 0, linked = 0;
 
-    for (size_t i = 0; i < m_img->EntryCount(); i++) {
-        const std::string& en = m_img->GetEntryName(i);
+    for (size_t i = 0; i < img.EntryCount(); i++) {
+        const std::string& en = img.GetEntryName(i);
         // "lae2_stream3.ipl" -> region "lae2"
-        auto underscore = en.find('_');
+        auto underscore = en.rfind('_');
         if (underscore == std::string::npos ||
             en.size() < underscore + 12 ||
             en.compare(underscore, 7, "_stream") != 0 ||
             en.compare(en.size() - 4, 4, ".ipl") != 0)
             continue;
         std::string region = en.substr(0, underscore);
-        bool known = false;
+        bool known = interior;   // every gta_int.img stream is an interior
         for (const char* k : regionKeys)
             if (region == k) { known = true; break; }
         if (!known) continue;
 
-        std::vector<uint8_t> data = m_img->Extract(en);
+        std::vector<uint8_t> data = img.Extract(en);
         if (data.empty()) continue;
         std::vector<BinIplInstance> bins;
         if (!BinaryIplLoader::LoadFromMemory(data.data(), data.size(), bins)) {
@@ -535,12 +544,12 @@ void GameWorld::LoadStreams() {
 
         // The region's text IPL placements: a binary instance's LOD index
         // points into that file's inst list (CIplStore::SetupRelatedIpls).
-        auto tit = m_textInst.find(region);
+        auto tit = interior ? m_textInst.end() : m_textInst.find(region);
         const std::vector<int32_t>* text = (tit != m_textInst.end()) ? &tit->second : nullptr;
 
         for (auto& b : bins) {
             // Area 0 = outdoors, 13 = visible in every area (CEntity::m_nAreaCode).
-            if (b.AreaCode() != 0 && b.AreaCode() != 13) { skippedArea++; continue; }
+            if (!interior && b.AreaCode() != 0 && b.AreaCode() != 13) { skippedArea++; continue; }
             auto it = m_byId.find(b.modelId);
             if (it == m_byId.end()) {
                 skippedModel++;
@@ -549,6 +558,7 @@ void GameWorld::LoadStreams() {
             }
 
             Inst in;
+            in.area = (uint8_t)b.AreaCode();
             in.x = b.x; in.y = b.y; in.z = b.z;
             in.qx = b.qx; in.qy = b.qy; in.qz = b.qz; in.qw = b.qw;
             in.hdModel = ToLower(it->second.modelName);
@@ -568,7 +578,7 @@ void GameWorld::LoadStreams() {
             kept++;
         }
     }
-    m_streamFiles = parsed;
+    m_streamFiles += parsed;
     std::fprintf(stderr,
                  "[World] streams: %zu parsed, %zu insts kept, %zu area-skipped, "
                  "%zu model-skipped, %zu LODs linked\n",
@@ -741,6 +751,13 @@ void GameWorld::LoadCols() {
         const std::string& en = m_img->GetEntryName(i);
         if (!want(en)) continue;
         std::vector<uint8_t> d = m_img->Extract(en);
+        if (d.empty()) continue;
+        m_cols.push_back({en, std::move(d)});
+    }
+    for (size_t i = 0; m_intOpen && i < m_intImg.EntryCount(); i++) {
+        const std::string& en = m_intImg.GetEntryName(i);
+        if (!want(en)) continue;
+        std::vector<uint8_t> d = m_intImg.Extract(en);
         if (d.empty()) continue;
         m_cols.push_back({en, std::move(d)});
     }
@@ -1044,11 +1061,11 @@ bool GameWorld::LoadModel(const std::string& modelName, const std::string& txdNa
     auto cit = m_cache.find(modelName);
     if (cit != m_cache.end()) return !cit->second.meshes.empty();
 
-    if (!m_img->HasFile(modelName + ".dff")) {
+    if (!HasAsset(modelName + ".dff")) {
         m_badModels.insert(modelName);
         return false;
     }
-    std::vector<uint8_t> dff = m_img->Extract(modelName + ".dff");
+    std::vector<uint8_t> dff = ExtractAsset(modelName + ".dff");
     DffModel dm = DffLoader::LoadFromMemory(dff.data(), dff.size());
     if (!dm.valid || dm.meshes.empty()) {
         m_badModels.insert(modelName);
@@ -1181,7 +1198,7 @@ bool GameWorld::LoadModel(const std::string& modelName, const std::string& txdNa
 
 bool GameWorld::LoadTxd(const std::string& txdName) {
     if (m_txdPool.count(txdName)) return true; // already resident
-    std::vector<uint8_t> raw = m_img->Extract(txdName + ".txd");
+    std::vector<uint8_t> raw = ExtractAsset(txdName + ".txd");
     if (raw.empty()) return false;
     std::vector<TxdTexture> tex = TxdLoader::LoadFromMemory(raw.data(), raw.size());
     if (tex.empty()) return false;
@@ -1313,6 +1330,7 @@ void GameWorld::Stream(float px, float py, float pz) {
     nearList.reserve(1024);
     for (size_t i = 0; i < m_insts.size(); i++) {
         Inst& in = m_insts[i];
+        if (in.area != m_area && in.area != 13) { in.needed = false; continue; }
         float dx = in.x - px, dy = in.y - py;
         uint32_t dsq = (uint32_t)(dx * dx + dy * dy);
         float r = kStreamRadius;
@@ -1860,8 +1878,8 @@ void GameWorld::DumpCollisionProbe(float px, float py, float feetZ, float radius
         }
         // DFF world Z-range (render) for comparison with collision Z.
         float dz0 = 1e30f, dz1 = -1e30f;
-        if (m_img->HasFile(in.hdModel + ".dff")) {
-            std::vector<uint8_t> dff = m_img->Extract(in.hdModel + ".dff");
+        if (HasAsset(in.hdModel + ".dff")) {
+            std::vector<uint8_t> dff = ExtractAsset(in.hdModel + ".dff");
             DffModel dm = DffLoader::LoadFromMemory(dff.data(), dff.size());
             float lx0=1e30f,ly0=1e30f,lz0=1e30f,lx1=-1e30f,ly1=-1e30f,lz1=-1e30f;
             bool any=false;
