@@ -336,6 +336,10 @@ enum Reaction {
 };
 float React(int index);                    // StatReactionValue[index]
 int LoadReactions(const char* path);       // parse ar_stats.dat; returns how many values were read
+// CStats::GetFatAndMuscleModifier: how the body shape and skills scale an ability. 0 climb, 1 climb anim, 2 jump, 3 fight
+// damage dealt, 4 hit reaction, 5 bmx pedalling, 6 bmx bunny hop, 7 sprint energy, 8 breath, 9 max health shown, 10 health
+// bar full scale, 11..13 bike wheelie, stoppie and tilt, 14 car, 15 damage taken.
+float FatMuscleMod(int mode);
 void Init();                               // CStats::Init: everything zero, max health 569, stamina 100
 bool IsFloat(int stat);                    // CStats::IsStatFloat
 bool IsCapped(int stat);                   // CStats::IsStatCapped: clamped to 1000
