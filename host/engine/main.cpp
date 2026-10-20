@@ -1393,7 +1393,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     }
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
     g_cj.SetWallProbe([](const float* a, const float* b) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]) < 1.0f; });
-    if (cjReady) g_cj.SetMaxHealth(Stats::Get(Stats::STAT_MAX_HEALTH) / 5.69f);
+    if (cjReady) g_cj.SetMaxHealth(Stats::FatMuscleMod(9));
     if (cjReady) {   // [Player] FightStyle: 0 normal, 1 boxing, 2 kung fu, 3 kick boxing; GTA_FIGHTSTYLE overrides
         int fs = GetPrivateProfileIntA("Player", "FightStyle", 0, g_iniPath);
         if (const char* e = getenv("GTA_FIGHTSTYLE")) fs = atoi(e);
@@ -3057,7 +3057,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (climbStarted) { onGround = true; velZ = 0.0f; Log("CLIMB start at (%.2f, %.2f, %.2f) %s", playerX, playerY, feet, onGround ? "" : ""); }
             }
             if (onGround && !swimming && !(cjReady && g_cj.Busy()) && jumpJustDown && !climbStarted && !(cjReady && g_cj.FistLock())) {
-                velZ = JUMP_VEL;
+                velZ = JUMP_VEL * Stats::FatMuscleMod(2);
+                if (getenv("GTA_STATDBG")) Log("JUMP velZ %.3f mod %.3f", velZ, Stats::FatMuscleMod(2));
                 onGround = false;
                 jumped = true;
             }
@@ -3067,6 +3068,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             float vx = mx * speed, vy = my * speed;
             if (cjReady) {
                 g_cj.SetBreathMax(Stats::FatMuscleMod(8));
+                g_cj.SetJumpMod(Stats::FatMuscleMod(2));
                 PlayerPed::Input pin;
                 pin.dt = dt;
                 pin.stickX = mx;
@@ -3500,7 +3502,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         vehKind = dt2 == "bike" ? 2 : dt2 == "plane" || dt2 == "heli" ? 3 : dt2 == "boat" || dt2 == "bmx" ? 4 : 1;
                     }
                     const int up = Stats::UpdateActivity(dt * s_statTime, rate, g_cj.Swimming(), g_cj.Underwater(), vehKind, carSpd, true);
-                    if (up == Stats::STAT_MAX_HEALTH) g_cj.SetMaxHealth(Stats::Get(Stats::STAT_MAX_HEALTH) / 5.69f);
+                    if (up == Stats::STAT_MAX_HEALTH) g_cj.SetMaxHealth(Stats::FatMuscleMod(9));
                     if (up >= 0) {
                         if (g_hudReady) g_hud.StatUpdate(Stats::Get(up) / 10.0f);
                         Log("STATS: stat %d now %.0f", up, Stats::Get(up));

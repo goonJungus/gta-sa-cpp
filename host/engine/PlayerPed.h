@@ -257,6 +257,7 @@ public:
     void SetMaxHealth(float hp) { m_health += hp - m_maxHealth; m_maxHealth = hp; }
     void AddHealth(float hp) { m_health = std::min(m_maxHealth, m_health + hp); }
     float Armor() const { return m_armor; }
+    void SetJumpMod(float v) { m_jumpMod = v; }
     float Breath() const { return m_breath / m_breathMax; }   // 0..1
     // CStats::GetFatAndMuscleModifier(8), in game steps (1/50 s); the lungs start full
     void SetBreathMax(float v) { if (!m_breathInit) { m_breathInit = true; m_breath = v; } m_breathMax = v; m_breath = std::min(m_breath, v); }
@@ -441,6 +442,7 @@ private:
     int m_gun = -1;     // the firearm in hand
     int m_melee = -1;   // the melee weapon in hand (fists when both are -1)
     int m_shotEvents = 0, m_reloadEvents = 0, m_dryEvents = 0;
+    float m_jumpMod = 1.0f;   // CStats::GetFatAndMuscleModifier(2): jump launch, launch / land clip speed
     float m_breathMax = 1150.0f;   // steps of air; CPlayerPedData::m_fBreath
     bool m_breathInit = false;
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = 1150.0f, m_damageFlash = 0.0f;
