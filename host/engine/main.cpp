@@ -55,6 +55,8 @@
 #include "Radio.h"
 #include "Peds.h"
 #include "Projectiles.h"
+#include "BulletInfo.h"
+#include "WeaponInfo.h"
 #include "Speech.h"
 #include "Delirium.h"
 #include "PlayerPed.h"
@@ -72,6 +74,7 @@
 #include "Stats.h"
 
 static D3DRenderer g_renderer;
+static BulletInfo g_bullets;   // scoped sniper bullets in flight (CBulletInfo)
 static Projectiles g_proj;   // thrown weapons in flight
 static FireManager g_fires;          // CFireManager
 static ExplosionManager g_expl;      // CExplosion
@@ -253,6 +256,7 @@ static int g_radioStation = 0;   // the station that plays while driving
 static Effects g_fx;
 static bool g_scoped = false;     // looking through a sniper / camera scope
 static float g_scopeFov = 70.0f;  // its zoom
+static float g_bulletMs = 0.0f;   // game clock for the sniper bullets
 static float g_camFlash = 0.0f;   // the camera flash wash, fading
 static int g_photos = 0;          // photographs taken
 static bool g_aimTest = false;      // --aimtest: the shooting range
@@ -2383,6 +2387,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
                 float px = sx, py = sy;
                 if (getenv("GTA_PEDNEAR")) { px = playerX + std::cos(g_cj.Heading()) * 0.9f; py = playerY + std::sin(g_cj.Heading()) * 0.9f; }   // dev: within CJ's reach
+                if (const char* pa = getenv("GTA_PEDAHEAD")) { px = playerX + (float)atof(pa); py = playerY; if (const char* c = strchr(pa, ',')) py += (float)atof(c + 1); }   // dev: "east[,north]" metres from CJ (yaw 0 faces east)
                 const int n = g_peds.Spawn(g_renderer, -1, px, py, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(-fy, -fx));
                 if (n >= 0) if (const char* ph = getenv("GTA_PEDHP")) g_peds.SetHealth((size_t)n, (float)atof(ph));   // dev
                 Log("DEV: spawned ped %d", n);
@@ -4344,6 +4349,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         }
                         continue;
                     }
+                    if (heavy == 34 && g_scoped) {   // CWeapon::FireSniper: a bullet along the camera front at 16 per step, hits resolve as it flies
+                        float v[3];
+                        for (int i = 0; i < 3; i++) v[i] = g_aimDir[i] * 16.0f;
+                        const WeaponInfo* wi = WeaponTable::Get("SNIPERRIFLE", 1);   // CBulletInfo::AddBullet takes the standard row's damage
+                        if (g_bullets.Add(g_aimEye, v, wi ? wi->damage : 125, g_bulletMs)) {
+                            Log("SNIPER BULLET from %.1f %.1f %.1f dir %.3f %.3f %.3f", g_aimEye[0], g_aimEye[1], g_aimEye[2], g_aimDir[0], g_aimDir[1], g_aimDir[2]);
+                            g_shakeQ.push_back({0.2f / 0.35f, 0.0f});   // CamShakeNoPos(0.2)
+                        }
+                        continue;
+                    }
                     const float range = 120.0f;
                     // CWeapon::FireInstantHit: the aimed ray wobbles on a circle (1 s period) by
                     // (100 - 95) / accuracy * attack counter * 0.75, shotguns do not (they spread pellets).
@@ -4475,6 +4490,48 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         g_audio.Impact(std::sqrt(dx * dx + dy * dy + dz * dz));
                     }
                 }
+                g_bulletMs += dt * 1000.0f;
+                g_bullets.Update(g_bulletMs, dt * 50.0f, [&](const float* a, const float* b, int dmg, float* np) {   // CBulletInfo::Update
+                    float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+                    const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                    if (len < 1e-4f) return false;
+                    for (float& c : d) c /= len;
+                    int kind = 0; float hnz = 0.0f;
+                    const float tw = g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2], &kind, &hnz);
+                    float tp = 2.0f, tv = 2.0f, t = 0.0f; bool head = false;
+                    int pi2 = -1, vi2 = -1;
+                    if (g_peds.Ready()) { pi2 = g_peds.Trace(a, d, len, &t, &head); if (pi2 >= 0) tp = t / len; }
+                    if (g_vehicles.Ready()) { vi2 = g_vehicles.Trace(a, d, len, &t); if (vi2 >= 0 && vi2 != g_driveCar) tv = t / len; else vi2 = -1; }
+                    if (getenv("GTA_PEDDBG")) Log("SNIPER STEP %.1f %.1f %.1f len %.1f ped %d tp %.2f car %d tv %.2f world %.2f", a[0], a[1], a[2], len, pi2, tp, vi2, tv, tw);
+                    float hit[3];
+                    const float tmin = std::min(tp, std::min(tv, tw));
+                    if (tmin >= 1.0f) return false;
+                    for (int i = 0; i < 3; i++) hit[i] = a[i] + d[i] * len * tmin;
+                    if (tmin == tp) {
+                        const bool kill = g_peds.Shoot(pi2, (float)dmg, head, true);
+                        Log("SNIPER HIT ped %d head %d kill %d at %.1f", pi2, (int)head, (int)kill, len * tmin);
+                        Stats::Increment(Stats::STAT_BULLETS_THAT_HIT);
+                        if (head) Stats::Increment(Stats::STAT_NUMBER_OF_HEADSHOTS);
+                        if (kill) Stats::Increment(Stats::STAT_PEOPLE_YOUVE_WASTED);
+                        if (g_hudReady) g_hud.Hit(kill);
+                        g_fx.Blood(hit);
+                        g_audio.Impact(len * tmin);
+                        for (int i = 0; i < 3; i++) np[i] = hit[i];
+                        return true;
+                    }
+                    if (tmin == tv) {
+                        g_vehicles.Damage(vi2, (float)dmg * 3.0f);
+                        Log("SNIPER HIT car %d health %.0f", vi2, g_vehicles.Car((size_t)vi2).health);
+                        g_fx.Impact(hit, 0.0f);
+                        g_audio.Impact(len * tmin);
+                        return false;   // the bullet flies on through a car
+                    }
+                    g_fx.Impact(hit, hnz);
+                    g_audio.Impact(len * tmin);
+                    g_world.DynShoot(a, d, len * tmin + 0.1f, 40.0f, 0);
+                    Log("SNIPER HIT world at %.1f %.1f %.1f", hit[0], hit[1], hit[2]);
+                    return false;   // retail keeps the bullet moving past walls
+                });
                 st.playSec += dt;
                 const bool air = g_cj.InAir();
                 if (st.havePrev && !air && !g_cj.Swimming()) st.dist += hypotf(playerX - st.px, playerY - st.py);
