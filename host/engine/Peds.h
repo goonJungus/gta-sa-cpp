@@ -8,6 +8,7 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <cmath>
 #include <vector>
 
 #include "D3DRenderer.h"
@@ -60,10 +61,19 @@ public:
     // CTaskSimpleFight strikes (PlayerPed::Strike): the first live ped whose body the sphere reaches takes
     // damage * defend weakness; force death 1 in 8, a katana third attack 1 in 2. The ped turns to the
     // attacker and plays the group's hit reaction (hitClips = the group's three reaction clip names).
-    // Returns the actor index hit or -1; *killed tells whether it died.
+    // Returns the actor index hit or -1; *killed tells whether it died. forceBase is the weapon's CEventDamage
+    // death force (fists 0.5, blunt 1.5, knife 0), mod4 the attacker's FatMuscleMod(4): a kill is thrown back by
+    // forceBase * mod4 * 5 and a hit that leaves under 15 health knocks the ped down with (mod4 + 1) / 2 * 5.
     int MeleeStrike(const float centre[3], float radius, float damage, const float attackerPos[2], bool sword3,
-                    const char* const hitClips[3], int move, bool* killed);
+                    const char* const hitClips[3], int move, bool* killed, float forceBase = 0.0f, float mod4 = 1.0f);
     // CTaskSimpleFight::FindTargetOnGround: a fallen (dead) ped within `range` in front of (x, y) facing `heading`.
+    void SetSeed(unsigned s) { m_rng = s; }   // dev
+    void SetHealth(size_t i, float hp) { m_actors[i].health = hp; }   // dev
+    float VelX(size_t i) const { return std::hypot(m_actors[i].vx, m_actors[i].vy); }   // horizontal speed
+    float VelZ(size_t i) const { return m_actors[i].vz; }
+    const char* ClipName(size_t i) const { const Actor& a = m_actors[i]; const AnimClip* c = a.dead ? a.deathClip : a.hitClip; return c ? c->name.c_str() : "-"; }
+    bool Flying(size_t i) const { return m_actors[i].flying; }
+    bool KnockedDown(size_t i) const { return m_actors[i].getUp; }
     bool FallenNear(float x, float y, float heading, float range) const;
     // CTaskSimpleUseGun::RequirePistolWhip: a live ped within a metre in front, inside a 60 degree cone.
     bool WhipTarget(float x, float y, float heading) const;
@@ -133,6 +143,9 @@ private:
         float chokeTimer = 0.0f;          // gas_cwr phase left (CTaskSimpleChoking), re-armed by gas
         float tiredTimer = 0.0f;          // idle_tired phase left
         float chokeAnim = 0.0f, coughTimer = 0.0f;
+        float vx = 0, vy = 0, vz = 0;     // m/s, from CPhysical::ApplyMoveForce (a melee knock-back)
+        bool flying = false;              // thrown and not yet landed
+        bool getUp = false;               // a knock-down in progress: stands up when the hit clip ends
     };
 
     Model* GetModel(D3DRenderer& r, int id);
