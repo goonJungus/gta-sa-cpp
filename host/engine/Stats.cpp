@@ -177,4 +177,39 @@ int UpdateActivity(float dt, int rate, bool swimming, bool underwater, bool driv
     return raised;
 }
 
+static float s_respectShown = -99.0f;
+void ResetRespectMessage() { s_respectShown = -99.0f; }
+
+int UpdateRespect(int money, float territoryFrac, int tagPct, bool cheat) {
+    const float cash = std::min(1.0f, (float)money * 1e-7f);
+    const float terr = std::max(0.0f, territoryFrac - 0.2f);
+    const float missionTotal = std::max(1.0f, Get(STAT_RESPECT_MISSION_TOTAL));
+    float r = Get(STAT_CLOTHES_RESPECT) * 0.03f + Get(STAT_MUSCLE) * 0.03f + cash * 1000.0f * 0.05f + terr * 1250.0f * 0.05f +
+              Get(STAT_GIRLFRIEND_RESPECT) * 0.03f + (Get(STAT_RESPECT_MISSION) * 1000.0f / missionTotal) * 0.36f +
+              Get(STAT_RESPECT) * 0.4f + (float)(tagPct * 10) * 0.05f;
+    r = std::max(0.0f, r);
+    if (cheat) r = 1000.0f;
+    Set(STAT_TOTAL_RESPECT, r);
+    if (s_respectShown == -99.0f) { s_respectShown = r; return 0; }
+    if (r <= s_respectShown + 40.0f && r >= s_respectShown - 40.0f) return 0;   // CStats::CheckForThreshold
+    const int dir = r > s_respectShown ? 1 : -1;
+    s_respectShown = r;
+    return dir;
+}
+
+void UpdateSexAppeal(bool haveCar, float carDist, float carHealth, int carClass, bool cheat) {
+    float car = 0.0f;
+    if (haveCar && carDist < 35.0f) {
+        car = std::clamp(carHealth * 2.0f - 1000.0f, 0.0f, 1000.0f);
+        switch (carClass) {   // how much a car of this class impresses
+        case 1: case 5: case 7: case 11: car *= 0.1f; break;
+        case 2: case 3: case 9: break;
+        case 4: case 6: case 10: car *= 0.3f; break;
+        default: car *= 0.5f;
+        }
+    }
+    Set(STAT_SEX_APPEAL, std::clamp(car * 0.5f + Get(STAT_APPEARANCE) * 0.5f, 0.0f, 1000.0f));
+    if (cheat) Set(STAT_SEX_APPEAL, 1000.0f);
+}
+
 }  // namespace Stats
