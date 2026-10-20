@@ -65,6 +65,8 @@ public:
     std::string gameDir;
     Cutscene::DrawCj drawCj;                                     // CJ in a cutscene
     std::function<void(bool)> showPlayer;                        // hide CJ while a cutscene plays
+    std::function<void(const std::string&)> cutsceneAudio;       // START_CUTSCENE: play the scene's audio track (CAudioEngine::PlayPreloadedCutsceneTrack)
+    std::function<void()> cutsceneAudioStop;                     // the scene ended, was skipped or cleared
     std::function<bool()> skipPressed;                           // CCutsceneMgr::IsCutsceneSkipButtonBeingPressed (edge)
 
     ScriptCamera cam;

@@ -60,7 +60,7 @@ const char* Radio::StationName(int s) const {
 
 void Radio::SetVolume(float v) {
     m_vol = v;
-    if (m_audio) m_audio->SetMusicVolume(m_station >= 0 ? v : 0.0f);
+    if (m_audio) m_audio->SetMusicVolume(m_station >= 0 || m_cutTrack ? v : 0.0f);
 }
 
 size_t Radio::Pull(int16_t* out, size_t frames) {
@@ -219,7 +219,7 @@ bool Radio::PlayLookup(uint32_t pick) {
     }
     const int rate = m_dec->SampleRate();
     m_audio->SetMusic([this](int16_t* out, size_t n) { return Pull(out, n); }, rate, m_vol);
-    std::fprintf(stderr, "[RADIO] %s %u (%s), %d Hz\n", m_stations[(size_t)m_station].name.c_str(), pick,
+    std::fprintf(stderr, "[RADIO] %s %u (%s), %d Hz\n", m_cutTrack ? "cutscene" : m_stations[(size_t)m_station].name.c_str(), pick,
                  m_packNames[t.pack].c_str(), rate);
     return true;
 }
@@ -242,6 +242,7 @@ void Radio::Tune(int station) {
     if (station >= (int)m_stations.size()) station = -1;
     if (station != m_station) m_queue.clear();
     m_station = station;
+    if (m_cutTrack) return;   // the radio comes back when the cutscene track ends
     if (station < 0) {
         m_audio->StopMusic();
         std::lock_guard<std::mutex> g(m_mx);
@@ -259,6 +260,24 @@ void Radio::Step(int dir) {
     Tune(s);
 }
 
+bool Radio::PlayCutsceneTrack(uint32_t trak) {
+    if (!m_ready || !m_audio) return false;
+    m_cutTrack = true;
+    if (!PlayLookup(trak)) { m_cutTrack = false; return false; }
+    m_audio->SetMusicVolume(m_vol);
+    return true;
+}
+
+void Radio::StopCutsceneTrack() {
+    if (!m_cutTrack) return;
+    m_cutTrack = false;
+    m_audio->StopMusic();
+    { std::lock_guard<std::mutex> g(m_mx); m_dec.reset(); }
+    m_queue.clear();
+    if (m_station >= 0) StartTrack();
+}
+
 void Radio::Update() {
+    if (m_cutTrack) return;   // the cutscene track plays once
     if (m_ready && m_station >= 0 && m_audio && m_audio->MusicEnded()) StartTrack();
 }
