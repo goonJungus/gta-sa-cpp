@@ -77,6 +77,7 @@ if(WIN32)
     host/engine/Cheat.cpp
     host/engine/Clothes.cpp
     host/engine/PlayerWardrobe.cpp
+    host/engine/PlayerSkin.cpp
     host/engine/WeaponInfo.cpp
         host/engine/PlayerParachute.cpp
         host/engine/ParaCanopy.cpp

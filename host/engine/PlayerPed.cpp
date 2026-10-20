@@ -311,6 +311,8 @@ void PlayerPed::Shutdown(D3DRenderer& r) {
     ShutdownGuns(r);
     for (Part& p : m_parts) if (p.mesh) r.DestroyMesh(p.mesh);
     for (IDirect3DTexture9* t : m_textures) if (t) r.DestroyTexture(t);
+    if (m_skinTex) r.DestroyTexture(m_skinTex);
+    m_skinTex = nullptr;
     m_parts.clear();
     m_textures.clear();
     m_ready = false;

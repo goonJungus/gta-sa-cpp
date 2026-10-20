@@ -245,7 +245,7 @@ bool PlayerPed::BuildOutfit(const PedClothesDesc& want) {
             m_bindMinZ = std::min(m_bindMinZ, sv.pos[2]);
         }
         part.mesh = m_r->CreateMesh(part.skinned.data(), (uint32_t)part.skinned.size(), c->indices.data(), (uint32_t)c->indices.size());
-        if (part.mesh) part.mesh->texture = m_textures[kTex[slot]];
+        if (part.mesh) part.mesh->texture = m_skinTex ? m_skinTex : m_textures[kTex[slot]];
         part.isHead = slot == CLOTHES_MODEL_HEAD;
         m_parts.push_back(std::move(part));
     }
