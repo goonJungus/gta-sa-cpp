@@ -8,6 +8,7 @@
 
 #include "D3DRenderer.h"
 #include "Hud.h"
+#include "Stats.h"
 #include "FeScreens.h"
 #include "TxdLoader.h"
 
@@ -963,6 +964,25 @@ static const StatRow kStatsAch[] = {{252,0},{254,0},{256,0},{3,0},{4,0},{5,0},{7
 static const StatRow kStatsMission[] = {{146,1},{157,0},{159,0},{158,0},{149,0},{161,0},{210,0},{36,0},{214,0},{202,0},{166,0},{168,0},{247,0},{249,0},{172,0},{212,0},{220,0},{49,0},{174,0},{179,0},{211,0}};
 static const StatRow kStatsMisc[] = {{0,1},{134,1},{137,0},{326,1},{195,0},{197,0}};
 
+// CStats::ConstructStatLine value text: money with $, skills and body stats as a percentage of the 0..1000
+// scale, times as minutes:seconds, distances in miles, everything else a whole number.
+static std::string StatText(int id, FeText& text) {
+    static const short kMoney[] = {13, 14, 15, 16, 20, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 53, 54, 55, 61, 62, 125, 162, 334};
+    static const short kTime[] = {17, 18, 19, 44, 45, 48, 49, 52, 56, 57, 58, 59, 60, 63, 169, 173, 179, 202, 212, 219, 220, 222, 246, 247, 248, 249, 250, 251};
+    static const short kDist[] = {3, 4, 5, 6, 7, 8, 9, 26, 27, 28, 29};
+    auto in = [&](const short* t, size_t n) { for (size_t i = 0; i < n; i++) if (t[i] == id) return true; return false; };
+    const float v = Stats::Get(id);
+    char b[48];
+    if (in(kMoney, sizeof kMoney / sizeof *kMoney)) std::snprintf(b, sizeof b, "$%d", (int)v);
+    else if (in(kTime, sizeof kTime / sizeof *kTime)) {
+        const int t = (int)v;
+        std::snprintf(b, sizeof b, "%d:%02d", t / 60, t % 60);
+    } else if (in(kDist, sizeof kDist / sizeof *kDist)) std::snprintf(b, sizeof b, "%.2f %s", v, text.Get("ST_MILE").c_str());
+    else if (Stats::IsCapped(id)) std::snprintf(b, sizeof b, "%d%%", (int)(v / 10.0f));
+    else std::snprintf(b, sizeof b, "%d", (int)v);
+    return b;
+}
+
 void FeMenu::DrawStats(Fe2d& g) {
     if (m_sel < 0 || m_sel >= 8) return;   // the Back entry shows nothing
     typedef std::pair<std::string, std::string> Row;
@@ -973,10 +993,10 @@ void FeMenu::DrawStats(Fe2d& g) {
                            sizeof(kStatsMission) / sizeof(StatRow), sizeof(kStatsMisc) / sizeof(StatRow)};
     for (size_t i = 0; i < cnt[m_sel]; i++) {
         const StatRow& r = tab[m_sel][i];
-        if (!r.always) continue;
+        if (!r.always && !(Stats::Get(r.id) > 0.0f)) continue;
         char key[16];
         std::snprintf(key, sizeof(key), r.id < 10 ? "STAT00%d" : r.id < 100 ? "STAT0%d" : "STAT%d", (int)r.id);
-        rows.push_back({m_text.Get(key), "0"});
+        rows.push_back({m_text.Get(key), StatText(r.id, m_text)});
     }
     if (m_rwList) {
         const float sw = m_w + 2 * m_ox, sh = m_h + 2 * m_oy, ref = sh / 1080.0f;

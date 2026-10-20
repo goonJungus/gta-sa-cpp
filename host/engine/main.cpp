@@ -69,6 +69,7 @@
 #include "Gamepad.h"
 #include "Fire.h"
 #include "Explosion.h"
+#include "Stats.h"
 
 static D3DRenderer g_renderer;
 static Projectiles g_proj;   // thrown weapons in flight
@@ -579,7 +580,6 @@ static Vehicles g_vehicles;
 static Peds g_peds;
 static Delirium g_delirium;   // optional active-ragdoll plugin (runtime-loaded DLL)
 static Speech g_speech;   // CAEPedSpeechAudioEntity
-static float g_statFat = 0.0f, g_statMuscle = 0.0f;   // CStats STAT_FAT / STAT_MUSCLE, 0..1000
 static int g_crowdTarget = 0;   // ambient pedestrians around CJ (key O toggles, GTA_PEDS=n sets it)
 static int g_vehSpawnIdx = 0;
 
@@ -1375,6 +1375,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("PLAYER MESH: CJ_HEIGHT=%.4fm orange box (%s)", CJ_HEIGHT, playerMesh ? "OK" : "FAIL");
     }
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
+    Stats::Init();   // CStats::Init, then the saved [Stats] values
+    Stats::Load(g_iniPath);
     {   // [Player] WeaponSkill (-1 = earned through play): 0 poor, 1 standard, 2 pro (twin pistols); GTA_SKILL overrides
         int skill = GetPrivateProfileIntA("Player", "WeaponSkill", -1, g_iniPath);
         if (const char* e = getenv("GTA_SKILL")) skill = atoi(e);
@@ -1421,7 +1423,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
         if (const char* e = getenv("GTA_GUN")) g_cj.SelectGun(atoi(e));   // dev: weapon index
         if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
-        g_statFat = fat * 1000.0f; g_statMuscle = mus * 1000.0f;
+        Stats::Set(Stats::STAT_FAT, fat * 1000.0f); Stats::Set(Stats::STAT_MUSCLE, mus * 1000.0f);
     }
     Log("PLAYER: CJ model %s", cjReady ? "ready" : "FAILED (using the box)");
     if (g_aimTest) {
@@ -3434,21 +3436,26 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     s_fatCounterMs += dt * 1000.0f * (float)rate / 10.0f;
                     if (s_fatCounterMs > 150.0f * 1000.0f) {
                         s_fatCounterMs = 0.0f;
-                        if (g_statFat > 0.0f) {
-                            g_statFat = std::max(0.0f, g_statFat - 15.0f);
-                            g_statMuscle = std::min(1000.0f, g_statMuscle + 10.0f);
+                        if (Stats::Get(Stats::STAT_FAT) > 0.0f) {
+                            Stats::Decrement(Stats::STAT_FAT, 15.0f);
+                            Stats::Increment(Stats::STAT_MUSCLE, 10.0f);
                         } else {
-                            g_statMuscle = std::max(0.0f, g_statMuscle - 15.0f);
+                            Stats::Decrement(Stats::STAT_MUSCLE, 15.0f);
                         }
-                        g_cj.SetBodyShape(g_statFat / 1000.0f, g_statMuscle / 1000.0f);   // CClothes::RebuildPlayerIfNeeded
+                        const float fatStat = Stats::Get(Stats::STAT_FAT), muscleStat = Stats::Get(Stats::STAT_MUSCLE);
+                        g_cj.SetBodyShape(fatStat / 1000.0f, muscleStat / 1000.0f);   // CClothes::RebuildPlayerIfNeeded
                         char v[16];
-                        snprintf(v, sizeof(v), "%d", (int)(g_statFat / 10.0f));
+                        snprintf(v, sizeof(v), "%d", (int)(fatStat / 10.0f));
                         WritePrivateProfileStringA("Player", "Fat", v, g_iniPath);
-                        snprintf(v, sizeof(v), "%d", (int)(g_statMuscle / 10.0f));
+                        snprintf(v, sizeof(v), "%d", (int)(muscleStat / 10.0f));
                         WritePrivateProfileStringA("Player", "Muscle", v, g_iniPath);
-                        Log("STATS: fat %.0f muscle %.0f", g_statFat, g_statMuscle);
+                        Log("STATS: fat %.0f muscle %.0f", fatStat, muscleStat);
                     }
                 }
+            }
+            {   // [Stats] S<id>: written when a value changed, at most every 5 s
+                static float s_statSave = 0.0f;
+                if ((s_statSave += dt) > 5.0f) { s_statSave = 0.0f; Stats::Save(g_iniPath); }
             }
             for (const Peds::SpeechEvent& e : g_peds.TakeSpeech()) {   // ped lines, quieter and panned with distance
                 const float dx = g_peds.X(e.actor) - camPosX, dy = g_peds.Y(e.actor) - camPosY;
@@ -3883,6 +3890,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_menuReady && cjReady) {
             if (!g_menu.IsOpen() && !g_devPaused) {
                 evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
+                Stats::Increment(Stats::STAT_BULLETS_FIRED, (float)evShots);
                 {   // CTaskSimpleFight strike: the sphere against the crowd
                     PlayerPed::Strike sk;
                     if (g_cj.TakeStealth() && g_stealthPed >= 0 && g_peds.StealthKill(g_stealthPed)) {
@@ -4269,6 +4277,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             }
                             const bool kill = g_peds.Shoot(pi2, dmg, ph, !strcmp(gid2, "SNIPERRIFLE") || !strcmp(gid2, "COUNTRYRIFLE"));
                             Log("PED HIT %d head %d kill %d at %.1f", pi2, (int)ph, (int)kill, pt);
+                            Stats::Increment(Stats::STAT_BULLETS_THAT_HIT);
+                            if (ph) Stats::Increment(Stats::STAT_NUMBER_OF_HEADSHOTS);
+                            if (kill) Stats::Increment(Stats::STAT_PEOPLE_YOUVE_WASTED);
                             if (g_hudReady) g_hud.Hit(kill);
                             {   // CStats::UpdateStatsWhenWeaponHit
                                 bool box = false;
