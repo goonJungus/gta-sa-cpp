@@ -12,6 +12,11 @@ struct Entry { uint32_t hash; Cheat::Id id; };
 constexpr Entry kCheats[] = {
     {0xadfa640a, Cheat::Jetpack},           // CHEAT_GET_JETPACK
     {0xeeccea2b, Cheat::HealthArmorMoney},  // CHEAT_HEALTH_ARMOR_250K
+    {0x3a577325, Cheat::Fat},               // BTCDBCB
+    {0xd4966d59, Cheat::Muscle},            // JYSDSOD
+    {0x5fd1b49d, Cheat::Skinny},            // KVGYZQK
+    {0xcf5fda18, Cheat::WeaponSkills},      // EHIBXQS
+    {0xf01286e9, Cheat::VehicleSkills},     // VKYPQCF
     {0x8ca870dd, Cheat::Adrenaline},        // IAVENJQ typed (m_aCheatHashKeys labels around the wanted rows are shifted in the decomp)
 };
 
