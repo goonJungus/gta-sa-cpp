@@ -1520,7 +1520,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_sg.wantedLevel = [] { return g_wanted; }; g_sg.setWantedLevel = [](int w) { g_wanted = w; };
         g_sg.pickups = &g_pickups; g_sg.enex = &g_enex;
         g_sg.getArea = [] { return g_world.Area(); };
-        g_sg.setArea = [](int a) { g_world.SetArea(a); g_enex.ForceArea(a); }; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
+        g_sg.setArea = [](int a) { Log("SCRIPT: area %d", a); g_world.SetArea(a); g_enex.ForceArea(a); }; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
         g_sg.playerInCar = [] { return g_driveCar >= 0; };
         g_sg.playerCar = [] { return g_driveCar; };
         g_sg.groundAt = [&](float x, float y) { return g_world.GetGroundHeight(x, y, playerZ + 50.0f); };
