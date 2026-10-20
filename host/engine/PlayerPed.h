@@ -88,6 +88,8 @@ public:
         float carSteer = 0.0f;                // seated: CVehicle::m_fSteerAngle, radians, positive = left
         float carSpeed = 0.0f;                // seated: the car's speed, m/s
         bool carReverse = false;              // seated: gas pedal below zero (CVehicle::m_GasPedal)
+        bool jetStop = false;                 // jetpack: look behind held (CTaskSimpleJetPack stop mode)
+        bool jetBrake = false;                // jetpack: brake held (negative thrust)
         ClimbScanFn climbScan;
     };
 
@@ -216,6 +218,15 @@ public:
     // The parachute script's vertical speed (m/s, up positive): true when it overrides gravity this frame.
     bool ParaVelZ(float& v) const;
     bool Skydiving() const { return m_sky != 0; }
+    // CTaskSimpleJetPack: the pack on CJ's back. Velocity is the task's own, in metres per second.
+    void StartJetpack();
+    void StopJetpack(bool drop);
+    bool Jetpacking() const { return m_jet.on; }
+    bool JetVelZ(float& v) const;                       // true: the pack owns the vertical speed this frame
+    bool TakeJetDrop() { const bool d = m_jet.dropPending; m_jet.dropPending = false; return d; }   // the pack was let go: make a pickup
+    float JetThrust() const { return m_jet.fxKey; }     // 0..1 flame strength
+    bool JetNozzles(float x, float y, float feetZ, float out[2][3]) const;   // world positions of both jetballs
+    float JetTime() const { return m_jet.time; }        // STAT_TIME_ON_JETPACK, seconds
     bool TakeParaHelp() { const bool h = m_paraHelp; m_paraHelp = false; return h; }   // PARA_01 due
     void SetHideGun(bool b) { m_hideGun = b; }   // the scope view never shows the weapon
     int Goggles() const { return m_goggles; }   // 0 off, 44 night vision, 45 thermal
@@ -239,6 +250,7 @@ public:
     float Breath() const { return m_breath / kBreathMax; }   // 0..1
     bool ShowBreath() const { return m_swimming && m_swimState == SwimState::Under || m_breath < kBreathMax * 0.999f; }
     void Hurt(float amount);            // armor first, then health
+    void RestoreVitals() { m_health = m_maxHealth; m_armor = 100.0f; }   // CHEAT_HEALTH_ARMOR_MONEY
     float DamageFlash() const { return m_damageFlash; }       // 1 right after a hit, fades out
     bool Dead() const { return m_health <= 0.0f; }
     bool Ducking() const { return m_ducking; }
@@ -481,6 +493,24 @@ private:
     ParaCanopy m_canopy;   // the parachute object, posed by the PARA_*_O clip matching CJ's PARA_* clip
     const AnimClip* m_paraClip = nullptr;
     bool UpdateParachute(const Input& in);
+    struct Jet {
+        bool on = false;
+        bool flying = false;                 // not standing: thrusting or in the air
+        float fwd = 0.0f, strafe = 0.0f, angle = 0.0f;
+        bool stop = false;
+        float v[3] = {0, 0, 0};              // per game frame (50 Hz), as the task keeps it
+        float prevHeading = 0.0f, headingDelta = 0.0f;
+        float legFwd = 0.0f, legFwdSpeed = 0.0f, legSide = 0.0f, legSideSpeed = 0.0f;
+        float fxKey = 0.0f, time = 0.0f, clock = 0.0f;
+        int savedWeapon = -2;
+        bool dropPending = false;
+    } m_jet;
+    bool UpdateJetpack(const Input& in);
+    void DrawJetpack(D3DRenderer& r, const D3DMATRIX& world);
+    bool JetPackMatrix(RwMat& out) const;               // model space, from the upper torso bone
+    void LoadJetpack(D3DRenderer& r, ImgLoader& gta3);
+    std::vector<D3DRenderMesh*> m_jetBody, m_jetBall[2];
+    std::vector<IDirect3DTexture9*> m_jetTextures;
     const AnimClip* m_gogglesClip = nullptr;
     bool m_launchPending = false, m_detonatePending = false, m_switchToDetonator = false;
     std::function<bool(const float*, const float*)> m_wallProbe;   // segment a -> b hits the world
