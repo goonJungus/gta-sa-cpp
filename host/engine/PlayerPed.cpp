@@ -169,30 +169,6 @@ void FromEuler(RwMat& mat, float x, float y, float z, unsigned flags) {   // rot
         for (int c = 0; c < 3; c++) mat.m[r][c] = m[r * 3 + c];
 }
 
-const TxdTexture* FindTex(const std::vector<TxdTexture>& txd, const char* name) {
-    for (const TxdTexture& t : txd)
-        if (!name || Lower(t.name) == name) return &t;
-    return nullptr;
-}
-
-// CClothesBuilder::PlaceTextureOnTopOfTexture: clothing over skin by the
-// clothing texel's alpha. 32-bit BGRA in D3D byte order; base alpha forced
-// opaque (X8R8G8B8 rasters carry no alpha).
-std::vector<uint8_t> Composite(const TxdTexture& base, const TxdTexture* over) {
-    std::vector<uint8_t> px = base.mip0;
-    for (size_t i = 3; i < px.size(); i += 4) px[i] = 0xFF;
-    if (!over || over->d3dFormat != D3DFMT_A8R8G8B8) return px;
-    for (uint32_t y = 0; y < base.height; y++)
-        for (uint32_t x = 0; x < base.width; x++) {
-            const uint32_t ox = x * over->width / base.width, oy = y * over->height / base.height;
-            const uint8_t* s = &over->mip0[(oy * over->width + ox) * 4];
-            uint8_t* dpx = &px[(y * base.width + x) * 4];
-            const unsigned a = over->hasAlpha ? s[3] : 255;
-            for (int c = 0; c < 3; c++) dpx[c] = (uint8_t)((s[c] * a + dpx[c] * (255 - a)) / 255);
-        }
-    return px;
-}
-
 }  // namespace
 
 // CPlayerPed::ProcessAnimGroups: the move set follows the weapon in hand.
@@ -260,33 +236,6 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
         }
     }
-    auto txd = [&](const char* name) {
-        std::vector<uint8_t> b = img.Extract(std::string(name) + ".txd");
-        return b.empty() ? std::vector<TxdTexture>() : TxdLoader::LoadFromMemory(b.data(), b.size());
-    };
-
-    // Default outfit (white vest, jeans, black sneakers) on the default body.
-    struct TexDef { const char* baseTxd; const char* baseTex; const char* overTxd; const char* overTex; };
-    const TexDef texDefs[4] = {
-        {"player_torso", "torso", "vest", "vest"},      // "torso" material
-        {"player_face", "face", nullptr, nullptr},      // "head" (no head texture key -> player_face)
-        {"player_legs", "legs", "jeansdenim", "legs"},  // "legs"
-        {"sneakerbincblk", nullptr, nullptr, nullptr},  // "feet"
-    };
-    for (const TexDef& t : texDefs) {
-        std::vector<TxdTexture> base = txd(t.baseTxd), over;
-        const TxdTexture* b = FindTex(base, t.baseTex);
-        const TxdTexture* o = nullptr;
-        if (t.overTxd) { over = txd(t.overTxd); o = FindTex(over, t.overTex); }
-        IDirect3DTexture9* tex = nullptr;
-        if (b && b->d3dFormat == D3DFMT_A8R8G8B8) {
-            std::vector<uint8_t> px = Composite(*b, o);
-            tex = r.CreateTexture(b->width, b->height, D3DFMT_A8R8G8B8, px.data(), (uint32_t)px.size());
-        }
-        if (!tex) std::fprintf(stderr, "[CJ] texture %s failed\n", t.baseTxd);
-        m_textures.push_back(tex);
-    }
-
     // The base clump (models\gta3.img player.dff) owns the bone hierarchy and
     // the skin-to-bone matrices; CreateSkinnedClump only takes geometry and
     // weights from the clothing parts and re-indexes their bones onto it.
@@ -327,58 +276,18 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
         for (int k = 0; k < 3; k++) m_skeleton[f].local.m[3][k] = local[k];
     }
 
-    // CreateSkinnedClump part order and the material texture each part uses.
-    struct PartDef { const char* dff; int tex; };
-    const PartDef partDefs[] = {{"vest", 0}, {"head", 1}, {"hands", 0}, {"jeans", 2}, {"sneaker", 3}};
-    for (const PartDef& pd : partDefs) {
-        std::vector<uint8_t> b = img.Extract(std::string(pd.dff) + ".dff");
-        std::vector<SkinnedClump> clumps = SkinnedDff::LoadClumps(b.data(), b.size());
-        const SkinnedClump* c = nullptr;
-        for (const SkinnedClump& k : clumps)
-            if (k.valid && (!c || Lower(k.rootName) == "normal")) c = &k;
-        if (!c) { std::fprintf(stderr, "[CJ] part %s failed\n", pd.dff); continue; }
-        if (Lower(c->rootName) != "normal")
-            std::fprintf(stderr, "[CJ] part %s: no Normal clump, using '%s'\n", pd.dff, c->rootName.c_str());
-
-        // BuildBoneIndexConversionTable: part node -> bone id -> base node
-        // (bones the base lacks, e.g. the "Nub" end bones, map to node 0).
-        Part part;
-        part.verts = c->vertices;
-        // The Fat and Ripped (muscle) clumps share the Normal one's topology;
-        // CClothesBuilder::BlendGeometry mixes their vertices by ratio.
-        part.shape[0] = c->vertices;
-        for (const SkinnedClump& k : clumps) {
-            const std::string n = Lower(k.rootName);
-            const int s = n == "fat" ? 1 : n == "ripped" ? 2 : 0;
-            if (s && k.valid && k.vertices.size() == c->vertices.size()) part.shape[s] = k.vertices;
-        }
-        part.boneFrame.resize(c->nodeIds.size(), 0);
-        part.inverseBind.resize(c->nodeIds.size());
-        for (size_t n = 0; n < c->nodeIds.size(); n++) {
-            const int id = c->nodeIds[n];
-            int bn = (id >= 0 && id < 512) ? nodeOfBone[id] : -1;
-            if (bn < 0) bn = 0;
-            const int f = m_frameOfBone[base.nodeIds[bn]];
-            part.boneFrame[n] = f >= 0 ? f : 0;
-            part.inverseBind[n] = base.inverseBind[bn];
-        }
-        part.skinned.resize(part.verts.size());
-        for (size_t v = 0; v < part.verts.size(); v++) {
-            const SkinVertex& sv = part.verts[v];
-            part.skinned[v] = {sv.pos[0], sv.pos[1], sv.pos[2], sv.normal[0], sv.normal[1], sv.normal[2],
-                               0xFFFFFFFFu, sv.uv[0], sv.uv[1]};
-            m_bindMinZ = std::min(m_bindMinZ, sv.pos[2]);
-        }
-        part.mesh = r.CreateMesh(part.skinned.data(), (uint32_t)part.skinned.size(),
-                                 c->indices.data(), (uint32_t)c->indices.size());
-        if (part.mesh) part.mesh->texture = m_textures[pd.tex];
-        part.isHead = pd.tex == 1;
-        m_parts.push_back(std::move(part));
-    }
+    m_baseNodeIds = base.nodeIds;
+    m_baseNodeOfBone = nodeOfBone;
+    m_baseInverse = base.inverseBind;
+    m_r = &r;
+    m_gameDir = gameDir;
+    m_outfit = DefaultOutfit();
+    Clothes::Load(gameDir);
+    if (!BuildOutfit(m_outfit)) return false;
     std::fprintf(stderr, "[CJ] %zu parts, %zu frames, %zu clips, body '%s', feet z %.3f\n",
                  m_parts.size(), m_skeleton.size(), m_clips.size(),
                  m_skeleton.size() > 1 ? m_skeleton[1].name.c_str() : "-", m_bindMinZ);
-    m_ready = m_parts.size() == 5 && Clip("idle_stance");
+    m_ready = m_parts.size() >= 5 && Clip("idle_stance");
     if (m_ready) Add(Clip("idle_stance"), true, false);
     if (m_ready) LoadGuns(r, gameDir);
     return m_ready;
@@ -1841,6 +1750,8 @@ void PlayerPed::SetBodyShape(float fat, float muscle) {
     muscle = std::clamp(muscle, 0.0f, 1.0f);
     m_fatStat = fat;
     m_muscleStat = muscle;
+    // CClothes::RebuildPlayerIfNeeded: the body textures are blended by the same ratios
+    if (m_ready && m_r && (std::fabs(fat - m_texFat) > 0.01f || std::fabs(muscle - m_texMuscle) > 0.01f)) BuildOutfit(m_outfit);
     if (fat + muscle > 1.0f) { const float k = 1.0f / (fat + muscle); fat *= k; muscle *= k; }
     const float r[3] = {1.0f - fat - muscle, fat, muscle};
     for (Part& p : m_parts) {
