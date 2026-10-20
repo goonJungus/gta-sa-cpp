@@ -25,6 +25,10 @@ public:
     // -1 turns the radio off.
     void Tune(int station);
     void Step(int dir);          // next / previous station, wrapping through "off"
+    // Cutscene audio (CAECutsceneTrackManager): plays TrakLkup track `trak` over the radio until stopped.
+    bool PlayCutsceneTrack(uint32_t trak);
+    void StopCutsceneTrack();
+    bool CutsceneTrackActive() const { return m_cutTrack; }
     void Update();               // call every frame: starts the next track when one ends
     void SetVolume(float v);
     void SetClockHour(int h) { m_hour = h; }   // the DJ talks about the time of day
@@ -64,4 +68,5 @@ private:
     std::vector<uint8_t> m_ogg;
     std::unique_ptr<VorbisDecoder> m_dec;
     int m_lastTrack = -1;
+    bool m_cutTrack = false;
 };

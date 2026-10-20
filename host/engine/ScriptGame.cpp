@@ -204,12 +204,14 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
         const float* o = m_cutscene.Offset();
         if (m_cutscene.Loaded() && scm && scm->host.setPlayerPos) scm->host.setPlayerPos(o[0], o[1], o[2]);   // the world streams in at the scene
         if (showPlayer) showPlayer(false);
+        if (cutsceneAudio && _stricmp(m_cut.name.c_str(), "finale") != 0) cutsceneAudio(m_cut.name);   // retail skips the audio of "finale"
         std::fprintf(stderr, "[SCMGAME] cutscene %s starts: %.2f s\n", m_cut.name.c_str(), m_cut.dur);
         return true;
     }
     case 0x02E8: c.Out(0, (int)m_cutscene.TimeMs()); return true;                           // GET_CUTSCENE_TIME
     case 0x02E9: c.result = m_cut.state == 3; return true;                                  // HAS_CUTSCENE_FINISHED
     case 0x02EA: {                                                                           // CLEAR_CUTSCENE
+        if (cutsceneAudioStop) cutsceneAudioStop();
         if (r) m_cutscene.Free(*r);
         m_cut = CutState{};
         if (cam.cutscene) cam = ScriptCamera{};
@@ -993,6 +995,7 @@ void ScriptGame::Update(float dt) {
         }
         if (m_cut.skipped || m_cut.t >= m_cut.dur) {
             m_cut.state = 3;
+            if (cutsceneAudioStop) cutsceneAudioStop();
             if (cam.cutscene) { cam = ScriptCamera{}; }
             wideTarget = false;
             if (showPlayer) showPlayer(true);

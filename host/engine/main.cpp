@@ -1194,6 +1194,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Log("RADIO: station %d decoded %zu frames, rms %.0f", atoi(rt), got, got ? std::sqrt(sum / (got * 2)) : 0.0);
             } else Log("RADIO: not ready");
         }
+        if (const char* ct = getenv("GTA_CUTAUDIOTEST")) {   // dev: decode 5 s of a cutscene track (TrakLkup index) and log the level
+            if (g_radio.Ready() && g_radio.PlayCutsceneTrack((uint32_t)atoi(ct))) {
+                std::vector<int16_t> pcm(32000 * 2 * 5);
+                const size_t got = g_radio.Pull(pcm.data(), 32000 * 5);
+                double sum = 0;
+                for (size_t i = 0; i < got * 2; i++) sum += (double)pcm[i] * pcm[i];
+                Log("CUTAUDIO: track %d decoded %zu frames, rms %.0f", atoi(ct), got, got ? std::sqrt(sum / (got * 2)) : 0.0);
+                g_radio.StopCutsceneTrack();
+            } else Log("CUTAUDIO: track %d failed", atoi(ct));
+        }
         if (g_audio.Ready() && getenv("GTA_AUDIOTEST"))
         {
             Log("AUDIO: weapons bank %d sounds, menu bank %d, feet %d, pain %d, swimming %d", g_audio.SoundCount(BANK_WEAPONS),
@@ -1546,6 +1556,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_sg.setWeapon = [&](int w) { if (cjReady) { const int i = g_cj.GunIndexOfType(w); g_cj.SelectGun(i); Log("SCRIPT: weapon in hand %d (gun %d)", w, i); } };
         g_sg.gameDir = g_gameDir;
         g_sg.drawCj = [&](D3DRenderer& rr, const AnimClip* c, float t, const float o[3]) { if (cjReady) g_cj.DrawCutscene(rr, c, t, o); };
+        g_sg.cutsceneAudio = [](const std::string& name) {   // FindCutsceneAudioTrackId, then the preloaded track
+            static const struct { const char* n; int id; } kTracks[] = {
+#include "CutsceneTracks.inc"
+            };
+            for (const auto& t : kTracks)
+                if (_stricmp(t.n, name.c_str()) == 0) {
+                    const bool ok = g_radio.PlayCutsceneTrack((uint32_t)t.id);
+                    std::fprintf(stderr, "[CUTAUDIO] %s track %d %s\n", name.c_str(), t.id, ok ? "playing" : "failed");
+                    return;
+                }
+            std::fprintf(stderr, "[CUTAUDIO] %s has no track\n", name.c_str());
+        };
+        g_sg.cutsceneAudioStop = [] { if (g_radio.CutsceneTrackActive()) { g_radio.StopCutsceneTrack(); std::fprintf(stderr, "[CUTAUDIO] stopped\n"); } };
         g_sg.skipPressed = [] {   // Enter, Space or the left mouse button, on the press
             static bool was = false;
             const bool down = (GameKey(VK_RETURN) & 0x8000) || (GameKey(VK_SPACE) & 0x8000) || (GameKey(VK_LBUTTON) & 0x8000);
