@@ -7,7 +7,7 @@
 
 class Cheat {
 public:
-    enum Id { None = 0, Jetpack, HealthArmorMoney, Adrenaline, Fat, Muscle, Skinny, WeaponSkills, VehicleSkills };
+    enum Id { None = 0, Jetpack, HealthArmorMoney, Adrenaline, Fat, Muscle, Skinny, WeaponSkills, VehicleSkills, Stamina };
     // A typed letter A..Z (the WndProc calls this on every key-down that is not an auto-repeat).
     static void Push(char c);
     // The cheat a key completed since the last call (None if no cheat).

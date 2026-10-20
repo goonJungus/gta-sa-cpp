@@ -3366,10 +3366,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     Log("CHEAT adrenaline %d", (int)Cheat::AdrenalineOn());
                     if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get("CHEAT1"), 3.0f);
                     break;
-                case Cheat::Fat: case Cheat::Muscle: case Cheat::Skinny: case Cheat::WeaponSkills: case Cheat::VehicleSkills: {
+                case Cheat::Fat: case Cheat::Muscle: case Cheat::Skinny: case Cheat::WeaponSkills: case Cheat::VehicleSkills: case Cheat::Stamina: {
                     switch (cheatHit) {   // CCheat::FatCheat / MuscleCheat / SkinnyCheat / WeaponSkillsCheat / VehicleSkillsCheat
                     case Cheat::Fat: Stats::Set(Stats::STAT_FAT, 1000.0f); break;
                     case Cheat::Muscle: Stats::Set(Stats::STAT_MUSCLE, 1000.0f); break;
+                    case Cheat::Stamina: Stats::Set(Stats::STAT_STAMINA, 1000.0f); break;
                     case Cheat::Skinny: Stats::Set(Stats::STAT_FAT, 0.0f); Stats::Set(Stats::STAT_MUSCLE, 0.0f); break;
                     case Cheat::WeaponSkills:
                         for (int st = Stats::STAT_PISTOL_SKILL; st <= Stats::STAT_RIFLE_SKILL; st++) Stats::Set(st, 1000.0f);
@@ -3377,9 +3378,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     default:
                         for (int st : {Stats::STAT_DRIVING_SKILL, Stats::STAT_FLYING_SKILL, Stats::STAT_BIKE_SKILL, Stats::STAT_CYCLING_SKILL}) Stats::Set(st, 1000.0f);
                     }
-                    if (cheatHit <= Cheat::Skinny && g_driveCar < 0)   // RebuildPlayer unless driving
+                    if (cheatHit >= Cheat::Fat && cheatHit <= Cheat::Skinny && g_driveCar < 0)   // RebuildPlayer unless driving
                         g_cj.SetBodyShape(Stats::Get(Stats::STAT_FAT) / 1000.0f, Stats::Get(Stats::STAT_MUSCLE) / 1000.0f);
-                    Log("CHEAT stats fat %.0f muscle %.0f pistol %.0f driving %.0f", Stats::Get(Stats::STAT_FAT), Stats::Get(Stats::STAT_MUSCLE), Stats::Get(Stats::STAT_PISTOL_SKILL), Stats::Get(Stats::STAT_DRIVING_SKILL));
+                    Log("CHEAT stats fat %.0f muscle %.0f stamina %.0f pistol %.0f driving %.0f", Stats::Get(Stats::STAT_FAT), Stats::Get(Stats::STAT_MUSCLE), Stats::Get(Stats::STAT_STAMINA), Stats::Get(Stats::STAT_PISTOL_SKILL), Stats::Get(Stats::STAT_DRIVING_SKILL));
                     break;
                 }
                 case Cheat::HealthArmorMoney:
