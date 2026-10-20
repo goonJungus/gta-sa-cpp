@@ -2214,7 +2214,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 for (int k = 0; k < 16; k++) {
                     const float rot = k * 0.3927f, ped[3] = {x, y, gz + 1.0f};
                     float hold[3], hr = rot;
-                    if (!ClimbScan(g_world, 1, ped, rot, hold, &hr)) continue;
+                    if (!ClimbScan(g_world, getenv("GTA_CLIMBSWEEPMODE") ? atoi(getenv("GTA_CLIMBSWEEPMODE")) : 1, ped, rot, hold, &hr)) continue;
                     const float p2[3] = {hold[0] + sinf(hr) * 0.4f, hold[1] - cosf(hr) * 0.4f, hold[2]};
                     float d[3], dr = hr;
                     const bool room = !ClimbScan(g_world, 2, p2, hr, d, &dr);
@@ -3069,6 +3069,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (cjReady) {
                 g_cj.SetBreathMax(Stats::FatMuscleMod(8));
                 g_cj.SetJumpMod(Stats::FatMuscleMod(2));
+                g_cj.SetClimbMod(Stats::FatMuscleMod(1));
                 PlayerPed::Input pin;
                 pin.dt = dt;
                 pin.stickX = mx;
