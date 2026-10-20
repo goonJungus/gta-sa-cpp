@@ -1377,6 +1377,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
     Stats::Init();   // CStats::Init, then the saved [Stats] values
     Stats::Load(g_iniPath);
+    Stats::g_hooks.health = [] { return g_cj.Health(); };
+    Stats::g_hooks.maxHealth = [] { return g_cj.MaxHealth(); };
+    Stats::g_hooks.addHealth = [](float amount, bool) { g_cj.AddHealth(amount / 5.69f); };
     {   // [Player] WeaponSkill (-1 = earned through play): 0 poor, 1 standard, 2 pro (twin pistols); GTA_SKILL overrides
         int skill = GetPrivateProfileIntA("Player", "WeaponSkill", -1, g_iniPath);
         if (const char* e = getenv("GTA_SKILL")) skill = atoi(e);
@@ -1389,6 +1392,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     }
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
     g_cj.SetWallProbe([](const float* a, const float* b) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]) < 1.0f; });
+    if (cjReady) g_cj.SetMaxHealth(Stats::Get(Stats::STAT_MAX_HEALTH) / 5.69f);
     if (cjReady) {   // [Player] FightStyle: 0 normal, 1 boxing, 2 kung fu, 3 kick boxing; GTA_FIGHTSTYLE overrides
         int fs = GetPrivateProfileIntA("Player", "FightStyle", 0, g_iniPath);
         if (const char* e = getenv("GTA_FIGHTSTYLE")) fs = atoi(e);
@@ -3436,6 +3440,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     float carSpd = 0.0f;
                     if (g_driveCar >= 0) { const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar); carSpd = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy) / 50.0f; }
                     const int up = Stats::UpdateActivity(dt, rate, g_cj.Swimming(), g_cj.Underwater(), g_driveCar >= 0, carSpd, true);
+                    if (up == Stats::STAT_MAX_HEALTH) g_cj.SetMaxHealth(Stats::Get(Stats::STAT_MAX_HEALTH) / 5.69f);
                     if (up >= 0) {
                         if (g_hudReady) g_hud.StatUpdate(Stats::Get(up) / 10.0f);
                         Log("STATS: stat %d now %.0f", up, Stats::Get(up));
