@@ -102,6 +102,8 @@ public:
     static PedClothesDesc DefaultOutfit();
     const PedClothesDesc& Outfit() const { return m_outfit; }
     bool SetOutfit(const PedClothesDesc& desc);
+    // CPlayerSkin: skins\<name>.bmp (or models\generic\player.bmp for "") laid over every part; a missing picture restores the clothes
+    void SetSkin(const char* name);
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return m_ready; }
 
@@ -352,6 +354,8 @@ private:
     D3DRenderer* m_r = nullptr;
     std::string m_gameDir;
     PedClothesDesc m_outfit;
+    std::string m_skinName;
+    IDirect3DTexture9* m_skinTex = nullptr;   // CPlayerSkin picture over every material
     float m_texFat = -1.0f, m_texMuscle = -1.0f;   // the body ratios the textures were blended with
     std::vector<int> m_baseNodeIds, m_baseNodeOfBone;
     std::vector<RwMat> m_baseInverse;

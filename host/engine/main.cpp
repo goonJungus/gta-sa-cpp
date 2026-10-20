@@ -1413,6 +1413,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (const char* e = getenv("GTA_FAT")) fat = (float)atof(e);
         if (const char* e = getenv("GTA_MUSCLE")) mus = (float)atof(e);
         if (PedClothesDesc d = g_cj.Outfit(); LoadOutfit(d)) g_cj.SetOutfit(d);   // [Outfit]
+        {   // [Player] Skin: a picture in skins\<name>.bmp laid over the whole model (CPlayerSkin); GTA_SKIN overrides
+            char sk[64] = {};
+            const bool has = GetPrivateProfileStringA("Player", "Skin", "", sk, sizeof sk, g_iniPath) && sk[0];
+            if (const char* e = getenv("GTA_SKIN")) g_cj.SetSkin(e);
+            else if (has) g_cj.SetSkin(sk);
+        }
         if (const char* e = getenv("GTA_GUN")) g_cj.SelectGun(atoi(e));   // dev: weapon index
         if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
         g_statFat = fat * 1000.0f; g_statMuscle = mus * 1000.0f;
