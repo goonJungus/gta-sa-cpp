@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -117,6 +118,7 @@ private:
     int AddPickup(int model, int type, int ammo, float x, float y, float z);
     struct Drive { int car; float x, y, speed; };
     std::map<int, Drive> m_drives;
+    std::map<int, std::array<float, 3>> m_frozenCars;                                 // FREEZE_CAR_POSITION
 
     ScriptTextItem DefaultStyle() const;
     int CharIndex(int uid) const;
