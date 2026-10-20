@@ -691,7 +691,9 @@ void Hud::DrawClassic(Fe2d& g, const HudData& d, float sw, float sh) {
     if (d.armor > 1.0f) Bar(g, right - 62.0f * u, (48.0f - 3.0f * off) * u, 62.0f * u, 9.0f * u, d.armor, kLightGray, false);
     if (d.showBreath) Bar(g, right - 62.0f * u, (62.0f - 6.0f * off) * u, 62.0f * u, 9.0f * u, d.breath * 100.0f, kLightBlue, false);
     const bool blink = ((int)(m_time * 8.0f) & 1) && d.health < 10.0f;
-    if (!blink) Bar(g, right - 109.0f * u, (77.0f - 10.0f * off) * u, 109.0f * u, 9.0f * u, d.health * 100.0f / d.maxHealth, kRed, false);
+    // CHud::RenderHealthBar: the bar is 109 * maxHealth / 176 wide (FatMuscleMod 10), right aligned
+    const float hw = std::floor(109.0f * u * d.maxHealth / 176.0f);
+    if (!blink) Bar(g, right - hw, (77.0f - 10.0f * off) * u, hw, 9.0f * u, d.health * 100.0f / d.maxHealth, kRed, false);
 
     // Weapon icon (47 x 58) and ammo
     {
