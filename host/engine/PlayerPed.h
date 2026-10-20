@@ -193,6 +193,7 @@ public:
         float radius = 0.4f;
         float damage = 0.0f;        // move damage x GetFatAndMuscleModifier(4)
         int move = 0;               // Melee::MoveIdx
+        bool mega = false;          // fists / brass knuckles: CHEAT_MEGA_PUNCH applies
         bool sword = false;         // SWORD combo: HIT_3 force-death 50%
         float force = 0.0f;         // CEventDamage::ComputeDeathAnim base force of the weapon type (fists 0.5, blunt 1.5, knife 0)
         int hitAudio = 0, altHitAudio = 0;

@@ -333,7 +333,7 @@ bool Peds::Shoot(int actor, float damage, bool head, bool sniper) {
 }
 
 int Peds::MeleeStrike(const float centre[3], float radius, float damage, const float attackerPos[2], bool sword3,
-                      const char* const hitClips[3], int move, bool* killed, float forceBase, float mod4) {
+                      const char* const hitClips[3], int move, bool* killed, float forceBase, float mod4, float strength) {
     if (killed) *killed = false;
     int best = -1;
     float bestD = 1e9f;
@@ -370,7 +370,7 @@ int Peds::MeleeStrike(const float centre[3], float radius, float damage, const f
                 a.hitClip = &ko->second;
                 a.hitTime = 0.0f;
                 a.getUp = true;
-                throwBack((mod4 + 1.0f) * 0.5f);   // the helper multiplies by 5
+                throwBack(strength >= 0.0f ? strength : (mod4 + 1.0f) * 0.5f);   // the helper multiplies by 5
                 return best;
             }
         }

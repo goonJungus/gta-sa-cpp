@@ -3103,7 +3103,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     bool sprint = false;
                     if (moving && onGround && (s_charge > 0.0f || s_timeCanRun > 0.0f) && (sprintKey || s_charge > 0.0f)) {
                         const float rate = s_charge <= 5.0f ? 1.0f : 0.5f;
-                        s_timeCanRun = std::max(-150.0f, s_timeCanRun - step * rate);
+                        if (!Cheat::AdrenalineOn()) s_timeCanRun = std::max(-150.0f, s_timeCanRun - step * rate);   // HandleSprintEnergy: adrenaline never tires
                         if (s_timeCanRun <= -150.0f) s_charge = 0.0f;
                         else sprint = true;
                     } else {
@@ -3349,10 +3349,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     saved = g_cj.Outfit();
                     if (!getenv("GTA_OUTFIT")) SaveOutfit(saved);
                 }
+                if (const char* ty = getenv("GTA_TYPE"); ty && frame >= 10 && (size_t)(frame - 10) < strlen(ty)) Cheat::Push(ty[frame - 10]);   // dev: type a cheat, one letter a frame
+                if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
+                if (getenv("GTA_ADRENALINE") && frame == 5) { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }
+                { const bool was = Cheat::AdrenalineOn(); Cheat::Tick(dt); if (was && !Cheat::AdrenalineOn()) Log("CHEAT adrenaline ended"); }
                 if (getenv("GTA_JETPACK") && frame == 5) g_cj.StartJetpack();   // dev: the jetpack without typing the cheat
                 switch (Cheat::Take()) {   // CCheat::AddToCheatString hit
                 case Cheat::Jetpack:
                     if (!g_cj.Jetpacking()) g_cj.StartJetpack();
+                    if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get("CHEAT1"), 3.0f);
+                    break;
+                case Cheat::Adrenaline:   // CCheat::AdrenalineCheat toggles it
+                    if (Cheat::AdrenalineOn()) Cheat::ClearAdrenaline();
+                    else { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }   // ResetSprintEnergy
+                    Log("CHEAT adrenaline %d", (int)Cheat::AdrenalineOn());
                     if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get("CHEAT1"), 3.0f);
                     break;
                 case Cheat::HealthArmorMoney:
@@ -4013,9 +4023,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             Log("STRIKE %.2f %.2f %.2f r %.2f dmg %.1f move %d; cj %.2f %.2f", sk.pos[0], sk.pos[1], sk.pos[2], sk.radius, sk.damage, sk.move, playerX, playerY);
                             for (size_t pi = 0; pi < g_peds.Count(); pi++) Log("  ped %zu at %.2f %.2f %.2f", pi, g_peds.X(pi), g_peds.Y(pi), g_peds.Z(pi));
                         }
-                        const int hp = g_peds.MeleeStrike(sk.pos, sk.radius, sk.damage, ap, sk.sword && sk.move == 2, hc, sk.move, &killed, sk.force, Stats::FatMuscleMod(4));
+                        const bool adr = Cheat::AdrenalineOn();
+                        const bool mega = Cheat::MegaPunchOn() && sk.mega;
+                        float fdmg = sk.damage, fforce = sk.force;
+                        if (mega) { fdmg = 1e4f; fforce *= 20.0f; }   // ComputeWillKillPed: the damage factor becomes the ped's health
+                        const float m4 = adr ? 5.0f : Stats::FatMuscleMod(4);
+                        const int hp = g_peds.MeleeStrike(sk.pos, sk.radius, fdmg, ap, sk.sword && sk.move == 2, hc, sk.move, &killed, fforce, m4, adr ? 2.0f : -1.0f);
                         if (hp >= 0) {
-                            Log("MELEE HIT %d move %d dmg %.1f kill %d force %.1f flying %d down %d vel %.2f", hp, sk.move, sk.damage, (int)killed, sk.force, (int)g_peds.Flying((size_t)hp), (int)g_peds.KnockedDown((size_t)hp), g_peds.VelX((size_t)hp));
+                            Log("MELEE HIT %d move %d dmg %.1f kill %d force %.1f adr %d mega %d flying %d down %d vel %.2f", hp, sk.move, fdmg, (int)killed, fforce, (int)adr, (int)mega, (int)g_peds.Flying((size_t)hp), (int)g_peds.KnockedDown((size_t)hp), g_peds.VelX((size_t)hp));
                             if (g_hudReady) g_hud.Hit(killed);
                             g_fx.Blood(sk.pos);
                             g_audio.Impact(0.0f);

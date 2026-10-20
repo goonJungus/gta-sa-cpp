@@ -12,11 +12,14 @@ struct Entry { uint32_t hash; Cheat::Id id; };
 constexpr Entry kCheats[] = {
     {0xadfa640a, Cheat::Jetpack},           // CHEAT_GET_JETPACK
     {0xeeccea2b, Cheat::HealthArmorMoney},  // CHEAT_HEALTH_ARMOR_250K
+    {0x8ca870dd, Cheat::Adrenaline},        // IAVENJQ typed (m_aCheatHashKeys labels around the wanted rows are shifted in the decomp)
 };
 
 char g_string[kStringSize] = {0};
 std::atomic<int> g_hit{0};
 uint32_t g_table[256];
+bool g_megaPunch = false;
+float g_adrenaline = 0.0f;   // seconds left
 bool g_ready = false;
 }  // namespace
 
@@ -58,3 +61,10 @@ void Cheat::Push(char c) {
 Cheat::Id Cheat::Take() {
     return (Id)g_hit.exchange(0);
 }
+
+bool Cheat::MegaPunchOn() { return g_megaPunch; }
+void Cheat::ToggleMegaPunch() { g_megaPunch = !g_megaPunch; }
+bool Cheat::AdrenalineOn() { return g_adrenaline > 0.0f; }
+void Cheat::StartAdrenaline() { g_adrenaline = 20.0f; }
+void Cheat::ClearAdrenaline() { g_adrenaline = 0.0f; }
+void Cheat::Tick(float dt) { if (g_adrenaline > 0.0f) g_adrenaline = g_adrenaline > dt ? g_adrenaline - dt : 0.0f; }

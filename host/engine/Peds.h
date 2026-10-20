@@ -63,9 +63,10 @@ public:
     // attacker and plays the group's hit reaction (hitClips = the group's three reaction clip names).
     // Returns the actor index hit or -1; *killed tells whether it died. forceBase is the weapon's CEventDamage
     // death force (fists 0.5, blunt 1.5, knife 0), mod4 the attacker's FatMuscleMod(4): a kill is thrown back by
-    // forceBase * mod4 * 5 and a hit that leaves under 15 health knocks the ped down with (mod4 + 1) / 2 * 5.
+    // forceBase * mod4 * 5 (adrenaline: 5; mega punch x20) and a hit that leaves under 15 health knocks the ped down with (mod4 + 1) / 2 * 5.
     int MeleeStrike(const float centre[3], float radius, float damage, const float attackerPos[2], bool sword3,
-                    const char* const hitClips[3], int move, bool* killed, float forceBase = 0.0f, float mod4 = 1.0f);
+                    const char* const hitClips[3], int move, bool* killed, float forceBase = 0.0f, float mod4 = 1.0f,
+                    float strength = -1.0f);
     // CTaskSimpleFight::FindTargetOnGround: a fallen (dead) ped within `range` in front of (x, y) facing `heading`.
     void SetSeed(unsigned s) { m_rng = s; }   // dev
     void SetHealth(size_t i, float hp) { m_actors[i].health = hp; }   // dev
