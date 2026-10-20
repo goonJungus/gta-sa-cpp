@@ -506,7 +506,11 @@ std::string ScmMachine::Call::S(size_t i, size_t cap) const {
     else if (x.text) { if (x.i >= 0 && (size_t)x.i + cap <= m.m_space.size()) p = (const char*)&m.m_space[(size_t)x.i]; }
     return p ? std::string(p, strnlen(p, cap)) : "";
 }
-void ScmMachine::Call::Out(size_t i, int32_t v) const { if (i < args.size() && (args[i].type == 2 || args[i].type == 3)) m.Var(t, args[i]) = v; }
+void ScmMachine::Call::Out(size_t i, int32_t v) const {
+    if (i < args.size() && (args[i].type == 2 || args[i].type == 3)) m.Var(t, args[i]) = v;
+    static const bool s_log = std::getenv("GTA_SCMOUT") != nullptr;   // dev: every command output, for the headless tests
+    if (s_log) std::fprintf(stderr, "[SCMOUT] %04X out%zu int %d float %g\n", op, i, v, AsFloat(v));
+}
 void ScmMachine::Call::OutF(size_t i, float v) const { Out(i, AsBits(v)); }
 void ScmMachine::Call::OutStr(size_t i, const std::string& s, size_t cap) const {
     if (i >= args.size() || (args[i].type != 2 && args[i].type != 3)) return;
@@ -553,7 +557,12 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
     if (command) {
         Call call{*this, t, op, args};
         call.notFlag = false;
-        if (command(call)) { result = call.result; return true; }
+        if (command(call)) {
+            result = call.result;
+            static const bool s_logRes = std::getenv("GTA_SCMOUT") != nullptr;   // dev: condition results for the headless tests
+            if (s_logRes) std::fprintf(stderr, "[SCMRES] %04X -> %d\n", op, (int)result);
+            return true;
+        }
     }
     switch (op) {
     case 0x0784: case 0x087B:   // GIVE_PLAYER_CLOTHES / _OUTSIDE_SHOP(player, texture, model, texture part)

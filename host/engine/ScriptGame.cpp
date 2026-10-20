@@ -462,6 +462,41 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     if (name.compare(0, 7, "LOCATE_") == 0 && Locate(c, name)) return true;
     if (name.size() > 12 && name.compare(0, 3, "IS_") == 0 && name.find("_IN_AREA_") != std::string::npos && InArea(c, name)) return true;
     switch (c.op) {
+    // ---- maths and units (CRunningScript::ProcessCommands*) ---------------------------------
+    case 0x01FB: c.OutF(1, std::sqrt(c.F(0))); return true;                                   // SQRT
+    case 0x02F6: c.OutF(1, std::sin(c.F(0) * 0.017453292f)); return true;                      // SIN (degrees)
+    case 0x02F7: c.OutF(1, std::cos(c.F(0) * 0.017453292f)); return true;                      // COS
+    case 0x0509: c.OutF(4, std::hypot(c.F(0) - c.F(2), c.F(1) - c.F(3))); return true;         // GET_DISTANCE_BETWEEN_COORDS_2D
+    case 0x050A: c.OutF(6, std::sqrt((c.F(0) - c.F(3)) * (c.F(0) - c.F(3)) + (c.F(1) - c.F(4)) * (c.F(1) - c.F(4)) + (c.F(2) - c.F(5)) * (c.F(2) - c.F(5)))); return true;   // GET_DISTANCE_BETWEEN_COORDS_3D
+    case 0x0604: {   // GET_HEADING_FROM_VECTOR_2D: CGeneral::GetATanOfXY * 57.295776 - 90, wrapped to 0..360
+        float a = std::atan2(c.F(1), c.F(0));
+        if (a < 0.0f) a += 6.2831853f;
+        float h = a * 57.295776f - 90.0f;
+        while (h < 0.0f) h += 360.0f;
+        c.OutF(2, h); return true;
+    }
+    case 0x05A4: {   // GET_ANGLE_BETWEEN_2D_VECTORS(x1, y1, x2, y2): heading from the first point to the second, degrees
+        float a = std::atan2(-(c.F(2) - c.F(0)), c.F(3) - c.F(1)) * 57.295776f;
+        while (a < 0.0f) a += 360.0f;
+        c.OutF(4, a); return true;
+    }
+    case 0x05A5: {   // DO_2D_RECTANGLES_COLLIDE(x1, y1, w1, h1, x2, y2, w2, h2): centres and sizes
+        const float x1 = c.F(0), y1 = c.F(1), w1 = c.F(2), h1 = c.F(3), x2 = c.F(4), y2 = c.F(5), w2 = c.F(6), h2 = c.F(7);
+        c.result = y1 - h1 * 0.5f <= y2 + h2 * 0.5f && y2 - h2 * 0.5f <= y1 + h1 * 0.5f && x1 + w1 * 0.5f >= x2 - w2 * 0.5f && x2 + w2 * 0.5f >= x1 - w1 * 0.5f;
+        return true;
+    }
+    case 0x0424: c.result = true; return true;                                                  // ARE_MEASUREMENTS_IN_METRES
+    case 0x0425: c.OutF(1, c.F(0) * 3.3333333f); return true;                                   // CONVERT_METRES_TO_FEET
+    case 0x042D: c.Out(1, (int)(c.F(0) * 3.3333333f)); return true;                             // CONVERT_METRES_TO_FEET_INT
+    case 0x07D6: c.result = c.I(0) == c.I(1); return true;                                      // IS_INT_LVAR_EQUAL_TO_INT_VAR
+    case 0x0653: c.OutF(1, Stats::Get(c.I(0))); return true;                                    // GET_FLOAT_STAT
+    case 0x0627: case 0x0628: return true;                                                      // REGISTER_INT_STAT / REGISTER_FLOAT_STAT
+    // ---- debug and PC-only commands the retail build does nothing visible with ----------------
+    case 0x03A9: case 0x0663: case 0x065D: case 0x065E: case 0x086A: case 0x09D8: case 0x0A3F: case 0x091B: return true;   // debug file / view variables / second pad / co-op / console reset
+    case 0x03A4: c.t.name = c.S(0); return true;                                                // SCRIPT_NAME
+    case 0x0A4B: case 0x0736: case 0x09FA: c.result = false; return true;                       // IS_PC_USING_JOYPAD, IS_PS2_KEYBOARD_KEY_JUST_PRESSED, HAS_GAME_JUST_RETURNED_FROM_FRONTEND
+    case 0x0A4A: c.Out(0, 0); c.Out(1, 0); return true;                                         // GET_PC_MOUSE_MOVEMENT
+    case 0x091A: c.Out(0, 0); return true;                                                      // GET_LATEST_CONSOLE_COMMAND
     // ---- language: comparisons with constants, bit tests, bitwise operators --------------
     case 0x04A3: case 0x04A4: c.result = c.I(0) == c.I(1); return true;                      // IS_INT_(L)VAR_EQUAL_TO_CONSTANT
     case 0x04B0: case 0x04B1: c.result = c.I(0) > c.I(1); return true;                      // IS_INT_(L)VAR_GREATER_THAN_CONSTANT
