@@ -1,4 +1,5 @@
 #include "Script.h"
+#include <algorithm>
 #include <map>
 
 #include <cstdlib>
@@ -141,12 +142,19 @@ bool ScmMachine::ReadArg(ScmThread& t, Arg& a) {
         break;
     }
     case 9: if (!need(8)) return false; a.text = true; a.i = (int32_t)(t.pc); t.pc += 8; break;
-    case 0x0A: case 0x0B: case 0x10: case 0x11: if (!need(2)) return false; a.text = true; t.pc += 2; break;
+    case 0x0A: case 0x0B: case 0x10: case 0x11:   // a text label variable: global (byte offset) or local (index)
+        if (!need(2)) return false;
+        a.text = true;
+        a.i = Rd16(m_space, t.pc);
+        a.type = (a.type == 0x0A || a.type == 0x10) ? 2 : 3;
+        t.pc += 2;
+        break;
     case 0x0E: {
         if (!need(1)) return false;
         const uint32_t n = m_space[t.pc];
         if (!need(1 + n)) return false;
         a.text = true;
+        a.i = (int32_t)(t.pc + 1);
         t.pc += 1 + n;
         break;
     }
@@ -370,7 +378,7 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
             std::string s;
             char b[64];
             for (const Arg& x : args) {
-                if (x.text) { std::snprintf(b, sizeof b, " '%.8s'", x.i >= 0 && (size_t)x.i + 8 <= m_space.size() ? (const char*)&m_space[x.i] : "?"); }
+                if (x.text && x.type != 2 && x.type != 3) { std::snprintf(b, sizeof b, " '%.8s'", x.i >= 0 && (size_t)x.i + 8 <= m_space.size() ? (const char*)&m_space[x.i] : "?"); }
                 else if (x.type == 2 || x.type == 3) std::snprintf(b, sizeof b, " v%d=%d", x.i, Var(t, x));
                 else if (x.type == 6) std::snprintf(b, sizeof b, " %.2f", x.f);
                 else std::snprintf(b, sizeof b, " %d", x.i);
@@ -388,6 +396,38 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
     }
     if ((ci && ci->cond) || IsCondOp(op)) Compare(t, notFlag ? !result : result);
     return true;
+}
+
+int32_t ScmMachine::Call::I(size_t i) const {
+    if (i >= args.size()) return 0;
+    const Arg& x = args[i];
+    return (x.type == 2 || x.type == 3) ? m.Var(t, x) : (x.type == 6 ? (int32_t)x.f : x.i);
+}
+float ScmMachine::Call::F(size_t i) const {
+    if (i >= args.size()) return 0.0f;
+    const Arg& x = args[i];
+    if (x.type == 2 || x.type == 3) return AsFloat(m.Var(t, x));
+    return x.type == 6 ? x.f : (float)x.i;
+}
+const char* ScmCommandName(uint16_t op) { return CmdName(op); }
+
+std::string ScmMachine::Call::S(size_t i, size_t cap) const {
+    if (i >= args.size()) return "";
+    const Arg& x = args[i];
+    const char* p = nullptr;
+    if (x.type == 2 || x.type == 3) p = (const char*)&m.Var(t, x);
+    else if (x.text) { if (x.i >= 0 && (size_t)x.i + cap <= m.m_space.size()) p = (const char*)&m.m_space[(size_t)x.i]; }
+    return p ? std::string(p, strnlen(p, cap)) : "";
+}
+void ScmMachine::Call::Out(size_t i, int32_t v) const { if (i < args.size() && (args[i].type == 2 || args[i].type == 3)) m.Var(t, args[i]) = v; }
+void ScmMachine::Call::OutF(size_t i, float v) const { Out(i, AsBits(v)); }
+void ScmMachine::Call::OutStr(size_t i, const std::string& s, size_t cap) const {
+    if (i >= args.size() || (args[i].type != 2 && args[i].type != 3)) return;
+    char* p = (char*)&m.Var(t, args[i]);
+    // a local text variable is a run of consecutive locals; a global one lies in the script image
+    if (args[i].type == 3 && (size_t)args[i].i + (cap + 3) / 4 > (size_t)ScmThread::kLocals) return;
+    std::memset(p, 0, cap);
+    std::memcpy(p, s.data(), std::min(s.size(), cap));
 }
 
 bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool& result) {
@@ -409,6 +449,11 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
         if (i >= args.size() || !args[i].text || args[i].i < 0 || (size_t)args[i].i + 8 > m_space.size()) return "";
         return std::string((const char*)&m_space[args[i].i], strnlen((const char*)&m_space[args[i].i], 8));
     };
+    if (command) {
+        Call call{*this, t, op, args};
+        call.notFlag = false;
+        if (command(call)) { result = call.result; return true; }
+    }
     switch (op) {
     case 0x0784: case 0x087B:   // GIVE_PLAYER_CLOTHES / _OUTSIDE_SHOP(player, texture, model, texture part)
         if (host.giveClothes) host.giveClothes(str(1).c_str(), str(2).c_str(), inum(3));
@@ -495,6 +540,17 @@ bool ScmMachine::LaunchSnippet(const std::vector<uint8_t>& code) {
     m_space.insert(m_space.end(), code.begin(), code.end());
     m_threads.push_back(n);
     return true;
+}
+
+int ScmMachine::LaunchMissionThread(int index, const char* name) {
+    const ScmHeader& h = m_file.Header();
+    if (index < 0 || index >= (int)h.missionOffsets.size()) return -1;
+    ScmThread n;
+    n.pc = n.base = h.missionOffsets[(size_t)index];
+    n.name = name;
+    n.wakeTime = m_lastMs;
+    m_pending.push_back(n);
+    return (int)(m_threads.size() + m_pending.size() - 1);
 }
 
 bool ScmMachine::LaunchMission(int index) {

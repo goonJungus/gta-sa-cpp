@@ -17,6 +17,8 @@ public:
     bool Load(const std::string& gameDir, const char* file = "american.gxt");
     bool Loaded() const { return !m_keys.empty(); }
 
+    // CText::LoadMissionText: read the named mission table (TABL entry) so its keys resolve in Get.
+    bool LoadMission(const char* name);
     // Text for a GXT key. Missing keys return the key itself (retail shows
     // an error string) so an unported label is obvious, not blank.
     std::string Get(const char* key) const;
@@ -29,4 +31,8 @@ private:
     struct Key { uint32_t offset, hash; };
     std::vector<Key> m_keys;      // sorted by hash (as stored in the file)
     std::vector<char> m_data;     // TDAT
+    std::vector<Key> m_mkeys;     // the loaded mission table
+    std::vector<char> m_mdata;
+    std::string m_gxtPath;
+    std::string m_mission;
 };

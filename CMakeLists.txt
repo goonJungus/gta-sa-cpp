@@ -89,6 +89,7 @@ if(WIN32)
         host/engine/Melee.cpp
         host/engine/Vehicle.cpp
         host/engine/Script.cpp
+        host/engine/ScriptGame.cpp
         host/engine/VorbisDecoder.cpp
         host/engine/Radio.cpp
         host/engine/Peds.cpp

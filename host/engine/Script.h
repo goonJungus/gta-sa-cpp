@@ -24,6 +24,9 @@ struct ScmHeader {
     uint32_t mainOffset = 0;                     // where the main script code starts
 };
 
+// The command's name from the retail table, "?" when unknown (dev traces and the game layer's name families).
+const char* ScmCommandName(uint16_t op);
+
 class ScmFile {
 public:
     bool Load(const std::string& path);
@@ -71,7 +74,29 @@ struct ScmHost {
 
 class ScmMachine {
 public:
+    struct Arg { uint8_t type = 0; int32_t i = 0; float f = 0.0f; bool text = false; };
+    // One game command being run: the arguments and the ways to write results back. The game layer
+    // (ScriptGame) fills ScmHost::command and handles the commands it knows; false = not implemented.
+    struct Call {
+        ScmMachine& m;
+        ScmThread& t;
+        uint16_t op;
+        std::vector<Arg>& args;
+        bool result = false;
+        bool notFlag = false;
+        int32_t I(size_t i) const;
+        float F(size_t i) const;
+        std::string S(size_t i, size_t cap = 8) const;      // a name of up to cap bytes, literal or held in a text label variable
+        bool IsText(size_t i) const { return i < args.size() && args[i].text; }
+        void Out(size_t i, int32_t v) const;
+        void OutF(size_t i, float v) const;
+        void OutStr(size_t i, const std::string& s, size_t cap = 8) const;   // SET_*_TEXT_LABEL: write into variable memory
+        size_t N() const { return args.size(); }
+    };
     ScmHost host;
+    std::function<bool(Call&)> command;       // the game command layer
+    int32_t Now() const { return m_lastMs; }
+    std::vector<ScmThread>& Threads() { return m_threads; }
     bool Init(const std::string& gameDir);
     bool Ready() const { return m_ready; }
     const ScmFile& File() const { return m_file; }
@@ -85,10 +110,11 @@ public:
     // Dev: run raw script bytes as a new thread (appended after the script image).
     bool LaunchSnippet(const std::vector<uint8_t>& code);
     int32_t Global(uint32_t offset) const;
+    // Start mission script number `index` as a new thread named `name`; returns its thread index.
+    int LaunchMissionThread(int index, const char* name = "mission");
     float GlobalFloat(uint32_t offset) const;
 
 private:
-    struct Arg { uint8_t type = 0; int32_t i = 0; float f = 0.0f; bool text = false; };
     bool ReadArg(ScmThread& t, Arg& a);
     int32_t& Var(ScmThread& t, const Arg& a);
     bool Step(ScmThread& t, int32_t nowMs);

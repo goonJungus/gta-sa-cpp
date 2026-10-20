@@ -441,6 +441,7 @@ void Vehicles::Draw(D3DRenderer& r) {
     // The paint is the vertex colour: let it drive the ambient term too, or the bright ambient washes it out.
     dev->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_COLOR1);
     for (const VehicleInstance& c : m_cars) {
+        if (c.removed) continue;
         auto it = m_models.find(c.model);
         if (it == m_models.end()) continue;
         const VehicleModel& vm = it->second;
@@ -492,6 +493,7 @@ int Vehicles::Nearest(float x, float y, float range) const {
     int best = -1;
     float bd = range * range;
     for (size_t i = 0; i < m_cars.size(); i++) {
+        if (m_cars[i].removed) continue;
         const float dx = m_cars[i].x - x, dy = m_cars[i].y - y, d = dx * dx + dy * dy;
         if (d < bd) { bd = d; best = (int)i; }
     }
@@ -568,6 +570,7 @@ int Vehicles::Trace(const float* eye, const float* dir, float reach, float* t) c
     float bt = reach;
     for (size_t i = 0; i < m_cars.size(); i++) {
         const VehicleInstance& c = m_cars[i];
+        if (c.removed) continue;
         auto mi = m_models.find(c.model);
         const float wb = mi != m_models.end() ? mi->second.wheelBase : 2.8f;
         const float ride = mi != m_models.end() ? mi->second.rideHeight : 0.7f;
@@ -605,6 +608,7 @@ bool Vehicles::Damage(int car, float damage) {
 void Vehicles::UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire,
                             const std::function<void(const float*)>& onExplode) {
     for (VehicleInstance& c : m_cars) {
+        if (c.removed) continue;
         if (c.wrecked) {   // a burnt out shell keeps smoking
             const float p[3] = {c.x, c.y, c.z + 0.6f};
             if (std::fmod(c.burnTime += dt, 0.12f) < dt) onSmoke(p, 1.0f);

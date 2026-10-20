@@ -360,6 +360,48 @@ void Hud::Brightness(D3DRenderer& r, float level) {
     g.End();
 }
 
+void Hud::DrawScript(D3DRenderer& r, const ScriptOverlay& o) {
+    if (!m_ready || !r.GetDevice()) return;
+    const float sw = (float)r.Width(), sh = (float)r.Height(), u = sh / 448.0f;
+    Fe2d& g = m_2d;
+    g.Begin(r.GetDevice());
+    m_font.SetScreen(640.0f * u, 448.0f * u);
+    const float xo = (sw - 640.0f * u) * 0.5f;   // the 640 x 448 design area is centred
+    auto items = [&](bool before) {
+        for (const ScriptTextItem& t : o.text) {
+            if (t.beforeFade != before || t.text.empty()) continue;
+            m_font.SetStyle((FeFont::Style)std::clamp(t.font, 0, 3));
+            m_font.SetScale(m_font.Sx(t.sx), m_font.Sy(t.sy));
+            m_font.SetAlign(t.centre ? FeFont::CENTER : t.right ? FeFont::RIGHT : FeFont::LEFT);
+            m_font.SetWrapWidth(t.centre || t.right ? 0.0f : std::max(0.0f, (t.wrap - t.x) * u));
+            m_font.SetColor(t.colour);
+            m_font.SetDropColor(t.shadowColour);
+            if (t.shadow > 0) m_font.SetDropShadow(std::max(1, (int)(t.shadow * u + 0.5f))); else m_font.SetEdge(0);
+            m_font.Print(g, xo + t.x * u, t.y * u, t.text);
+            m_font.SetEdge(0);
+            m_font.SetWrapWidth(0);
+        }
+    };
+    items(true);
+    if (o.fade > 0.001f) {
+        const uint32_t col = Alpha(0xFF000000 | (o.fadeRgb & 0xFFFFFF), o.fade);
+        g.DrawRect(0, 0, sw, sh, col);
+    }
+    if (o.wide > 0.001f) {   // CCamera::GetScreenRect: the bars follow m_fScreenReductionPercentage (0 .. 30)
+        const float red = 30.0f * o.wide;
+        const float top = sh * 0.5f * red / 100.0f - 22.0f * u * o.wide;
+        const float bottom = sh - sh * 0.5f * red / 100.0f - 14.0f * u * o.wide;
+        g.DrawRect(0, 0, sw, std::max(0.0f, top), 0xFF000000);
+        g.DrawRect(0, std::min(sh, bottom), sw, sh, 0xFF000000);
+    }
+    items(false);
+    if (!o.subtitle.empty()) {
+        const float y = o.wide > 0.5f ? sh - 62.0f * u : sh - 88.0f * u;
+        Text(g, FeFont::SUBTITLES, sw / 2, y, o.subtitle, 0.58f, 1.2f, 0xFFFFFFFF, FeFont::CENTER, 1);
+    }
+    g.End();
+}
+
 void Hud::Vignette(Fe2d& g, float sw, float sh, uint32_t rgb, float strength) {
     if (strength <= 0.01f) return;
     const float t = std::min(sw, sh) * 0.32f;

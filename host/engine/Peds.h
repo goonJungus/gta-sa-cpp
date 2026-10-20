@@ -44,6 +44,22 @@ public:
         out[0] = a.x; out[1] = a.y; out[2] = a.z + (head ? 1.62f : 1.15f);
     }
     void Clear() { m_actors.clear(); }
+    // Script characters: a stable id per actor (indices shift when actors are removed), scripted standing and
+    // walking to a point, hiding (inside a car) and removing.
+    int Uid(size_t i) const { return i < m_actors.size() ? m_actors[i].uid : 0; }
+    int FindUid(int uid) const { for (size_t i = 0; i < m_actors.size(); i++) if (m_actors[i].uid == uid) return (int)i; return -1; }
+    void SetScripted(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].scripted = on; }
+    void SetPos(size_t i, float x, float y, float z) { if (i < m_actors.size()) { m_actors[i].x = x; m_actors[i].y = y; m_actors[i].z = z; m_actors[i].goal = false; } }
+    void SetHeading(size_t i, float h) { if (i < m_actors.size()) m_actors[i].heading = h; }
+    float Heading(size_t i) const { return i < m_actors.size() ? m_actors[i].heading : 0.0f; }
+    void SetGoal(size_t i, float x, float y, int speed) { if (i < m_actors.size()) { Actor& a = m_actors[i]; a.goal = true; a.gx = x; a.gy = y; a.gspeed = speed; } }
+    void ClearGoal(size_t i) { if (i < m_actors.size()) m_actors[i].goal = false; }
+    bool HasGoal(size_t i) const { return i < m_actors.size() && m_actors[i].goal; }
+    void SetHidden(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].hidden = on; }
+    bool Hidden(size_t i) const { return i < m_actors.size() && m_actors[i].hidden; }
+    void Remove(size_t i) { if (i < m_actors.size()) m_actors.erase(m_actors.begin() + (long)i); }
+    int ModelOf(size_t i) const { return i < m_actors.size() ? m_actors[i].model : 0; }
+    bool HasModel(int id) const { return m_info.count(id) != 0; }
     // Advance animation and wandering. groundAt gives the ground height or a value below -1e5.
     // `player` is where CJ stands; `threat` is true while CJ aims or fires a weapon, which makes
     // nearby pedestrians run away. `blocked` covers walls and cars.
@@ -131,6 +147,12 @@ private:
     };
     struct Actor {
         int model = 0;
+        int uid = 0;
+        bool scripted = false;            // a story character: stands, walks to its goal, no wandering
+        bool goal = false;
+        float gx = 0, gy = 0;
+        int gspeed = 0;                   // 0 walk, 1 run
+        bool hidden = false;              // inside a car
         float x = 0, y = 0, z = 0, heading = 0;   // heading 0 faces +x
         float animTime = 0.0f, turnTimer = 0.0f, walkTimer = 0.0f;
         bool walking = false;
@@ -168,5 +190,6 @@ private:
     std::vector<SpeechEvent> m_speech;
     std::unordered_map<std::string, float> m_defend;   // pedstats.dat name -> defend weakness
     unsigned m_rng = 99;
+    int m_nextUid = 2;                // 1 is the player
     int Rand(int n) { m_rng = m_rng * 1664525u + 1013904223u; return (int)((m_rng >> 8) % (unsigned)n); }
 };

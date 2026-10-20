@@ -103,6 +103,27 @@ struct HudData {
     float wpX = 0, wpY = 0;
 };
 
+// What the mission script puts on screen on top of the game: fade, cinematic bars, subtitles and its text commands.
+struct ScriptTextItem {
+    float x = 0, y = 0;                // 640 x 448 design units
+    float sx = 0.48f, sy = 1.12f;      // SET_TEXT_SCALE
+    uint32_t colour = 0xFFE1E1E1;      // ARGB
+    bool centre = false, right = false, justify = false;
+    float wrap = 640.0f;               // SET_TEXT_WRAPX
+    int font = 1;                      // SET_TEXT_FONT
+    int shadow = 0;                    // SET_TEXT_DROPSHADOW size, 0 none
+    uint32_t shadowColour = 0xFF000000;
+    bool beforeFade = false;           // SET_TEXT_DRAW_BEFORE_FADE
+    std::string text;
+};
+struct ScriptOverlay {
+    float fade = 0.0f;                 // 0 none .. 1 solid
+    uint32_t fadeRgb = 0;
+    float wide = 0.0f;                 // cinematic bars, 0 off .. 1 fully in
+    std::string subtitle;              // PRINT_NOW / cutscene text
+    std::vector<ScriptTextItem> text;
+};
+
 class Hud {
 public:
     bool Init(D3DRenderer& r, const std::string& gameDir);
@@ -131,6 +152,9 @@ public:
     void StatUpdate(float pct, bool increase = true) { m_statPct = pct; m_statUp = increase; m_statTimer = 5.0f; }
     // PRINT_NOW: the subtitle line at the bottom centre (CHud::DrawSubtitles), for a number of seconds.
     void Subtitle(const std::string& text, float seconds) { m_sub = text; m_subTimer = seconds; }
+
+    // The script's fade, bars, subtitle line and text commands, drawn after the HUD.
+    void DrawScript(D3DRenderer& r, const ScriptOverlay& o);
 
     // Rotated textured quad (blips, arrows), angle in radians clockwise.
     void RotatedSprite(Fe2d& g, IDirect3DTexture9* tex, float cx, float cy, float w, float h, float angle,
