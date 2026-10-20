@@ -323,6 +323,19 @@ struct Hooks {
 };
 inline Hooks g_hooks;
 
+// ar_stats.dat (CStats::LoadActionReactionStats): StatReactionValue[0..58], by line index.
+enum Reaction {
+    R_INC_CYCLE_STAMINA = 0, R_INC_SWIM_STAMINA, R_INC_SPRINT_STAMINA, R_INC_RUNNING, R_INC_DRIVING_SKILL, R_INC_FLYING_SKILL,
+    R_INC_CYCLE_SKILL, R_INC_MOTORBIKE_SKILL, R_INC_BOAT_SKILL, R_INC_BODY_MUSCLE, R_INC_BREATH_UNDERWATER, R_INC_MAX_HEALTH,
+    R_DEC_FAT = 23, R_DEC_BODY_MUSCLE, R_DEC_MAX_HEALTH, R_EXERCISE_RATE_CYCLE, R_EXERCISE_RATE_CYCLE_SPRINT,
+    R_EXERCISE_RATE_SWIM, R_EXERCISE_RATE_SWIM_SPRINT, R_EXERCISE_RATE_SPRINT, R_EXERCISE_RATE_RUN, R_EXERCISE_RATE_FIGHT,
+    R_TIMELIMIT_CYCLE_STAMINA, R_TIMELIMIT_SWIM_STAMINA, R_TIMELIMIT_SPRINT_STAMINA, R_TIMELIMIT_RUNNING,
+    R_TIMELIMIT_DRIVING_SKILL, R_TIMELIMIT_FLYING_SKILL, R_TIMELIMIT_CYCLE_SKILL, R_TIMELIMIT_MOTORBIKE_SKILL,
+    R_TIMELIMIT_BOAT_SKILL, R_TIMELIMIT_FAT_ADJUST, R_TIMELIMIT_FAT_ADJUST_STRENUOUS, R_TIMELIMIT_BREATH_UNDERWATER,
+    R_TIMELIMIT_MAX_HEALTH, R_COUNT = 59
+};
+float React(int index);                    // StatReactionValue[index]
+int LoadReactions(const char* path);       // parse ar_stats.dat; returns how many values were read
 void Init();                               // CStats::Init: everything zero, max health 569, stamina 100
 bool IsFloat(int stat);                    // CStats::IsStatFloat
 bool IsCapped(int stat);                   // CStats::IsStatCapped: clamped to 1000

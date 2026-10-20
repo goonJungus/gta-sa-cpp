@@ -1377,6 +1377,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
     Stats::Init();   // CStats::Init, then the saved [Stats] values
     Stats::Load(g_iniPath);
+    Log("STATS: ar_stats.dat %d values", Stats::LoadReactions(getenv("GTA_ARSTATS") ? getenv("GTA_ARSTATS") : (g_gameDir + "\\data\\ar_stats.dat").c_str())   /* dev: GTA_ARSTATS=alt file */);
     Stats::g_hooks.health = [] { return g_cj.Health() * 5.69f; };   // the stats count health in 569 = 100 hp
     Stats::g_hooks.maxHealth = [] { return g_cj.MaxHealth() * 5.69f; };
     Stats::g_hooks.addHealth = [](float amount, bool) { g_cj.AddHealth(amount / 5.69f); };
@@ -3495,13 +3496,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 if (rate > 0) {
                     s_fatCounterMs += dt * 1000.0f * (float)rate / 10.0f;
-                    if (s_fatCounterMs > 150.0f * 1000.0f) {
+                    if (s_fatCounterMs > Stats::React(Stats::R_TIMELIMIT_FAT_ADJUST) * 1000.0f) {
                         s_fatCounterMs = 0.0f;
                         if (Stats::Get(Stats::STAT_FAT) > 0.0f) {
-                            Stats::Decrement(Stats::STAT_FAT, 15.0f);
-                            Stats::Increment(Stats::STAT_MUSCLE, 10.0f);
+                            Stats::Decrement(Stats::STAT_FAT, Stats::React(Stats::R_DEC_FAT));
+                            Stats::Increment(Stats::STAT_MUSCLE, Stats::React(Stats::R_INC_BODY_MUSCLE));
                         } else {
-                            Stats::Decrement(Stats::STAT_MUSCLE, 15.0f);
+                            Stats::Decrement(Stats::STAT_MUSCLE, Stats::React(Stats::R_DEC_BODY_MUSCLE));
                         }
                         const float fatStat = Stats::Get(Stats::STAT_FAT), muscleStat = Stats::Get(Stats::STAT_MUSCLE);
                         g_cj.SetBodyShape(fatStat / 1000.0f, muscleStat / 1000.0f);   // CClothes::RebuildPlayerIfNeeded
