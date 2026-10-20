@@ -295,6 +295,7 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
             if (t.pc < m_space.size()) t.pc++;   // the end-of-arguments byte
         }
         n.wakeTime = nowMs;
+        if (std::getenv("GTA_SCMGAME")) std::fprintf(stderr, "[SCM] %s starts %s at 0x%X (op %04X)\n", t.name.c_str(), op == 0x00D7 ? "mission" : "script", n.pc, op);
         m_pending.push_back(n);
         return true;
     }
@@ -503,6 +504,7 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
         ScmThread n;
         n.pc = n.base = h.missionOffsets[(size_t)idx];
         n.name = "mission";
+        if (std::getenv("GTA_SCMGAME")) std::fprintf(stderr, "[SCM] %s loads mission %d at 0x%X\n", t.name.c_str(), idx, n.pc);
         m_pending.push_back(n);
         return true;
     }

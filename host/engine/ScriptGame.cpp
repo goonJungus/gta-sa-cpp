@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "Peds.h"
+#include "Pickups.h"
 #include "Stats.h"
 #include "Vehicle.h"
 
@@ -319,7 +320,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     // ---- world switches and stats that have no game effect yet ------------------------
     case 0x01E8: case 0x022B: case 0x091E: case 0x06D7: case 0x06D8: case 0x06D9: case 0x06DC: case 0x06DD:   // roads and trains
     case 0x07FB: case 0x04BB: case 0x02B9: case 0x076C:                                                       // entry exits, area visible, garages, gang strength
-    case 0x0955: case 0x0952: case 0x0954: case 0x040D: case 0x01EB: case 0x03DE: case 0x09BA: case 0x0629: // beat track, mission audio, densities, zone names, stats
+    case 0x0955: case 0x0952: case 0x0954: case 0x040D: case 0x01EB: case 0x03DE: case 0x09BA: // beat track, mission audio, densities, zone names, stats
     case 0x0109: case 0x01B7: case 0x01B6: case 0x0662: case 0x0459: case 0x0A2D:
         return true;
     case 0x0953: c.Out(0, 2); return true;   // GET_BEAT_TRACK_STATUS: 2 = ready to play
@@ -484,6 +485,50 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x016C: case 0x016D: case 0x02FA: case 0x0A17:
         return true;
     case 0x07AF: c.Out(1, 0); return true;   // GET_PLAYER_GROUP
+    case 0x010F: c.result = wantedLevel && wantedLevel() > c.I(1); return true;                // IS_WANTED_LEVEL_GREATER(player, level)
+    case 0x010D: case 0x010E:                                                                  // ALTER_WANTED_LEVEL(_NO_DROP)(player, level)
+        if (setWantedLevel && (c.op == 0x010D || !wantedLevel || wantedLevel() < c.I(1))) setWantedLevel(std::clamp(c.I(1), 0, 6));
+        return true;
+    case 0x0110: if (setWantedLevel) setWantedLevel(0); return true;                           // CLEAR_WANTED_LEVEL
+    case 0x0A03: c.result = false; return true;                                                // IS_GANG_WAR_FIGHTING_GOING_ON
+    case 0x0623: Stats::Set(c.I(0), Stats::Get(c.I(0)) + (float)c.I(1)); return true;       // INCREMENT_INT_STAT
+    case 0x0625: Stats::Set(c.I(0), Stats::Get(c.I(0)) - (float)c.I(1)); return true;       // DECREMENT_INT_STAT
+    case 0x014B: c.Out(12, 0); return true;                                                   // CREATE_CAR_GENERATOR: parked car spawns are not run
+    case 0x09E2: c.Out(13, 0); return true;                                                   // CREATE_CAR_GENERATOR_WITH_PLATE
+    case 0x0926: c.Out(1, 0); return true;                                                    // GET_NUMBER_OF_INSTANCES_OF_STREAMED_SCRIPT
+    case 0x08AB: c.result = true; return true;                                                // HAS_STREAMED_SCRIPT_LOADED
+    case 0x0A40: c.Out(4, ++m_markers); return true;                                          // CREATE_USER_3D_MARKER
+    case 0x044B: c.result = !(c.I(0) == kPlayer ? (playerInCar && playerInCar()) : m_charCar.count(c.I(0)) != 0); return true;   // IS_CHAR_ON_FOOT
+    case 0x0400: {   // GET_OFFSET_FROM_OBJECT_IN_WORLD_COORDS(obj, ox, oy, oz) -> x, y, z
+        float x = 0, y = 0, z = 0, h = 0;
+        if (c.I(0) >= 1 && (size_t)c.I(0) <= m_objs.size()) { const Obj& o = m_objs[(size_t)c.I(0) - 1]; x = o.x; y = o.y; z = o.z; h = o.heading; }
+        const float r = h * 0.017453292f, cs = std::cos(r), sn = std::sin(r);
+        c.OutF(4, x + c.F(1) * cs - c.F(2) * sn); c.OutF(5, y + c.F(1) * sn + c.F(2) * cs); c.OutF(6, z + c.F(3));
+        return true;
+    }
+    case 0x093A: case 0x0361: case 0x0750: case 0x0382: case 0x08E0: case 0x08DF: case 0x08DE: case 0x08DD:
+        return true;   // SET_GARAGE_RESPRAY_FREE, CLOSE_GARAGE, SET_OBJECT_VISIBLE / COLLISION, restart points, penalties
+    // ---- pickups -----------------------------------------------------------------------------
+    case 0x0213: c.Out(5, AddPickup(c.I(0), c.I(1), -1, c.F(2), c.F(3), c.F(4))); return true;                 // CREATE_PICKUP(model, type, x, y, z)
+    case 0x032B: c.Out(6, AddPickup(c.I(0), c.I(1), c.I(2), c.F(3), c.F(4), c.F(5))); return true;             // CREATE_PICKUP_WITH_AMMO(model, type, ammo, x, y, z)
+    case 0x0958: case 0x0959: case 0x095A: c.Out(3, AddPickup(-1, 0, 0, c.F(0), c.F(1), c.F(2))); return true;   // CREATE_SNAPSHOT / HORSESHOE / OYSTER pickup
+    case 0x0517: { c.Out(4, AddPickup(-2, 0, 0, c.F(0), c.F(1), c.F(2))); return true; }                       // CREATE_LOCKED_PROPERTY_PICKUP(x, y, z, text)
+    case 0x0518: c.Out(5, AddPickup(-1, 0, 0, c.F(0), c.F(1), c.F(2))); return true;                           // CREATE_FORSALE_PROPERTY_PICKUP(x, y, z, price, text)
+    case 0x0214: {   // HAS_PICKUP_BEEN_COLLECTED
+        const int h = c.I(0);
+        c.result = h >= 1 && (size_t)h <= m_pickups.size() && m_pickups[(size_t)h - 1].collected;
+        if (std::getenv("GTA_SCMGAME")) std::fprintf(stderr, "[SCMGAME] collected? pickup %d -> %d\n", h, (int)c.result);
+        return true;
+    }
+    case 0x0215: {   // REMOVE_PICKUP
+        const int h = c.I(0);
+        if (h >= 1 && (size_t)h <= m_pickups.size()) {
+            ScriptPickup& p = m_pickups[(size_t)h - 1];
+            if (p.slot >= 0 && pickups) pickups->Remove(p.slot);
+            p.removed = true; p.slot = -1;
+        }
+        return true;
+    }
     // ---- objects: tracked, not drawn -------------------------------------------------------
     case 0x0107: case 0x029B: {   // CREATE_OBJECT / CREATE_OBJECT_NO_OFFSET(model, x, y, z) -> object
         Obj o; o.model = c.I(0); o.x = c.F(1); o.y = c.F(2); o.z = c.F(3);
@@ -505,7 +550,48 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     return false;
 }
 
+// The weapon type of a pickup model (CPickups::GenerateNewOne is given the model, the weapon is its
+// CWeaponInfo::m_nModelId owner); -1 when the model is no weapon.
+static int WeaponOfModel(int m) {
+    static const int kTab[][2] = {{331, 1}, {333, 2}, {334, 3}, {335, 4}, {336, 5}, {337, 6}, {338, 7}, {339, 8}, {341, 9}, {321, 10},
+        {322, 11}, {323, 12}, {324, 13}, {325, 14}, {326, 15}, {342, 16}, {343, 17}, {344, 18}, {346, 22}, {347, 23}, {348, 24},
+        {349, 25}, {350, 26}, {351, 27}, {352, 28}, {353, 29}, {355, 30}, {356, 31}, {372, 32}, {357, 33}, {358, 34}, {359, 35},
+        {360, 36}, {361, 37}, {362, 38}, {363, 39}, {364, 40}, {365, 41}, {366, 42}, {367, 43}, {368, 44}, {369, 45}, {371, 46}};
+    for (const auto& e : kTab) if (e[0] == m) return e[1];
+    return -1;
+}
+
+int ScriptGame::AddPickup(int model, int type, int ammo, float x, float y, float z) {
+    ScriptPickup p; p.x = x; p.y = y; p.z = z;
+    p.locked = model == -2;
+    if (model > 0 && pickups && nowMs) {
+        int kind = -1, weapon = 0;
+        if (int w = WeaponOfModel(model); w >= 0) { kind = Pickups::Weapon; weapon = w; }
+        else if (model == 1240) kind = Pickups::Health;
+        else if (model == 1242) kind = Pickups::Armour;
+        else if (model == 1241) kind = Pickups::Adrenaline;
+        else if (model == 1247) kind = Pickups::Bribe;
+        else if (model == 1239) kind = Pickups::Info;
+        else if (model == 1212 || model == 1274) kind = Pickups::Cash;
+        else if (model == 370) kind = Pickups::Jetpack;
+        if (kind >= 0) {
+            const float pos[3] = {x, y, z};
+            p.slot = pickups->Add(pos, kind, weapon, type, ammo < 0 ? 0 : ammo, false, nowMs());
+        }
+    }
+    m_pickups.push_back(p);
+    if (std::getenv("GTA_SCMGAME")) std::fprintf(stderr, "[SCMGAME] pickup %zu model %d type %d at %.1f %.1f %.1f slot %d\n", m_pickups.size(), model, type, x, y, z, p.slot);
+    return (int)m_pickups.size();
+}
+
 void ScriptGame::Update(float dt) {
+    for (ScriptPickup& p : m_pickups) {   // collected: the slot freed itself, or the player stands on a tracked one
+        if (p.removed || p.collected) continue;
+        if (p.slot >= 0) { if (pickups && !pickups->At(p.slot).used) p.collected = true; continue; }
+        if (p.locked) continue;
+        float px, py, pz;
+        if (CharPos(kPlayer, px, py, pz) && std::fabs(pz - p.z) < 2.0f && (px - p.x) * (px - p.x) + (py - p.y) * (py - p.y) < 1.8f) p.collected = true;
+    }
     auto car = [&](int h) -> VehicleInstance* { return cars && h >= 1 && (size_t)h <= cars->Count() ? &cars->Car((size_t)h - 1) : nullptr; };
     auto carAlive = [&](int h) -> VehicleInstance* { VehicleInstance* v = car(h); return v && !v->removed ? v : nullptr; };
     if (m_fading) {

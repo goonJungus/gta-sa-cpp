@@ -60,6 +60,7 @@ public:
     // CPickups::Update, every slot.
     void Update(uint32_t nowMs, Env& env);
     const Slot& At(int i) const { return m_s[i]; }
+    void Remove(int i) { if (i >= 0 && i < kSlots) m_s[i] = Slot(); }   // CPickup::Remove
     int Used() const;
     // CPickups::CreateSomeMoney: wads of cash around a position (z already above the ground).
     void CreateSomeMoney(const float pos[3], int amount, uint32_t nowMs);
