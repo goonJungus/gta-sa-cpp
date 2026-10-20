@@ -333,7 +333,21 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
     };
     auto out = [&](size_t i, int32_t v) { if (i < args.size() && (args[i].type == 2 || args[i].type == 3)) Var(t, args[i]) = v; };
     auto outF = [&](size_t i, float v) { out(i, AsBits(v)); };
+    // an 8-byte text argument (a name in the script image)
+    auto str = [&](size_t i) -> std::string {
+        if (i >= args.size() || !args[i].text || args[i].i < 0 || (size_t)args[i].i + 8 > m_space.size()) return "";
+        return std::string((const char*)&m_space[args[i].i], strnlen((const char*)&m_space[args[i].i], 8));
+    };
     switch (op) {
+    case 0x0784: case 0x087B:   // GIVE_PLAYER_CLOTHES / _OUTSIDE_SHOP(player, texture, model, texture part)
+        if (host.giveClothes) host.giveClothes(str(1).c_str(), str(2).c_str(), inum(3));
+        return true;
+    case 0x0500:                // IS_PLAYER_WEARING(player, texture part, texture)
+        result = host.wearing && host.wearing(inum(1), str(2).c_str());
+        return true;
+    case 0x070D: return true;   // BUILD_PLAYER_MODEL: the outfit is rebuilt as soon as it is given
+    case 0x0793: if (host.storeClothes) host.storeClothes(); return true;     // STORE_CLOTHES_STATE
+    case 0x0794: if (host.restoreClothes) host.restoreClothes(); return true; // RESTORE_CLOTHES_STATE
     case 0x0053:   // CREATE_PLAYER(id, x, y, z) -> player handle
         if (host.setPlayerPos) host.setPlayerPos(num(1), num(2), num(3));
         out(4, 0);

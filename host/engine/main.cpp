@@ -289,6 +289,8 @@ static int  g_keyQueueN = 0;
 static int  g_wheelSteps = 0;   // mouse wheel notches since the last frame
 static char g_iniPath[MAX_PATH] = {};    // <exe_dir>\gtasa_cpp.ini
 
+static PedClothesDesc g_storedOutfit;   // STORE_CLOTHES_STATE
+
 // [Outfit] in the ini: the worn clothes as player.img file stems, M0..M9 per model slot and T0..T17 per texture part.
 static void SaveOutfit(const PedClothesDesc& d) {
     char k[8];
@@ -1449,6 +1451,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             Log("SCM: blip %d sprite %d at %.1f %.1f %s", b.handle, sprite, x, y, shortRange ? "(short range)" : "");
             return b.handle;
         };
+        s_scm.host.giveClothes = [&](const char* tex, const char* model, int part) {
+            if (!cjReady) return;
+            PedClothesDesc d = g_cj.Outfit();
+            d.SetTextureAndModel(tex, model, (ClothesTexturePart)part);
+            g_cj.SetOutfit(d);
+            Log("SCM: clothes %s / %s on part %d", tex, model, part);
+        };
+        s_scm.host.wearing = [&](int part, const char* tex) {
+            return cjReady && part >= 0 && part < CLOTHES_TEXTURE_TOTAL && g_cj.Outfit().textureKeys[part] == Clothes::Key(tex);
+        };
+        s_scm.host.storeClothes = [&] { if (cjReady) g_storedOutfit = g_cj.Outfit(); };
+        s_scm.host.restoreClothes = [&] { if (cjReady) g_cj.SetOutfit(g_storedOutfit); };
         s_scm.host.removeBlip = [](int h) { g_blips.erase(std::remove_if(g_blips.begin(), g_blips.end(), [h](const RadarBlip& b) { return b.handle == h; }), g_blips.end()); };
         s_scm.host.blipDisplay = [](int h, int mode) { for (RadarBlip& b : g_blips) if (b.handle == h) b.display = mode; };
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };

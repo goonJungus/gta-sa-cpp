@@ -62,6 +62,10 @@ struct ScmHost {
     std::function<int(float, float, float, int, bool)> addBlip;
     std::function<void(int)> removeBlip;
     std::function<void(int, int)> blipDisplay;
+    // clothes: give (texture, model, texture part) and rebuild; wearing (texture part, texture); store / restore the state
+    std::function<void(const char*, const char*, int)> giveClothes;
+    std::function<bool(int, const char*)> wearing;
+    std::function<void()> storeClothes, restoreClothes;
 };
 
 class ScmMachine {
