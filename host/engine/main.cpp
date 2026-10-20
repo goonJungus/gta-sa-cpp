@@ -1404,6 +1404,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     g_vehicles.Init(g_renderer, GameDir());
     g_peds.Init(g_renderer, GameDir());
     if (const char* e = getenv("GTA_PEDS")) g_crowdTarget = atoi(e);
+    if (const char* e = getenv("GTA_PEDSEED")) g_peds.SetSeed((unsigned)atoi(e));   // dev
     if (getenv("GTA_SCMTEST")) {   // dev: run the main script's core language and report where it stops
         ScmMachine scm;
         if (scm.Init(GameDir())) {
@@ -2380,9 +2381,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const float side = (float)(s_pedSlot++ % 5 - 2) * 1.2f;
                 const float sx = playerX + fx * 3.5f + fy * side, sy = playerY + fy * 3.5f - fx * side;
                 const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
-                const int n = g_peds.Spawn(g_renderer, -1, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(-fy, -fx));
+                float px = sx, py = sy;
+                if (getenv("GTA_PEDNEAR")) { px = playerX + std::cos(g_cj.Heading()) * 0.9f; py = playerY + std::sin(g_cj.Heading()) * 0.9f; }   // dev: within CJ's reach
+                const int n = g_peds.Spawn(g_renderer, -1, px, py, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(-fy, -fx));
+                if (n >= 0) if (const char* ph = getenv("GTA_PEDHP")) g_peds.SetHealth((size_t)n, (float)atof(ph));   // dev
                 Log("DEV: spawned ped %d", n);
             }
+            if (getenv("GTA_PEDTRACK") && g_peds.Count() > 0 && (frame % 10) == 0)   // dev: follow ped 0
+                Log("PEDTRACK f%d pos %.2f %.2f %.2f speed %.2f vz %.2f flying %d clip %s", frame, g_peds.X(0), g_peds.Y(0), g_peds.Z(0), g_peds.VelX(0), g_peds.VelZ(0), (int)g_peds.Flying(0), g_peds.ClipName(0));
             if (DevKeyPressed(VK_F4)) {
                 g_devNoClip = !g_devNoClip;
                 Log("DEV: noclip %s", g_devNoClip ? "ON (free fly)" : "OFF");
@@ -4007,9 +4013,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             Log("STRIKE %.2f %.2f %.2f r %.2f dmg %.1f move %d; cj %.2f %.2f", sk.pos[0], sk.pos[1], sk.pos[2], sk.radius, sk.damage, sk.move, playerX, playerY);
                             for (size_t pi = 0; pi < g_peds.Count(); pi++) Log("  ped %zu at %.2f %.2f %.2f", pi, g_peds.X(pi), g_peds.Y(pi), g_peds.Z(pi));
                         }
-                        const int hp = g_peds.MeleeStrike(sk.pos, sk.radius, sk.damage, ap, sk.sword && sk.move == 2, hc, sk.move, &killed);
+                        const int hp = g_peds.MeleeStrike(sk.pos, sk.radius, sk.damage, ap, sk.sword && sk.move == 2, hc, sk.move, &killed, sk.force, Stats::FatMuscleMod(4));
                         if (hp >= 0) {
-                            Log("MELEE HIT %d move %d dmg %.1f kill %d", hp, sk.move, sk.damage, (int)killed);
+                            Log("MELEE HIT %d move %d dmg %.1f kill %d force %.1f flying %d down %d vel %.2f", hp, sk.move, sk.damage, (int)killed, sk.force, (int)g_peds.Flying((size_t)hp), (int)g_peds.KnockedDown((size_t)hp), g_peds.VelX((size_t)hp));
                             if (g_hudReady) g_hud.Hit(killed);
                             g_fx.Blood(sk.pos);
                             g_audio.Impact(0.0f);

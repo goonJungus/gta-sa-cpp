@@ -333,7 +333,7 @@ bool Peds::Shoot(int actor, float damage, bool head, bool sniper) {
 }
 
 int Peds::MeleeStrike(const float centre[3], float radius, float damage, const float attackerPos[2], bool sword3,
-                      const char* const hitClips[3], int move, bool* killed) {
+                      const char* const hitClips[3], int move, bool* killed, float forceBase, float mod4) {
     if (killed) *killed = false;
     int best = -1;
     float bestD = 1e9f;
@@ -352,8 +352,28 @@ int Peds::MeleeStrike(const float centre[3], float radius, float damage, const f
     const bool force = Rand(sword3 ? 2 : 8) == 0;            // ComputeWillForceDeath
     a.fleeTimer = 8.0f;
     a.heading = std::atan2(attackerPos[1] - a.y, attackerPos[0] - a.x);   // turns to the attacker
+    // CPhysical::ApplyMoveForce: m_vecMoveSpeed += force / mass (ped mass 70), speed per 1/50 s, z impulse 5
+    auto throwBack = [&](float f) {
+        float dx = a.x - attackerPos[0], dy = a.y - attackerPos[1];
+        const float l = std::sqrt(dx * dx + dy * dy);
+        if (l > 1e-4f) { dx /= l; dy /= l; }
+        a.vx = dx * f * 5.0f / 70.0f * 50.0f;
+        a.vy = dy * f * 5.0f / 70.0f * 50.0f;
+        a.vz = 5.0f / 70.0f * 50.0f;
+        a.flying = true;
+    };
     if (!force && a.health - d >= 1.0f) {
         a.health -= d;
+        if (a.health < 15.0f) {   // CEventDamage::ComputeDamageAnim: m_bFallDown, force = ped strength * 5
+            auto ko = m_clips.find("ko_skid_front");
+            if (ko != m_clips.end()) {
+                a.hitClip = &ko->second;
+                a.hitTime = 0.0f;
+                a.getUp = true;
+                throwBack((mod4 + 1.0f) * 0.5f);   // the helper multiplies by 5
+                return best;
+            }
+        }
         // CEventDamage picks the reaction by hit direction; the group's three clips by swing strength
         const char* nm = hitClips[move == 2 ? 2 : Rand(2)];
         std::string key = nm ? nm : "";
@@ -366,6 +386,11 @@ int Peds::MeleeStrike(const float centre[3], float radius, float damage, const f
     a.health = 0.0f;
     const bool dead = Damage(best, 0.0f, true);
     if (killed) *killed = dead;
+    if (dead) {   // CEventDamage::ComputeDeathAnim: a forced death drops with ko_shot_face, any other melee kill skids
+        auto ko = m_clips.find(force ? "ko_shot_face" : "ko_skid_front");
+        if (ko != m_clips.end()) a.deathClip = &ko->second;
+        if (!force && forceBase > 0.0f) throwBack(forceBase * mod4);
+    }
     return best;
 }
 
@@ -458,6 +483,12 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
         auto it = m_models.find(a.model);
         if (it == m_models.end()) continue;
         const Model& m = it->second;
+        if (a.flying) {   // thrown by a melee hit: ballistic until the ground, then it stops (peds have no slide)
+            a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
+            a.vz -= 20.0f * dt;   // 0.008 per 1/50 s step
+            const float g = groundAt ? groundAt(a.x, a.y, a.z + 1.0f) : a.z;
+            if (a.vz < 0.0f && g > -1e5f && a.z <= g) { a.z = g; a.vx = a.vy = a.vz = 0.0f; a.flying = false; }
+        }
         if (a.dead) {   // lies where it fell, then goes away
             a.deadTime += dt;
             a.animTime += dt;
@@ -484,8 +515,14 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
         }
         if (a.hitClip) {   // a melee hit reaction plays out before the ped carries on
             a.hitTime += dt;
-            if (a.hitTime >= a.hitClip->duration) a.hitClip = nullptr;
-            else continue;
+            if (a.hitTime >= a.hitClip->duration) {
+                a.hitClip = nullptr;
+                if (a.getUp) {   // CTaskComplexFallAndGetUp: the knock-down ends in getup_front
+                    a.getUp = false;
+                    auto gu = m_clips.find("getup_front");
+                    if (gu != m_clips.end()) { a.hitClip = &gu->second; a.hitTime = 0.0f; }
+                }
+            } else continue;
         }
         const float pdx = player.x - a.x, pdy = player.y - a.y, pd = std::sqrt(pdx * pdx + pdy * pdy);
         // Gunfire or an aimed weapon close by: run away from CJ for a while.
