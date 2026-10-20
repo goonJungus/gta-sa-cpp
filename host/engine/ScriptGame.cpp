@@ -281,7 +281,13 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
         return true;
     }
     case 0x00A1: {   // SET_CHAR_COORDINATES(char, x, y, z)
-        if (c.I(0) == kPlayer) { if (scm && scm->host.setPlayerPos) scm->host.setPlayerPos(c.F(1), c.F(2), c.F(3)); return true; }
+        if (c.I(0) == kPlayer) {
+            if (playerInCar && playerInCar() && playerCar && cars && playerCar() >= 0) {   // a char in a car takes the car along
+                if (VehicleInstance* v = car(playerCar() + 1)) { v->x = c.F(1); v->y = c.F(2); v->z = c.F(3); v->speed = 0; v->vx = v->vy = 0; }
+            }
+            if (scm && scm->host.setPlayerPos) scm->host.setPlayerPos(c.F(1), c.F(2), c.F(3));
+            return true;
+        }
         const int i = CharIndex(c.I(0));
         if (i >= 0) peds->SetPos((size_t)i, c.F(1), c.F(2), c.F(3));
         return true;
@@ -592,6 +598,28 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         if (VehicleInstance* v = carAlive(c.I(0))) { c.OutF(1, v->x); c.OutF(2, v->y); c.OutF(3, v->z); }
         return true;
     }
+    case 0x02C1: c.OutF(3, c.F(0)); c.OutF(4, c.F(1)); c.OutF(5, c.F(2)); return true;   // GET_CLOSEST_CAR_NODE(x, y, z) -> x, y, z: no node data, the point itself
+    case 0x02CA: c.result = false; return true;   // IS_CAR_ON_SCREEN
+    case 0x04BA: if (VehicleInstance* v = carAlive(c.I(0))) v->speed = c.F(1); return true;   // SET_CAR_FORWARD_SPEED
+    case 0x04C4: {   // GET_OFFSET_FROM_CHAR_IN_WORLD_COORDS(char, ox, oy, oz) -> x, y, z
+        float x = 0, y = 0, z = 0;
+        if (CharPos(c.I(0), x, y, z)) {
+            const float h = c.I(0) == kPlayer && getPlayerHeading ? getPlayerHeading() : 0.0f;
+            const float s = std::sin(h), co = std::cos(h);
+            c.OutF(4, x + c.F(1) * co - c.F(2) * s); c.OutF(5, y + c.F(1) * s + c.F(2) * co); c.OutF(6, z + c.F(3));
+        }
+        return true;
+    }
+    case 0x062E: c.Out(2, 7); return true;   // GET_SCRIPT_TASK_STATUS(char, task) -> status: FINISHED_TASK
+    case 0x039F: return true;   // TURN_CAR_TO_FACE_COORD
+    case 0x02BF: case 0x047A: c.result = false; return true;   // IS_CAR_IN_WATER, IS_CHAR_ON_ANY_BIKE
+    case 0x022A: case 0x030C: case 0x0318: case 0x034F: case 0x0394: case 0x04EF: case 0x06E1: case 0x06FD:
+    case 0x0733: case 0x0968: case 0x0998:   // ped roads, mission progress and pass bookkeeping, tunes, animation release, car missions, playback speed, talk
+        return true;
+    case 0x0448: c.result = false; return true;   // IS_CHAR_SITTING_IN_CAR
+    case 0x09D0: c.result = true; return true;    // IS_VEHICLE_ON_ALL_WHEELS
+    case 0x0674: case 0x0852: case 0x08AF: case 0x09F6: return true;   // CUSTOM_PLATE_FOR_NEXT_CAR, SET_CAR_CAN_BE_VISIBLY_DAMAGED, SET_CHAR_MAX_HEALTH, SET_CHAR_GET_OUT_UPSIDE_DOWN_CAR
+    case 0x04EE: c.result = true; return true;   // HAS_ANIMATION_LOADED
     case 0x01F3: c.result = false; return true;   // IS_CAR_IN_AIR_PROPER
     case 0x0735: c.result = false; return true;   // IS_PS2_KEYBOARD_KEY_PRESSED
     case 0x03C0: c.Out(1, c.I(0) == kPlayer && playerCar && playerCar() >= 0 ? playerCar() + 1 : -1); return true;   // STORE_CAR_CHAR_IS_IN_NO_SAVE(char) -> car
