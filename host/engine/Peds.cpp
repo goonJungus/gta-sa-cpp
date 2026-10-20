@@ -94,7 +94,7 @@ bool Peds::Init(D3DRenderer&, const std::string& gameDir) {
             p.dff = Lower(f[1]); p.txd = Lower(f[2]); p.type = f[3]; p.stat = f[4]; p.group = Lower(f[5]);
             if (f.size() >= 13) p.voice = Speech::GenVoice(f[12]);   // the first of the voice range
             m_info[p.id] = p;
-            if (p.id > 0 && (p.type == "CIVMALE" || p.type == "CIVFEMALE")) m_pool.push_back(p.id);
+            if (p.id > 0 && (p.id < 290 || p.id > 299) && (p.type == "CIVMALE" || p.type == "CIVFEMALE")) m_pool.push_back(p.id);
         }
     }
     {   // data/pedstats.dat: name, flee, heading, fear, temper, lawful, sexy, attack, defend weakness, ...

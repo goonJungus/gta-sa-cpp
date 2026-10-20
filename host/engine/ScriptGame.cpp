@@ -178,6 +178,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
         const size_t slot = (size_t)std::max(1, c.I(0));
         if (m_special.size() < slot) m_special.resize(slot);
         m_special[slot - 1] = c.S(1);
+        if (peds && slot >= 1 && slot <= 10) peds->SetSpecial((int)slot, m_special[slot - 1]);
         return true;
     }
     case 0x0296: return true;   // UNLOAD_SPECIAL_CHARACTER
@@ -420,6 +421,7 @@ bool ScriptGame::InArea(ScmMachine::Call& c, const std::string& n) {
 }
 
 bool ScriptGame::HandleMore(ScmMachine::Call& c) {
+    auto carAlive = [&](int h) -> VehicleInstance* { VehicleInstance* v = cars && h >= 1 && (size_t)h <= cars->Count() ? &cars->Car((size_t)h - 1) : nullptr; return v && !v->removed ? v : nullptr; };
     const std::string name = ScmCommandName(c.op);
     if (name.compare(0, 7, "LOCATE_") == 0 && Locate(c, name)) return true;
     if (name.size() > 12 && name.compare(0, 3, "IS_") == 0 && name.find("_IN_AREA_") != std::string::npos && InArea(c, name)) return true;
@@ -559,6 +561,52 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         if (c.I(0) >= 1 && (size_t)c.I(0) <= m_objs.size()) { const Obj& o = m_objs[(size_t)c.I(0) - 1]; c.OutF(1, o.x); c.OutF(2, o.y); c.OutF(3, o.z); }
         return true;
     }
+    // ---- mission set-up: cars, characters, tasks (instant where the retail task takes time) ----------
+    case 0x00AB: {   // SET_CAR_COORDINATES(car, x, y, z)
+        if (VehicleInstance* v = carAlive(c.I(0))) {
+            float z = c.F(3);
+            if (groundAt) { const float g = groundAt(c.F(1), c.F(2)); if (g > -1e5f && z < g + 0.3f) z = g + 0.9f; }
+            v->x = c.F(1); v->y = c.F(2); v->z = z; v->speed = 0; v->vx = v->vy = 0;
+        }
+        return true;
+    }
+    case 0x0224: if (VehicleInstance* v = carAlive(c.I(0))) v->health = c.F(1); return true;   // SET_CAR_HEALTH
+    case 0x0229: if (VehicleInstance* v = carAlive(c.I(0))) { v->paint[0] = c.I(1); v->paint[1] = c.I(2); } return true;   // CHANGE_CAR_COLOUR
+    case 0x070C: if (cars && carAlive(c.I(0))) cars->Damage(c.I(0) - 1, 1e6f); return true;   // EXPLODE_CAR_IN_CUTSCENE
+    case 0x0187: {   // ADD_BLIP_FOR_CHAR(char) -> blip
+        float x, y, z;
+        c.Out(1, CharPos(c.I(0), x, y, z) && scm && scm->host.addBlip ? scm->host.addBlip(x, y, z, 0, false) : 0);
+        return true;
+    }
+    case 0x01B2: if (c.I(0) == kPlayer && giveWeapon) giveWeapon(c.I(1), c.I(2)); return true;   // GIVE_WEAPON_TO_CHAR(char, weapon, ammo)
+    case 0x01B9: if (c.I(0) == kPlayer && setWeapon) setWeapon(c.I(1)); return true;             // SET_CURRENT_CHAR_WEAPON(char, weapon)
+    case 0x05BA: { const int i = CharIndex(c.I(0)); if (i >= 0) peds->ClearGoal((size_t)i); return true; }   // TASK_STAND_STILL(char, ms)
+    case 0x05CA: case 0x05CB: {   // TASK_ENTER_CAR_AS_PASSENGER(char, car, ms, seat) / TASK_ENTER_CAR_AS_DRIVER(char, car, ms)
+        if (!carAlive(c.I(1))) return true;
+        if (c.I(0) == kPlayer) { if (putPlayerInCar) putPlayerInCar(c.I(1) - 1); return true; }
+        const int i = CharIndex(c.I(0));
+        if (i >= 0) { peds->ClearGoal((size_t)i); peds->SetHidden((size_t)i, true); m_charCar[c.I(0)] = c.I(1); }
+        return true;
+    }
+    case 0x00AA: {   // GET_CAR_COORDINATES(car) -> x, y, z
+        if (VehicleInstance* v = carAlive(c.I(0))) { c.OutF(1, v->x); c.OutF(2, v->y); c.OutF(3, v->z); }
+        return true;
+    }
+    case 0x01F3: c.result = false; return true;   // IS_CAR_IN_AIR_PROPER
+    case 0x0735: c.result = false; return true;   // IS_PS2_KEYBOARD_KEY_PRESSED
+    case 0x03C0: c.Out(1, c.I(0) == kPlayer && playerCar && playerCar() >= 0 ? playerCar() + 1 : -1); return true;   // STORE_CAR_CHAR_IS_IN_NO_SAVE(char) -> car
+    case 0x04FC: for (int i = 1; i <= 6; i++) c.Out(i, 0); return true;   // GET_WHEELIE_STATS
+    // tasks, sequences, freezes and requests with nothing to act on yet
+    case 0x0350: case 0x04EB: case 0x04ED: case 0x0555: case 0x0574: case 0x0575: case 0x05C0: case 0x05EC:
+    case 0x0615: case 0x0616: case 0x0618: case 0x061B: case 0x0647: case 0x0873:
+        return true;
+    case 0x060A: c.Out(1, 1); return true;   // LOAD_CHAR_DECISION_MAKER(type) -> handle
+    // flags and settings with nothing to act on yet
+    case 0x020A: case 0x0245: case 0x02E2: case 0x038B: case 0x039E: case 0x03EF: case 0x03F5: case 0x041E:
+    case 0x0446: case 0x04E0: case 0x0526: case 0x053F: case 0x0568: case 0x0587: case 0x0605: case 0x060B:
+    case 0x06AB: case 0x0713: case 0x0732: case 0x077A: case 0x07A1: case 0x07DD: case 0x08C6: case 0x09D2:
+    case 0x0802:
+        return true;
     default: break;
     }
     return false;

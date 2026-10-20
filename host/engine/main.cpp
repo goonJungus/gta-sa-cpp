@@ -1523,6 +1523,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_sg.setArea = [](int a) { Log("SCRIPT: area %d", a); g_world.SetArea(a); g_enex.ForceArea(a); }; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
         g_sg.playerInCar = [] { return g_driveCar >= 0; };
         g_sg.playerCar = [] { return g_driveCar; };
+        g_sg.putPlayerInCar = [&](int n) {
+            if (n < 0 || (size_t)n >= g_vehicles.Count() || g_driveCar == n) return;
+            g_driveCar = n; Log("SCRIPT: player into car %d", n); g_radio.Tune(g_radioStation);
+            float sp[3]; bool low = false;
+            if (cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low)) g_cj.EnterVehicle(low);
+        };
+        g_sg.playerLeaveCar = [&] {
+            if (g_driveCar < 0) return;
+            VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
+            playerX = c.x + std::cos(c.heading) * 2.4f; playerY = c.y + std::sin(c.heading) * 2.4f;
+            playerZ = c.z + 1.7f; velZ = 0.0f; onGround = true; c.speed = 0.0f;
+            g_driveCar = -1; Log("SCRIPT: player out of the car");
+            if (cjReady) g_cj.LeaveVehicle();
+            g_audio.EngineStop(); g_radio.Tune(-1);
+        };
+        g_sg.giveWeapon = [&](int w, int a) { if (cjReady) g_cj.GiveWeapon(w, a); Log("SCRIPT: weapon %d ammo %d", w, a); };
+        g_sg.setWeapon = [&](int w) { if (cjReady) { const int i = g_cj.GunIndexOfType(w); g_cj.SelectGun(i); Log("SCRIPT: weapon in hand %d (gun %d)", w, i); } };
         g_sg.groundAt = [&](float x, float y) { return g_world.GetGroundHeight(x, y, playerZ + 50.0f); };
         s_scm.command = [](ScmMachine::Call& c) { return g_sg.Handle(c); };
     }

@@ -106,18 +106,22 @@ bool ParseRun(const std::vector<uint8_t>& b, size_t p, int depth, std::map<uint1
 }
 
 // Commands the compiled-script table lacks (mission scripts use many main never does): the argument count is
-// the smallest one after which the following commands parse, found once and kept.
+// the one after which the following commands parse with the fewest further unknown commands (a short literal
+// such as 04 04 would otherwise read as a command of its own), found once and kept.
 int InferArgs(const std::vector<uint8_t>& b, size_t afterOp, uint16_t op) {
-    static std::map<uint16_t, int> s_cache;
+    // Counts checked by hand against the script bytes, where the inference alone picks a wrong one.
+    static std::map<uint16_t, int> s_cache = {
+        {0x0605, 9}, {0x05CA, 4}, {0x05CB, 3}, {0x0245, 2}, {0x0187, 2}, {0x09D2, 1},
+        {0x070C, 1}, {0x041E, 1}, {0x07A1, 1}, {0x0713, 10}};
     auto it = s_cache.find(op);
     if (it != s_cache.end()) return it->second;
     int best = -1;
-    size_t p = afterOp;
+    size_t bestSize = 0, p = afterOp;
     for (int n = 0; n <= 20; n++) {
         std::map<uint16_t, int> assumed;
         assumed[op] = n;
         int budget = 40000;
-        if (ParseRun(b, p, 20, assumed, budget)) { best = n; break; }
+        if (ParseRun(b, p, 20, assumed, budget) && (best < 0 || assumed.size() < bestSize)) { best = n; bestSize = assumed.size(); }
         const size_t l = ArgSpan(b, p);
         if (!l) break;
         p += l;

@@ -53,6 +53,8 @@ public:
     std::function<void(int)> setWantedLevel;
     std::function<void(float)> setPlayerHeading;
     std::function<float()> getPlayerHeading;
+    std::function<void(int, int)> giveWeapon;                    // weapon type, ammo
+    std::function<void(int)> setWeapon;                          // weapon type in hand
 
     ScriptCamera cam;
     float fade = 0.0f;                 // 0 clear .. 1 solid (script fade layer)

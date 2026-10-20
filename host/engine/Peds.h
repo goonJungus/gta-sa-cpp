@@ -59,6 +59,17 @@ public:
     bool Hidden(size_t i) const { return i < m_actors.size() && m_actors[i].hidden; }
     void Remove(size_t i) { if (i < m_actors.size()) m_actors.erase(m_actors.begin() + (long)i); }
     int ModelOf(size_t i) const { return i < m_actors.size() ? m_actors[i].model : 0; }
+    // LOAD_SPECIAL_CHARACTER: model 289 + slot (290..299) becomes the named model (smoke.dff / smoke.txd in gta3.img).
+    void SetSpecial(int slot, const std::string& name) {
+        const int id = 289 + slot;
+        auto it = m_info.find(id);
+        if (it == m_info.end()) return;
+        std::string n = name;
+        for (char& ch : n) ch = (char)std::tolower((unsigned char)ch);
+        if (it->second.dff == n) return;
+        it->second.dff = it->second.txd = n;
+        m_models.erase(id);
+    }
     bool HasModel(int id) const { return m_info.count(id) != 0; }
     // Advance animation and wandering. groundAt gives the ground height or a value below -1e5.
     // `player` is where CJ stands; `threat` is true while CJ aims or fires a weapon, which makes
