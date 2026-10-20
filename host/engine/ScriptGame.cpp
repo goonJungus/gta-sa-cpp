@@ -562,6 +562,65 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x015B: case 0x018C: case 0x0221: case 0x0299: case 0x014F: case 0x0151:                                         // pad shake, one-off sound, brakes, garage, clear on-screen timer / counter
         return true;
     case 0x094D: case 0x00E1: case 0x02E0: case 0x074F: c.result = false; return true;                                   // IS_CHAR_TALKING, IS_BUTTON_PRESSED, IS_CHAR_SHOOTING, IS_CHAR_RESPONDING_TO_EVENT: nothing reports these yet
+    // ---- objects --------------------------------------------------------------------------------
+    case 0x0108: if (c.I(0) >= 1 && (size_t)c.I(0) <= m_objs.size()) m_objs[(size_t)c.I(0) - 1].removed = true; return true;   // DELETE_OBJECT
+    case 0x01BC: case 0x0815: if (c.I(0) >= 1 && (size_t)c.I(0) <= m_objs.size()) { Obj& o = m_objs[(size_t)c.I(0) - 1]; o.x = c.F(1); o.y = c.F(2); o.z = c.F(3); } return true;   // SET_OBJECT_COORDINATES (_AND_VELOCITY: the velocity is not simulated)
+    case 0x034E: {   // SLIDE_OBJECT(obj, x, y, z, sx, sy, sz, collision): jumps to the target, reports done
+        if (c.I(0) >= 1 && (size_t)c.I(0) <= m_objs.size()) { Obj& o = m_objs[(size_t)c.I(0) - 1]; o.x = c.F(1); o.y = c.F(2); o.z = c.F(3); }
+        c.result = true; return true;
+    }
+    case 0x04E6: {   // LOCATE_OBJECT_3D(obj, x, y, z, rx, ry, rz, draw)
+        if (c.I(0) >= 1 && (size_t)c.I(0) <= m_objs.size() && !m_objs[(size_t)c.I(0) - 1].removed) {
+            const Obj& o = m_objs[(size_t)c.I(0) - 1];
+            c.result = std::fabs(o.x - c.F(1)) <= c.F(4) && std::fabs(o.y - c.F(2)) <= c.F(5) && std::fabs(o.z - c.F(3)) <= c.F(6);
+        } else c.result = false;
+        return true;
+    }
+    case 0x0984: c.Out(1, c.I(0) >= 1 && (size_t)c.I(0) <= m_objs.size() ? m_objs[(size_t)c.I(0) - 1].model : -1); return true;   // GET_OBJECT_MODEL
+    case 0x04DA: c.result = false; return true;                                                  // HAS_OBJECT_COLLIDED_WITH_ANYTHING: objects have no physics yet
+    case 0x0381: case 0x05A2: case 0x070B: case 0x0418: case 0x04D9: case 0x0797: case 0x0798: case 0x0799: return true;   // object velocity, rotation velocity, drop, draw last, record collisions, ropes: no effect yet
+    // ---- text and hud -----------------------------------------------------------------------------
+    case 0x02FD: case 0x02FF: case 0x0302: case 0x0308: {   // PRINT_WITH_2/3/4/6_NUMBERS(label, n..., ms, flag)
+        const int k = c.op == 0x02FD ? 2 : c.op == 0x02FF ? 3 : c.op == 0x0302 ? 4 : 6;
+        int n[6] = {};
+        for (int i = 0; i < k; i++) n[i] = c.I(1 + i);
+        m_subtitle = WithNumbers(Text(c.S(0)), n, k);
+        m_subTimer = std::max(0.1f, c.I(1 + k) / 1000.0f);
+        return true;
+    }
+    case 0x045B: {   // DISPLAY_TEXT_WITH_2_NUMBERS(x, y, label, n1, n2)
+        const int n[2] = {c.I(3), c.I(4)};
+        AddText(c.F(0), c.F(1), WithNumbers(Text(c.S(2)), n, 2));
+        return true;
+    }
+    case 0x0512: if (hud) hud->ShowMessage(Text(c.S(0)), 3600.0f); return true;                  // PRINT_HELP_FOREVER
+    case 0x076F: c.result = m_subTimer > 0.0f && !m_subtitle.empty(); return true;               // IS_MESSAGE_BEING_DISPLAYED
+    case 0x08FE: c.result = hud && hud->MessageShown(); return true;                             // IS_HELP_MESSAGE_BEING_DISPLAYED
+    case 0x0A2A: c.result = hud && hud->MessageShown() && hud->Message() == Text(c.S(0)); return true;   // IS_THIS_HELP_MESSAGE_BEING_DISPLAYED
+    case 0x0581: radarOn = c.I(0) != 0; return true;                                             // DISPLAY_RADAR
+    case 0x0826: hudOn = c.I(0) != 0; return true;                                               // DISPLAY_HUD
+    case 0x0989: case 0x09EE: case 0x03C3: case 0x04F7: return true;                            // help box size, forced big message, on-screen timer / counter with string: no effect yet
+    case 0x09FD: c.OutF(1, 0.0f); return true;                                                   // GET_STRING_WIDTH: font metrics are not exposed to the script yet
+    case 0x0904: c.Out(1, 255); c.Out(2, 255); c.Out(3, 255); c.Out(4, 255); return true;        // GET_HUD_COLOUR: white
+    // ---- save, input, audio and world switches with nothing behind them yet -------------------------
+    case 0x03D8: case 0x043C: case 0x04F9: case 0x04FA: case 0x057E: case 0x07B4: case 0x07CC: case 0x0830: case 0x08DC: case 0x08F5:
+    case 0x0949: case 0x094A: case 0x097A: case 0x097B: case 0x0A41: case 0x0A43: return true;
+    case 0x03D9: c.result = true; return true;                                                   // HAS_SAVE_GAME_FINISHED
+    case 0x0494: c.Out(1, 0); c.Out(2, 0); c.Out(3, 0); c.Out(4, 0); return true;                 // GET_POSITION_OF_ANALOGUE_STICKS
+    case 0x07B1: c.OutF(0, 0.0f); return true;                                                   // GET_BEAT_PROXIMITY
+    case 0x08E2: c.Out(1, 0); return true;                                                       // GET_TERRITORY_UNDER_CONTROL_PERCENTAGE
+    case 0x0956: c.Out(1, 0); return true;                                                       // FIND_MAX_NUMBER_OF_GROUP_MEMBERS
+    case 0x0981: case 0x0596: case 0x051A: case 0x0611: case 0x02D8: c.result = false; return true;   // HAS_TRAIN_DERAILED, IS_PLAYER_IN_SHORTCUT_TAXI, HAS_CHAR_BEEN_DAMAGED_BY_CHAR, IS_CHAR_PLAYING_ANIM, IS_CURRENT_CHAR_WEAPON
+    case 0x0613: c.OutF(2, 0.0f); return true;                                                   // GET_CHAR_ANIM_CURRENT_TIME
+    case 0x0614: case 0x0655: case 0x06A9: case 0x0729: case 0x0812: case 0x0159: return true;   // anim time, look-at tasks, mobile phone, non-interruptable anim, camera at char
+    case 0x0632: case 0x0643: case 0x065C: case 0x0708: case 0x0709: case 0x07E5: case 0x0978: return true;   // groups, sequences, decision makers: no effect yet
+    case 0x09F2: c.result = false; return true;                                                  // DOES_DECISION_MAKER_EXIST
+    case 0x05CD: {   // TASK_LEAVE_CAR(char, car)
+        if (c.I(0) == kPlayer) { if (playerLeaveCar) playerLeaveCar(); }
+        else m_charCar.erase(c.I(0));
+        return true;
+    }
+    case 0x0762: { const int i = CharIndex(c.I(0)); if (i >= 0) peds->Damage(i, 1000.0f, false); return true; }   // TASK_DEAD
     // ---- language: comparisons with constants, bit tests, bitwise operators --------------
     case 0x04A3: case 0x04A4: c.result = c.I(0) == c.I(1); return true;                      // IS_INT_(L)VAR_EQUAL_TO_CONSTANT
     case 0x04B0: case 0x04B1: c.result = c.I(0) > c.I(1); return true;                      // IS_INT_(L)VAR_GREATER_THAN_CONSTANT
