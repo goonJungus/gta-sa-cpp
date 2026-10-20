@@ -1413,10 +1413,10 @@ void PlayerPed::Update(const Input& inRaw) {
     }
     m_damageFlash = std::max(0.0f, m_damageFlash - dt * 1.5f);
     if (Underwater()) {   // air in the lungs; empty lungs drown CJ
-        m_breath = std::max(0.0f, m_breath - dt);
+        m_breath = std::max(0.0f, m_breath - dt * 50.0f);   // CPlayerPed::HandlePlayerBreath: one per game step
         if (m_breath <= 0.0f) Hurt(dt * 12.0f);
     } else {
-        m_breath = std::min(kBreathMax, m_breath + dt * 8.0f);
+        if (m_breath < m_breathMax) m_breath = std::min(m_breathMax, m_breath + dt * 100.0f);   // two per step while below the maximum
     }
     m_stickX = in.stickX;
     m_stickY = in.stickY;

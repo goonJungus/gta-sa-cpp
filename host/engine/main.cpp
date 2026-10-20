@@ -3066,6 +3066,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // clips, so he speeds up and slows down with them.)
             float vx = mx * speed, vy = my * speed;
             if (cjReady) {
+                g_cj.SetBreathMax(Stats::FatMuscleMod(8));
                 PlayerPed::Input pin;
                 pin.dt = dt;
                 pin.stickX = mx;
@@ -4500,6 +4501,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.crosshairDot = hs.crosshairDot; hd.hitMarker = hs.hitMarker; hd.damageFlash = hs.damageFlash;
             hd.health = g_cj.Health(); hd.maxHealth = g_cj.MaxHealth(); hd.armor = g_cj.Armor();
             hd.breath = g_cj.Breath(); hd.showBreath = g_cj.ShowBreath();
+            if (getenv("GTA_STATDBG") && (frame % 50) == 0) Log("BREATH %.3f hp %.1f", g_cj.Breath(), g_cj.Health());
             hd.damageFlashAmount = g_cj.DamageFlash();
             int& s_money = g_money;
             static int s_wanted = getenv("GTA_WANTED") ? atoi(getenv("GTA_WANTED")) : 0;
