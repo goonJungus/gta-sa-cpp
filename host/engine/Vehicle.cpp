@@ -510,6 +510,7 @@ void Vehicles::Step(size_t i, float dt, float throttle, float brake, float steer
                     const std::function<float(float, float, float)>& groundAt,
                     const std::function<bool(float, float, float, float, float)>& blocked) {
     if (i >= m_cars.size()) return;
+    if (m_cars[i].hasRot) return;   // a recorded playback owns the car
     VehicleInstance& c = m_cars[i];
     const VehicleInfo* info = Info(c.model);
     const HandlingData* h = info ? Handling(info->handling) : nullptr;
