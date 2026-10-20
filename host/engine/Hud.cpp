@@ -600,6 +600,7 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
     m_hitTimer = std::max(0.0f, m_hitTimer - d.dt);
     m_msgTimer = std::max(0.0f, m_msgTimer - d.dt);
     m_subTimer = std::max(0.0f, m_subTimer - d.dt);
+    m_statTimer = std::max(0.0f, m_statTimer - d.dt);
     m_msgFade = std::min(1.0f, std::max(0.0f, m_msgFade + (m_msgTimer > 0.0f ? 4.0f : -4.0f) * d.dt));
 
     // Zone name state (CHud::DrawAreaName): fade in 1 s, show 3 s, fade out 1 s,
@@ -618,6 +619,13 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
     if (m_subTimer > 0.0f && !m_sub.empty() && d.showHud) {   // CHud::DrawSubtitles
         const float u = sh / 448.0f;
         Text(g, FeFont::SUBTITLES, sw / 2, sh - 88.0f * u, m_sub, 0.58f, 1.2f, 0xFFFFFFFF, FeFont::CENTER, 1);
+    }
+    if (m_statTimer > 0.0f && d.showHud) {   // the skill "+" box: text and a stat bar at the top left
+        const float u = sh / 448.0f;
+        m_font.SetScreen(640.0f * u, 448.0f * u);
+        g.DrawRect(32.0f * u, 140.0f * u, 190.0f * u, 168.0f * u, 0xA0000000);
+        Text(g, FeFont::SUBTITLES, 36.0f * u, 143.0f * u, "+", 0.4f, 0.9f, 0xFFFFFFFF, FeFont::LEFT, 1);
+        Bar(g, 52.0f * u, 152.0f * u, 130.0f * u, 8.0f * u, m_statPct, 0xFFD23C3C, d.rewrite);
     }
     if (d.lockOn) DrawLockOn(g, d, sh);
     if (d.wheel) { m_font.SetScreen(640.0f * (sh / 448.0f), 448.0f * (sh / 448.0f)); DrawWheel(g, d, sw, sh); }

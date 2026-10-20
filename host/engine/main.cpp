@@ -1333,10 +1333,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("PLAYER MESH: CJ_HEIGHT=%.4fm orange box (%s)", CJ_HEIGHT, playerMesh ? "OK" : "FAIL");
     }
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
-    {   // [Player] WeaponSkill: 0 poor (retail new game), 1 standard, 2 pro (twin pistols); GTA_SKILL overrides
-        int skill = GetPrivateProfileIntA("Player", "WeaponSkill", 0, g_iniPath);
+    {   // [Player] WeaponSkill (-1 = earned through play): 0 poor, 1 standard, 2 pro (twin pistols); GTA_SKILL overrides
+        int skill = GetPrivateProfileIntA("Player", "WeaponSkill", -1, g_iniPath);
         if (const char* e = getenv("GTA_SKILL")) skill = atoi(e);
-        PlayerPed::SetWeaponSkill(std::clamp(skill, 0, 2));
+        PlayerPed::SetWeaponSkill(skill < 0 ? -1 : std::clamp(skill, 0, 2));
+        for (int i = 0; i < WeaponStats::kCount; i++) {   // [Stats] saved weapon skill stats (0..1000)
+            char buf[32] = {};
+            GetPrivateProfileStringA("Stats", WeaponStats::kEntries[i].weapon, "0", buf, sizeof buf, g_iniPath);
+            WeaponStats::g_stat[i] = std::clamp((float)atof(buf), 0.0f, 1000.0f);
+        }
     }
     const bool cjReady = g_cj.Init(g_renderer, GameDir());
     g_cj.SetWallProbe([](const float* a, const float* b) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]) < 1.0f; });
@@ -4048,6 +4053,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             const bool kill = g_peds.Shoot(pi2, dmg, ph, !strcmp(gid2, "SNIPERRIFLE") || !strcmp(gid2, "COUNTRYRIFLE"));
                             Log("PED HIT %d head %d kill %d at %.1f", pi2, (int)ph, (int)kill, pt);
                             if (g_hudReady) g_hud.Hit(kill);
+                            {   // CStats::UpdateStatsWhenWeaponHit
+                                bool box = false;
+                                if (WeaponStats::OnHit(gid2, &box)) {
+                                    g_cj.RefreshWeaponSkills();
+                                    if (box) {
+                                        char sv[32];
+                                        snprintf(sv, sizeof sv, "%.2f", WeaponStats::Stat(gid2));
+                                        for (int i = 0; i < WeaponStats::kCount; i++) {
+                                            snprintf(sv, sizeof sv, "%.2f", WeaponStats::g_stat[i]);
+                                            WritePrivateProfileStringA("Stats", WeaponStats::kEntries[i].weapon, sv, g_iniPath);
+                                        }
+                                        if (g_hudReady) g_hud.StatUpdate(WeaponStats::Stat(gid2) / 10.0f);
+                                    }
+                                }
+                            }
                             g_fx.Blood(hit);
                             g_audio.Impact(pt);
                             dummyHit = 0;

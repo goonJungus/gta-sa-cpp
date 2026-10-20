@@ -28,6 +28,7 @@
 #include "Movement.h"
 #include "ParaCanopy.h"
 #include "SkinnedDff.h"
+#include "WeaponStats.h"
 
 #include <algorithm>
 #include <deque>
@@ -83,7 +84,8 @@ public:
     };
 
     // Weapon skill of CJ: 0 poor (a new game), 1 standard. Call before Init; picks the weapon.dat row and fire clips.
-    static void SetWeaponSkill(int skill) { s_weaponSkill = skill; }
+    static void SetWeaponSkill(int skill) { WeaponStats::g_forced = skill; }
+    void RefreshWeaponSkills();           // re-pick weapon.dat rows after a skill stat changed
     bool Init(D3DRenderer& r, const std::string& gameDir);
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return m_ready; }
@@ -134,7 +136,7 @@ public:
     float WeaponRadiusOnScreen() const;   // CPlayerPed::GetWeaponRadiusOnScreen
     float TargetRange() const { return m_gun >= 0 ? m_guns[m_gun].targetRange : 0.0f; }
     // CWeaponInfo::GetTargetHeadRange: (skill + 2) * weapon range * 0.04
-    float TargetHeadRange() const { return m_gun >= 0 ? (float)(s_weaponSkill + 2) * m_guns[m_gun].range * 0.04f : 0.0f; }
+    float TargetHeadRange() const { return m_gun >= 0 ? (float)(m_guns[m_gun].skill + 2) * m_guns[m_gun].range * 0.04f : 0.0f; }
     // CWeapon::FireInstantHit inputs: the crosshair counter, weapon.dat accuracy and flags.
     float AttackCounter() const { return m_attackCounter; }
     float GunAccuracy() const { return m_gun >= 0 ? m_guns[m_gun].accuracy : 1.0f; }
@@ -227,7 +229,6 @@ public:
     bool BoneWorldPos(int boneId, float x, float y, float feetZ, float out[3]) const;
 
 private:
-    static inline int s_weaponSkill = 0;
     struct Part {
         std::vector<SkinVertex> verts;
         std::vector<SkinVertex> shape[3];   // Normal, Fat, Ripped (empty: use Normal)
@@ -362,6 +363,8 @@ private:
     float accuracy = 1.0f;                                               // weapon.dat accuracy
     float targetRange = 25.0f;                                           // weapon.dat target range (lock-on)
     float damage = 10.0f, range = 30.0f;                                 // weapon.dat damage and weapon range
+        std::vector<std::string> skillRows[3];                               // weapon.dat rows: poor, standard, pro
+        int skill = 0;                                                       // the row in use
         bool twin = false;                                                   // flag 0x800: a gun in each hand (pro skill)
         bool aimWithArm = false;                                             // flag 0x2: the arm points, else the torso
         const Melee::Combo* combo = nullptr;                                 // melee: its data\melee.dat combo
@@ -371,6 +374,7 @@ private:
         std::vector<D3DRenderMesh*> muzzle;     // the muzzle flash atomic, drawn only on a shot
         std::vector<IDirect3DTexture9*> textures;
     };
+    static void ApplyGunRow(Gun& g, int skill);
     std::vector<Gun> m_guns;
     bool AttackSpread(const Gun& g) const;
     int m_gun = -1;     // the firearm in hand
