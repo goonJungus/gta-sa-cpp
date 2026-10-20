@@ -100,6 +100,18 @@ const GunSpec kThrownSpecs[] = {
     {"INFRARED", "Thermal goggles", nullptr, nullptr, nullptr, nullptr, false, nullptr, false, true, 45},
 };
 
+// eWeaponType of the weapons the spec table leaves untyped.
+int TypeOfName(const std::string& n) {
+    static const char* const names[] = {"BRASSKNUCKLE", "GOLFCLUB", "NIGHTSTICK", "KNIFE", "BASEBALLBAT", "SHOVEL", "POOLCUE", "KATANA", "CHAINSAW",
+                                        "DILDO1", "DILDO2", "VIBE1", "VIBE2", "FLOWERS", "CANE"};
+    for (int i = 0; i < 15; i++) if (n == names[i]) return i + 1;
+    static const struct { const char* n; int t; } guns[] = {
+        {"PISTOL", 22}, {"PISTOL_SILENCED", 23}, {"DESERT_EAGLE", 24}, {"SHOTGUN", 25}, {"SAWNOFF", 26}, {"SPAS12", 27},
+        {"MICRO_UZI", 28}, {"MP5", 29}, {"AK47", 30}, {"M4", 31}, {"TEC9", 32}};
+    for (const auto& g : guns) if (n == g.n) return g.t;
+    return 0;
+}
+
 std::string LowerStr(std::string s) {
     for (char& c : s) c = (char)std::tolower((unsigned char)c);
     return s;
@@ -336,7 +348,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         for (int k = 0; k < 3; k++) g.skillRows[k] = *byName[std::min<size_t>(k, byName.size() - 1)];
         const std::vector<std::string>* row = &g.skillRows[0];
         g.spec = &sp;
-        g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
+        g.thrown = sp.thrown; g.type = sp.type ? sp.type : TypeOfName(sp.name); g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
         g.name = sp.label;
         ApplyGunRow(g, WeaponStats::Skill(sp.name));
         g.reloadTime = 1.0f;
@@ -352,7 +364,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         if (!row) continue;
         Gun g;
         g.spec = &sp;
-        g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
+        g.thrown = sp.thrown; g.type = sp.type ? sp.type : TypeOfName(sp.name); g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
         g.name = sp.label;
         g.comboName = (*row)[7];
         g.slot = std::atoi((*row)[6].c_str());
@@ -370,7 +382,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
         if (!row) continue;
         Gun g;
         g.spec = &sp;
-        g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
+        g.thrown = sp.thrown; g.type = sp.type ? sp.type : TypeOfName(sp.name); g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
         g.name = sp.label;
         g.clipSize = 1;
         g.slot = std::atoi((*row)[7].c_str());
@@ -442,17 +454,102 @@ void PlayerPed::SelectGun(int index) {
 }
 
 void PlayerPed::NextGun() {
-    const int cur = WeaponIndex();
-    SelectGun(cur + 1 >= GunCount() ? -1 : cur + 1);
+    int i = WeaponIndex() + 1;
+    while (i < GunCount() && !m_guns[i].owned) i++;
+    SelectGun(i >= GunCount() ? -1 : i);
 }
 
 void PlayerPed::PrevGun() {
-    const int cur = WeaponIndex();
-    SelectGun(cur < 0 ? GunCount() - 1 : cur - 1);
+    int i = WeaponIndex() < 0 ? GunCount() - 1 : WeaponIndex() - 1;
+    while (i >= 0 && !m_guns[i].owned) i--;
+    SelectGun(i);
+}
+
+int PlayerPed::GunIndexOfType(int type) const {
+    for (size_t i = 0; i < m_guns.size(); i++) if (m_guns[i].type == type) return (int)i;
+    return -1;
+}
+
+void PlayerPed::ClearWeapons() {
+    for (Gun& g : m_guns) { g.owned = false; g.ammo = g.total = 0; }
+    SelectGun(-1);
+}
+
+bool PlayerPed::SlotHasOtherAmmo(int type) const {
+    const int n = GunIndexOfType(type);
+    if (n < 0) return false;
+    for (size_t i = 0; i < m_guns.size(); i++) {
+        const Gun& g = m_guns[i];
+        if ((int)i != n && g.owned && g.slot == m_guns[n].slot && (g.ammo + g.total > 0 || g.spec->melee)) return true;
+    }
+    return false;
+}
+
+int PlayerPed::PickupSlotState(int type) const {
+    const int n = GunIndexOfType(type);
+    if (n < 0) return 0;
+    if (m_guns[n].owned) return 0;
+    for (size_t i = 0; i < m_guns.size(); i++) {
+        const Gun& g = m_guns[i];
+        if ((int)i == n || !g.owned || g.slot != m_guns[n].slot) continue;
+        return (g.ammo + g.total > 0 || SlotExchangeable(type)) ? 1 : 2;
+    }
+    return 0;
+}
+
+bool PlayerPed::SlotExchangeable(int type) const {
+    const int n = GunIndexOfType(type);
+    return n >= 0 && m_guns[n].slot >= 3 && m_guns[n].slot <= 5;
+}
+
+// CPlayerPed::DoesPlayerWantNewWeapon: not while a jetpack is on, and not into the slot in use mid attack or aim.
+bool PlayerPed::WantsNewWeapon(int type) const {
+    const int n = GunIndexOfType(type);
+    if (n < 0) return false;
+    int other = -1;
+    for (size_t i = 0; i < m_guns.size(); i++)
+        if ((int)i != n && m_guns[i].owned && m_guns[i].slot == m_guns[n].slot) other = (int)i;
+    if (m_guns[n].owned || other < 0) return true;
+    if (m_jet.on) return false;
+    if (WeaponIndex() == other && (m_firing || m_aiming)) return false;
+    return true;
+}
+
+// PlayerCanPickUpThisWeaponTypeAtThisMoment: a weapon that needs both hands is refused on the jetpack.
+bool PlayerPed::CanPickWeaponNow(int type) const {
+    const int n = GunIndexOfType(type);
+    return !(n >= 0 && !m_guns[n].aimWithArm && m_jet.on);
+}
+
+void PlayerPed::GrantAmmo(int type, int ammo) {
+    const int n = GunIndexOfType(type);
+    if (n < 0) return;
+    for (Gun& g : m_guns)
+        if (g.owned && g.slot == m_guns[n].slot) g.total = std::min(g.total + ammo, 99999);
+}
+
+// CPed::GiveWeapon: one weapon per slot; the same weapon again only adds ammo.
+bool PlayerPed::GiveWeapon(int type, int ammo) {
+    const int n = GunIndexOfType(type);
+    if (n < 0) return false;
+    Gun& g = m_guns[n];
+    if (g.owned) {
+        g.total += ammo;
+        return true;
+    }
+    const bool inHand = WeaponIndex() >= 0 && m_guns[WeaponIndex()].slot == g.slot;
+    for (size_t i = 0; i < m_guns.size(); i++)
+        if ((int)i != n && m_guns[i].owned && m_guns[i].slot == g.slot) { m_guns[i].owned = false; m_guns[i].ammo = m_guns[i].total = 0; }
+    g.owned = true;
+    if (g.spec->thrown || g.spec->melee || g.clipSize <= 0) { g.ammo = 0; g.total = ammo; }
+    else { g.ammo = std::min(g.clipSize, ammo); g.total = ammo - g.ammo; }
+    if (inHand) SelectGun(n);
+    return true;
 }
 
 void PlayerPed::RefillAmmo() {
     for (Gun& g : m_guns) {
+        if (!g.owned) continue;
         if (g.spec->thrown) { g.total = g.detonator ? g.total : g.type >= 44 ? 1 : 5; continue; }
         g.ammo = g.clipSize; g.total = g.clipSize * 60;
     }

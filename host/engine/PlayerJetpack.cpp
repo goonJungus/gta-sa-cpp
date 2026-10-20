@@ -271,3 +271,14 @@ void PlayerPed::LoadJetpack(D3DRenderer& r, ImgLoader& gta3) {
     }
     std::fprintf(stderr, "[JET] jetpack.dff body %zu balls %zu/%zu\n", m_jetBody.size(), m_jetBall[0].size(), m_jetBall[1].size());
 }
+
+// A pack lying on the ground as a pickup: the body model at a world matrix.
+void PlayerPed::DrawJetpackPickup(D3DRenderer& r, const float w[4][4]) {
+    IDirect3DDevice9* dev = r.GetDevice();
+    if (!dev || m_jetBody.empty()) return;
+    D3DMATRIX out;
+    float* o = &out._11;
+    for (int i = 0; i < 4; i++) for (int k = 0; k < 4; k++) o[i * 4 + k] = w[i][k];
+    dev->SetTransform(D3DTS_WORLD, &out);
+    for (D3DRenderMesh* m : m_jetBody) r.DrawMesh(m);
+}
