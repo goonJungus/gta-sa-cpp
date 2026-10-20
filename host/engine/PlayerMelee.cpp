@@ -122,10 +122,10 @@ void PlayerPed::UpdateMelee(const Input& in) {
             std::fprintf(stderr, "[MELEE] strike damage %.3f (move %.1f x %.3f)\n", s.damage, mv.damage, FatMuscleModifier());
             s.move = m_fight.move;
             s.sword = c->name == "SWORD";
-            if (m_melee < 0) s.force = 0.5f;   // WEAPON_UNARMED
+            if (m_melee < 0) { s.force = 0.5f; s.mega = true; }   // WEAPON_UNARMED
             else {
                 const std::string& wn = m_guns[m_melee].name;
-                if (wn == "Brass knuckles" || wn == "Nightstick" || wn == "Chainsaw") s.force = 0.5f;
+                if (wn == "Brass knuckles" || wn == "Nightstick" || wn == "Chainsaw") { s.force = 0.5f; s.mega = wn == "Brass knuckles"; }
                 else if (wn == "Golf club" || wn == "Baseball bat" || wn == "Shovel" || wn == "Pool cue" || wn == "Katana" || wn == "Purple dildo") s.force = 1.5f;
             }
             s.hitAudio = mv.hitAudio;
