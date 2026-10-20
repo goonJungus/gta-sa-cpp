@@ -1,4 +1,5 @@
 #include "Script.h"
+#include <map>
 
 #include <cstdlib>
 
@@ -27,7 +28,24 @@ struct CmdInfo { uint16_t op; uint8_t args, outs, cond; };
 // Argument counts of the script commands, settled by scripts/scm_args.py against the compiled script.
 const CmdInfo kCmds[] = {
 #include "ScmArgs.inc"
+
 };
+
+// Opcodes the compiled script uses in condition slots (scripts/scm_cond.py); the argument table alone misses many.
+bool IsCondOp(uint16_t op) {
+    static const std::set<uint16_t> s_conds = {
+#include "ScmCond.inc"
+    };
+    return s_conds.count(op) != 0;
+}
+
+const char* CmdName(uint16_t op) {   // dev: the trace prints command names
+    static const std::map<uint16_t, const char*> names = {
+#include "ScmNames.inc"
+    };
+    auto it = names.find(op);
+    return it == names.end() ? "?" : it->second;
+}
 
 const CmdInfo* FindCmd(uint16_t op) {
     size_t lo = 0, hi = sizeof(kCmds) / sizeof(kCmds[0]);
@@ -111,7 +129,7 @@ bool ScmMachine::ReadArg(ScmThread& t, Arg& a) {
         const uint8_t size = m_space[t.pc + 4], flags = m_space[t.pc + 5];
         t.pc += 6;
         int32_t idx = 0;
-        if (flags & 0x80) idx = iv < 64 ? t.locals[iv] : 0;
+        if (flags & 0x80) idx = iv < ScmThread::kLocals ? t.locals[iv] : 0;
         else if ((size_t)iv + 4 <= m_space.size()) idx = (int32_t)Rd32(m_space, iv);
         if (idx < 0 || idx >= size) idx = 0;
         const bool local = a.type == 8 || a.type == 0x0D || a.type == 0x13;
@@ -143,7 +161,7 @@ int32_t& ScmMachine::Var(ScmThread& t, const Arg& a) {
     if (a.type == 2) {
         if (a.i >= 8 && (size_t)a.i + 4 <= m_space.size()) return *reinterpret_cast<int32_t*>(&m_space[(size_t)a.i]);
     } else if (a.type == 3) {
-        if (a.i >= 0 && a.i < 64) return t.locals[a.i];
+        if (a.i >= 0 && a.i < ScmThread::kLocals) return t.locals[a.i];
     }
     sink = 0;
     return sink;
@@ -169,8 +187,16 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
     auto fail = [&]() { t.pc = start; t.stoppedAt = op; return false; };
     Arg a, b;
     t.executed++;
-    if (static const char* tr = std::getenv("GTA_SCMTRACE"); tr && t.executed < 400 && t.name == tr)
-        std::fprintf(stderr, "[SCMTRACE] %s %06X %04X\n", t.name.c_str(), start, op);
+
+
+    static const char* s_pc = std::getenv("GTA_SCMPC");
+    static const uint32_t s_pcLo = s_pc ? (uint32_t)std::strtoul(s_pc, nullptr, 16) : 0;
+    if (s_pc && t.name == "MAIN" && start >= s_pcLo && start < s_pcLo + 0x80)   // dev: MAIN instructions in a 0x80-byte window
+        std::fprintf(stderr, "[SCMPC] %06X %04X %s\n", start, op, CmdName(op));
+    static const char* s_ta = std::getenv("GTA_SCMTRACEALL");
+    static const uint64_t s_from = std::getenv("GTA_SCMOPFROM") ? (uint64_t)std::atoll(std::getenv("GTA_SCMOPFROM")) : 0;
+    if (s_ta && t.name == s_ta && t.executed >= s_from && t.executed < s_from + 3000)   // dev: a 3000-instruction window of one thread
+        std::fprintf(stderr, "[SCMOP] %s %06X %04X %s\n", t.name.c_str(), start, op, CmdName(op));
 
     auto readValue = [&](const Arg& x, bool isFloat, ScmThread& th) -> int32_t {
         if (x.type == 2 || x.type == 3) return Var(th, x);
@@ -212,6 +238,35 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
         t.pc = t.stack[--t.sp];
         return true;
     }
+    if (op == 0x0871 || op == 0x0872) {                                         // SWITCH_START / SWITCH_CONTINUED
+        std::vector<Arg> sa(18);
+        for (Arg& x : sa) if (!ReadArg(t, x)) return fail();
+        if (op == 0x0872) return true;   // its cases were read by the START that precedes it
+        const int32_t val = readValue(sa[0], false, t);
+        const int count = readValue(sa[1], false, t);
+        int32_t target = sa[3].i;   // the default
+        int seen = 0;
+        bool hit = false;
+        auto tryPair = [&](const Arg& cv, const Arg& jv) {
+            if (hit || seen++ >= count) return;
+            if (readValue(cv, false, t) == val) { target = jv.i; hit = true; }
+        };
+        for (int i = 4; i + 1 < 18; i += 2) tryPair(sa[i], sa[i + 1]);
+        uint32_t look = t.pc;   // the continuation instructions hold the remaining cases
+        while (seen < count && look + 2 <= m_space.size() && (Rd16(m_space, look) & 0x7FFF) == 0x0872) {
+            ScmThread tmp = t;
+            tmp.pc = look + 2;
+            for (int i = 0; i < 18; i++) {
+                Arg x;
+                if (!ReadArg(tmp, x)) break;
+                sa[i % 18] = x;
+                if (i % 2) tryPair(sa[i - 1], sa[i]);
+            }
+            look = tmp.pc;
+        }
+        Jump(t, target);
+        return true;
+    }
     if (op == 0x004E) { t.finished = true; return false; }                     // TERMINATE_THIS_SCRIPT
     if (op == 0x004F || op == 0x00D7) {                                         // START_NEW_SCRIPT, LAUNCH_MISSION
         if (!ReadArg(t, a)) return fail();
@@ -227,7 +282,7 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
             while (t.pc < m_space.size() && m_space[t.pc] != 0) {
                 Arg v;
                 if (!ReadArg(t, v)) return fail();
-                if (li < 64) n.locals[li++] = (v.type == 2 || v.type == 3) ? Var(t, v) : v.i;
+                if (li < 32) n.locals[li++] = (v.type == 2 || v.type == 3) ? Var(t, v) : v.i;
             }
             if (t.pc < m_space.size()) t.pc++;   // the end-of-arguments byte
         }
@@ -308,14 +363,30 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
         }
     }
     bool result = false;
+    if (static const char* tr = std::getenv("GTA_SCMTRACE"); tr && (t.name == tr || !std::strcmp(tr, "*"))) {
+        static int s_lines = 0;
+        static const int s_max = std::getenv("GTA_SCMTRACEMAX") ? std::atoi(std::getenv("GTA_SCMTRACEMAX")) : 3000;
+        if (s_lines++ < s_max) {
+            std::string s;
+            char b[64];
+            for (const Arg& x : args) {
+                if (x.text) { std::snprintf(b, sizeof b, " '%.8s'", x.i >= 0 && (size_t)x.i + 8 <= m_space.size() ? (const char*)&m_space[x.i] : "?"); }
+                else if (x.type == 2 || x.type == 3) std::snprintf(b, sizeof b, " v%d=%d", x.i, Var(t, x));
+                else if (x.type == 6) std::snprintf(b, sizeof b, " %.2f", x.f);
+                else std::snprintf(b, sizeof b, " %d", x.i);
+                s += b;
+            }
+            std::fprintf(stderr, "[SCMTRACE] %s %06X %s%s%s\n", t.name.c_str(), start, notFlag ? "NOT " : "", CmdName(op), s.c_str());
+        }
+    }
     if (!Command(t, op, args, result)) {
-        if (m_logged.insert(op).second) std::fprintf(stderr, "[SCM] %s: command 0x%04X not implemented (%zu args)\n", t.name.c_str(), op, args.size());
+        if (m_logged.insert(op).second) std::fprintf(stderr, "[SCM] %s: command 0x%04X %s not implemented (%zu args)\n", t.name.c_str(), op, CmdName(op), args.size());
         if (ci)
             for (size_t i = args.size() - ci->outs; i < args.size() && ci->outs; i++)
                 if (args[i].type == 2 || args[i].type == 3) Var(t, args[i]) = 0;
         result = false;
     }
-    if (ci && ci->cond) Compare(t, notFlag ? !result : result);
+    if ((ci && ci->cond) || IsCondOp(op)) Compare(t, notFlag ? !result : result);
     return true;
 }
 
@@ -380,6 +451,16 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
     case 0x0256:   // IS_PLAYER_PLAYING(player): the player is always alive and in control here
         result = true;
         return true;
+    case 0x0417: {   // LOAD_AND_LAUNCH_MISSION_INTERNAL(index): the mission script becomes a thread of its own
+        const ScmHeader& h = m_file.Header();
+        const int idx = inum(0);
+        if (idx < 0 || idx >= (int)h.missionOffsets.size()) return true;
+        ScmThread n;
+        n.pc = n.base = h.missionOffsets[(size_t)idx];
+        n.name = "mission";
+        m_pending.push_back(n);
+        return true;
+    }
     case 0x00C0:   // SET_TIME_OF_DAY(hour, minute)
         if (host.setTime) host.setTime(inum(0), inum(1));
         return true;
@@ -389,6 +470,9 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
 }
 
 void ScmMachine::Update(int32_t nowMs, int maxInstructions) {
+    const int32_t dt = m_lastMs ? nowMs - m_lastMs : 0;   // the two timer locals of every thread count up between updates
+    m_lastMs = nowMs;
+    if (dt > 0) for (ScmThread& t : m_threads) { t.locals[32] += dt; t.locals[33] += dt; }
     for (size_t i = 0; i < m_threads.size(); i++) {   // new threads started on the way join the same pass
         ScmThread& t = m_threads[i];
         if (!t.finished && !t.stoppedAt && t.wakeTime <= nowMs)
