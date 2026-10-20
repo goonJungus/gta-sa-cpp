@@ -164,6 +164,8 @@ bool Cutscene::BuildObject(D3DRenderer& r, Obj& o, const std::vector<uint8_t>& d
             idx.insert(idx.end(), c.indices.begin() + (long)(t * 3), c.indices.begin() + (long)(t * 3 + 3));
         }
         if (idx.empty()) continue;
+        if (mi < c.materialColor.size())   // the material colour modulates the texture
+            for (uint16_t vi : idx) o.skinned[vi].color = 0xFF000000u | c.materialColor[mi];
         D3DRenderMesh* me = r.CreateMesh(o.skinned.data(), (uint32_t)o.skinned.size(), idx.data(), (uint32_t)idx.size());
         if (!me) continue;
         const std::string want = mi < c.materialTexture.size() ? Lower(c.materialTexture[mi]) : std::string();
@@ -185,8 +187,10 @@ bool Cutscene::BuildRigid(D3DRenderer& r, Obj& o, const std::vector<uint8_t>& df
     const DffModel m = DffLoader::LoadFromMemory(dff.data(), dff.size());
     if (!m.valid) return false;
     std::vector<TxdTexture> tex = m_tex;
-    for (const DffMesh& dm : m.meshes) {
-        if (dm.vertices.empty() || dm.indices.empty()) continue;
+    for (const DffMesh& dm0 : m.meshes) {
+        if (dm0.vertices.empty() || dm0.indices.empty()) continue;
+        DffMesh dm = dm0;
+        for (DffVertex& v : dm.vertices) v.color = 0xFF000000u | (dm.materialColor & 0x00FFFFFFu);   // the material colour modulates the texture
         D3DRenderMesh* me = r.CreateMesh(reinterpret_cast<const MeshVertex*>(dm.vertices.data()), (uint32_t)dm.vertices.size(), dm.indices.data(), (uint32_t)dm.indices.size());
         if (!me) continue;
         const std::string want = Lower(dm.textureName);
