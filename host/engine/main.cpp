@@ -2357,7 +2357,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Log("DEV: collision view %s", g_devShowCollision ? "ON (pink wireframe)" : "OFF");
             }
             if (DevKeyPressed('B') && g_vehicles.Ready() && g_vehicles.ModelCount() > 0) {   // dev: spawn the next car ahead of CJ
-                const int id = g_vehicles.IdAt(g_vehSpawnIdx++ % g_vehicles.ModelCount());
+                static const int s_devModel = getenv("GTA_VEHMODEL") ? atoi(getenv("GTA_VEHMODEL")) : 0;   // dev: always spawn this model id
+                const int id = s_devModel ? s_devModel : g_vehicles.IdAt(g_vehSpawnIdx++ % g_vehicles.ModelCount());
                 float fx = playerX - camPosX, fy = playerY - camPosY;   // away from the camera, along the view
                 const float fl = std::sqrt(fx * fx + fy * fy);
                 if (fl < 0.01f) { fx = cosf(yaw); fy = sinf(yaw); } else { fx /= fl; fy /= fl; }
@@ -3447,6 +3448,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     static const float s_statTime = getenv("GTA_STATTIME") ? (float)atof(getenv("GTA_STATTIME")) : 1.0f;   // dev: speed up the activity counters
                     float carSpd = 0.0f;
                     if (g_driveCar >= 0) { const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar); carSpd = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy) / 50.0f; }
+                    {   // CGameLogic::Update: CStats::UpdateRespectStat(0) and UpdateSexAppealStat
+                        static int s_lastCar = -1;   // the car CJ last drove (DAT_00b79530)
+                        if (g_driveCar >= 0) s_lastCar = g_driveCar;
+                        const int rd = Stats::UpdateRespect(g_money, 0.0f, 0, false);
+                        if (rd > 0 && g_hudReady) g_hud.StatUpdate(Stats::Get(Stats::STAT_TOTAL_RESPECT) / 10.0f);
+                        if (rd != 0) Log("STATS: respect %s to %.1f", rd > 0 ? "rose" : "fell", Stats::Get(Stats::STAT_TOTAL_RESPECT));
+                        bool have = false; float dist = 0.0f, hp = 0.0f; int cls = 0;
+                        if (s_lastCar >= 0 && (size_t)s_lastCar < g_vehicles.Count()) {
+                            const VehicleInstance& lc = g_vehicles.Car((size_t)s_lastCar);
+                            have = true; hp = lc.health;
+                            if (const char* dh = getenv("GTA_STATCARHP")) hp = (float)atof(dh);   // dev: pretend the car has this health
+                            dist = std::sqrt((lc.x - playerX) * (lc.x - playerX) + (lc.y - playerY) * (lc.y - playerY));
+                            if (const VehicleInfo* vi = g_vehicles.Info(lc.model)) cls = vi->vclass;
+                            if (const char* dd = getenv("GTA_STATDIST"); dd && frame >= 200) dist = (float)atof(dd);   // dev: pretend the car is this far
+                        }
+                        Stats::UpdateSexAppeal(have, dist, hp, cls, false);
+                        if (getenv("GTA_STATDBG") && (frame % 60) == 0) Log("STATDBG: last car %d dist %.1f health %.0f class %d player %.1f %.1f", s_lastCar, dist, hp, cls, playerX, playerY);
+                    }
                     if (const char* si = getenv("GTA_STATINC"); si && frame == 40) {   // dev: "hurt:hp" then "id:amount" raises a stat
                         int id = 0; float amt = 0;
                         if (sscanf(si, "%d:%f", &id, &amt) == 2) {
@@ -3456,7 +3475,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             Log("STATINC: stat %d = %.0f, health %.2f/%.2f after, fat %.0f", id, Stats::Get(id), g_cj.Health(), g_cj.MaxHealth(), Stats::Get(Stats::STAT_FAT));
                         }
                     }
-                    if (getenv("GTA_STATDBG") && (frame % 60) == 0) Log("STATDBG: hp %.1f/%.1f rate %d drive %d spd %.3f thr %d", g_cj.Health(), g_cj.MaxHealth(), rate, g_driveCar, carSpd, (int)((RawGameKey('W') & 0x8000) != 0));
+                    if (const char* ss = getenv("GTA_STATSET"); ss && frame == 80) {   // dev: "id:value" overwrites a stat
+                        int id = 0; float val = 0;
+                        if (sscanf(ss, "%d:%f", &id, &val) == 2) { Stats::Set(id, val); Log("STATSET: stat %d = %.0f", id, val); }
+                    }
+                    if (getenv("GTA_STATDBG") && (frame % 60) == 0) Log("STATDBG: respect %.1f sex %.1f hp %.1f/%.1f rate %d drive %d spd %.3f thr %d", Stats::Get(Stats::STAT_TOTAL_RESPECT), Stats::Get(Stats::STAT_SEX_APPEAL), g_cj.Health(), g_cj.MaxHealth(), rate, g_driveCar, carSpd, (int)((RawGameKey('W') & 0x8000) != 0));
                     const int up = Stats::UpdateActivity(dt * s_statTime, rate, g_cj.Swimming(), g_cj.Underwater(), g_driveCar >= 0, carSpd, true);
                     if (up == Stats::STAT_MAX_HEALTH) g_cj.SetMaxHealth(Stats::Get(Stats::STAT_MAX_HEALTH) / 5.69f);
                     if (up >= 0) {

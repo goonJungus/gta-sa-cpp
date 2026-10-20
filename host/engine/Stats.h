@@ -335,6 +335,13 @@ void SetRecord(int stat, float value);     // CStats::SetNewRecordStat: only a h
 int MaxGroupMembers();                     // CStats::FindMaxNumberOfGroupMembers (from total respect)
 void Load(const char* ini);                // [Stats] S<id>=value
 void Save(const char* ini);
+// CStats::UpdateRespectStat: STAT_TOTAL_RESPECT from clothes, muscle, cash, girlfriends, missions and respect. territoryFrac
+// (gang territory owned, 0..1) and tagPct (tags sprayed, 0..100) come from systems the port does not have yet and stay 0.
+// Returns 1 when the value rose past the 40-point message threshold, -1 when it fell, else 0.
+int UpdateRespect(int money, float territoryFrac, int tagPct, bool cheat);
+void ResetRespectMessage();                // CStats::UpdateRespectStat(true): forget the last shown value
+// CStats::UpdateSexAppealStat: STAT_SEX_APPEAL from the appearance stat and the nearest player car (within 35 m).
+void UpdateSexAppeal(bool haveCar, float carDist, float carHealth, int carClass, bool cheat);
 // CStats::UpdateStatsWhen*: returns the stat that rose this call, or -1.
 int UpdateActivity(float dt, int exerciseRate, bool swimming, bool underwater, bool driving, float carSpeed, bool hasDriver);
 

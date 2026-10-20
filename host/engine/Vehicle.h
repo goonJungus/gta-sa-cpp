@@ -34,6 +34,7 @@ struct HandlingData {
 struct VehicleInfo {
     int id = 0;
     std::string dff, txd, type, handling, gameName;
+    int vclass = 0;                   // vehicles.ide class: 0 normal, 1 poorfamily .. 11 bicycle (eVehicleClass)
     float wheelScaleFront = 0.7f, wheelScaleRear = 0.7f;
 };
 

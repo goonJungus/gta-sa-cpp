@@ -126,6 +126,11 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             VehicleInfo v;
             v.id = std::atoi(f[0].c_str());
             v.dff = Lower(f[1]); v.txd = Lower(f[2]); v.type = f[3]; v.handling = Lower(f[4]); v.gameName = f[5];
+            {
+                static const char* const kClasses[] = {"normal", "poorfamily", "richfamily", "executive", "worker", "big", "taxi", "moped",
+                                                       "motorbike", "leisureboat", "workerboat", "bicycle"};
+                for (int ci = 0; ci < 12; ci++) if (Lower(f[7]) == kClasses[ci]) v.vclass = ci;
+            }
             v.wheelScaleFront = (float)std::atof(f[12].c_str());
             v.wheelScaleRear = (float)std::atof(f[13].c_str());
             m_info[v.id] = v;
