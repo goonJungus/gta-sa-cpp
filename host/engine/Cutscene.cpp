@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <sstream>
 
 #include "ImgLoader.h"
@@ -153,8 +154,7 @@ bool Cutscene::BuildObject(D3DRenderer& r, Obj& o, const std::vector<uint8_t>& d
         const SkinVertex& sv = c.vertices[v];
         o.skinned[v] = {sv.pos[0], sv.pos[1], sv.pos[2], sv.normal[0], sv.normal[1], sv.normal[2], 0xFFFFFFFFu, sv.uv[0], sv.uv[1]};
     }
-    std::vector<TxdTexture> tex;
-    if (!txd.empty()) tex = TxdLoader::LoadFromMemory(txd.data(), txd.size());
+    std::vector<TxdTexture> tex = m_tex;
     const size_t numMat = std::max<size_t>(1, c.materialTexture.size());
     for (size_t mi = 0; mi < numMat; mi++) {
         std::vector<uint16_t> idx;
@@ -180,6 +180,30 @@ bool Cutscene::BuildObject(D3DRenderer& r, Obj& o, const std::vector<uint8_t>& d
     return !o.meshes.empty();
 }
 
+// Cars and props of a cutscene are plain DFFs; the clip's first sequence moves the whole model.
+bool Cutscene::BuildRigid(D3DRenderer& r, Obj& o, const std::vector<uint8_t>& dff, const std::vector<uint8_t>& txd) {
+    const DffModel m = DffLoader::LoadFromMemory(dff.data(), dff.size());
+    if (!m.valid) return false;
+    std::vector<TxdTexture> tex = m_tex;
+    for (const DffMesh& dm : m.meshes) {
+        if (dm.vertices.empty() || dm.indices.empty()) continue;
+        D3DRenderMesh* me = r.CreateMesh(reinterpret_cast<const MeshVertex*>(dm.vertices.data()), (uint32_t)dm.vertices.size(), dm.indices.data(), (uint32_t)dm.indices.size());
+        if (!me) continue;
+        const std::string want = Lower(dm.textureName);
+        const TxdTexture* pick = nullptr;
+        for (const TxdTexture& t : tex) if (!want.empty() && Lower(t.name) == want) { pick = &t; break; }
+        if (!pick && !want.empty() && !tex.empty()) pick = &tex[0];
+        if (pick) {
+            IDirect3DTexture9* tx = r.CreateTexture(pick->width, pick->height, pick->d3dFormat, pick->mip0.data(), (uint32_t)pick->mip0.size(), &pick->extraMips);
+            me->texture = tx;
+            o.textures.push_back(tx);
+        }
+        o.meshes.push_back(me);
+    }
+    o.rigid = !o.meshes.empty();
+    return o.rigid;
+}
+
 bool Cutscene::Load(D3DRenderer& r, const std::string& gameDir, const std::string& name) {
     Free(r);
     const std::string n = Lower(name);
@@ -191,8 +215,26 @@ bool Cutscene::Load(D3DRenderer& r, const std::string& gameDir, const std::strin
     for (const auto& kv : m_clips) m_duration = std::max(m_duration, kv.second.duration);
 
     // NAME.cut: sections from a name to "end", commas as spaces (CCutsceneMgr::LoadCutSceneFile)
-    ImgLoader models;
+    ImgLoader models, gta3;
     const bool haveModels = models.Open(gameDir + "/models/cutscene.img");
+    gta3.Open(gameDir + "/models/gta3.img");
+    std::unordered_map<std::string, std::string> parents;
+    {
+        std::ifstream pf(gameDir + "/data/txdcut.ide");
+        std::string pl;
+        bool inP = false;
+        while (std::getline(pf, pl)) {
+            pl = Trim(pl);
+            for (char& ch : pl) if (ch == ',') ch = ' ';
+            if (pl.empty() || pl[0] == '#') continue;
+            if (Lower(pl) == "txdp") { inP = true; continue; }
+            if (Lower(pl) == "end") { inP = false; continue; }
+            std::istringstream ps(pl);
+            std::string a, b;
+            if (inP && (ps >> a >> b)) parents[Lower(a)] = Lower(b);
+        }
+    }
+    const std::vector<uint8_t> sharedVeh = gta3.Extract("vehicle.txd");
     std::istringstream in(std::string((const char*)cut.data(), cut.size()));
     std::string line, section;
     while (std::getline(in, line)) {
@@ -221,7 +263,19 @@ bool Cutscene::Load(D3DRenderer& r, const std::string& gameDir, const std::strin
             if (!o.isCj) {
                 std::vector<uint8_t> dff, txd;
                 if (haveModels) { dff = models.Extract(o.model + ".dff"); txd = models.Extract(o.model + ".txd"); }
-                if (dff.empty() || !BuildObject(r, o, dff, txd))
+                // data\txdcut.ide "txdp": a cutscene model's TXD may name a parent whose textures it borrows
+                m_tex.clear();
+                if (!txd.empty()) m_tex = TxdLoader::LoadFromMemory(txd.data(), txd.size());
+                for (std::string p = o.model; parents.count(p);) {
+                    p = parents[p];
+                    std::vector<uint8_t> pb = gta3.Extract(p + ".txd");
+                    if (pb.empty() && haveModels) pb = models.Extract(p + ".txd");
+                    if (pb.empty()) break;
+                    for (TxdTexture& t : TxdLoader::LoadFromMemory(pb.data(), pb.size())) m_tex.push_back(std::move(t));
+                }
+                if (!dff.empty() && parents.count(o.model) && !sharedVeh.empty())   // the shared vehicle textures every car uses
+                    for (TxdTexture& t : TxdLoader::LoadFromMemory(sharedVeh.data(), sharedVeh.size())) m_tex.push_back(std::move(t));
+                if (dff.empty() || !(BuildObject(r, o, dff, txd) || BuildRigid(r, o, dff, txd)))
                     std::fprintf(stderr, "[CUT] %s: model %s did not build\n", n.c_str(), o.model.c_str());
             }
             m_objs.push_back(std::move(o));
@@ -381,6 +435,21 @@ void Cutscene::Draw(D3DRenderer& r, const DrawCj& cj) {
         const float origin[3] = {m_offset[0], m_offset[1], m_offset[2] + 1.0f};
         if (o.isCj) { if (cj) cj(r, o.clip, seconds, origin); continue; }
         if (o.meshes.empty()) continue;
+        if (o.rigid) {
+            RwMat m;
+            const AnimSequence* s = o.clip && !o.clip->sequences.empty() ? &o.clip->sequences[0] : nullptr;
+            if (s && !s->keys.empty()) {
+                float q[4], t[3];
+                s->Sample(seconds, q, t);
+                QuatToRows(q, m);
+                if (s->hasTranslation) for (int i = 0; i < 3; i++) m.m[3][i] = t[i];
+            }
+            D3DMATRIX w = {m.m[0][0], m.m[0][1], m.m[0][2], 0, m.m[1][0], m.m[1][1], m.m[1][2], 0, m.m[2][0], m.m[2][1], m.m[2][2], 0,
+                           m.m[3][0] + origin[0], m.m[3][1] + origin[1], m.m[3][2] + origin[2], 1};
+            dev->SetTransform(D3DTS_WORLD, &w);
+            for (D3DRenderMesh* me : o.meshes) r.DrawMesh(me);
+            continue;
+        }
         Pose(o, seconds);
         if (log) {
             float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};

@@ -11,8 +11,10 @@
 #include <vector>
 
 #include "D3DRenderer.h"
+#include "DffLoader.h"
 #include "IfpLoader.h"
 #include "SkinnedDff.h"
+#include "TxdLoader.h"
 
 struct CutsceneCamera {
     float pos[3], look[3], up[3];
@@ -53,6 +55,7 @@ private:
         std::string model;
         const AnimClip* clip = nullptr;
         bool isCj = false;
+        bool rigid = false;           // a plain DFF (a car or prop) moved as a whole by the first clip sequence
         SkinnedClump clump;
         std::vector<int> boneFrame, frameOfBone;
         std::vector<RwMat> skeletonLocal, globals;
@@ -63,6 +66,7 @@ private:
     struct Text { float start, dur; std::string key; };
 
     bool BuildObject(D3DRenderer& r, Obj& o, const std::vector<uint8_t>& dff, const std::vector<uint8_t>& txd);
+    bool BuildRigid(D3DRenderer& r, Obj& o, const std::vector<uint8_t>& dff, const std::vector<uint8_t>& txd);
     void Pose(Obj& o, float seconds);
     static float Eval1(const std::vector<Key1>& k, float t);
     static void Eval3(const std::vector<Key3>& k, float t, float out[3]);
@@ -73,6 +77,7 @@ private:
     std::vector<Obj> m_objs;
     std::vector<Text> m_text;
     std::unordered_map<std::string, AnimClip> m_clips;
+    std::vector<TxdTexture> m_tex;   // textures of the object being built: its TXD, then its txdcut.ide parents
     std::vector<Key1> m_fov, m_roll;
     std::vector<Key3> m_src, m_dst;
 };
