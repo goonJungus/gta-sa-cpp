@@ -3806,9 +3806,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     ExplHooks eh;
                     eh.fire = &g_fires; eh.fireWorld = &fw;
                     eh.groundZ = fw.groundZ; eh.underwater = fw.underwater;
-                    eh.fx = [](const float* p, ExplType t) {
-                        if (t == ExplType::Molotov) { g_fx.Fire(p); g_fx.Fire(p); g_fx.Smoke(p, 0.5f); return; }
-                        g_fx.Explosion(p); g_audio.Impact(0.0f);
+                    const auto groundFn = fw.groundZ;
+                    eh.fx = [groundFn](const float* p, ExplType t) {
+                        if (t == ExplType::Molotov) { g_fx.Explosion(p, 4); g_fx.Fire(p); g_fx.Fire(p); return; }
+                        // CExplosion::AddExplosion fx system per type
+                        int kind = 2;
+                        switch (t) {
+                            case ExplType::Grenade: case ExplType::Rocket: case ExplType::WeakRocket: kind = 1; break;
+                            case ExplType::Car: case ExplType::QuickCar: kind = 2; break;
+                            case ExplType::Boat: case ExplType::Aircraft: case ExplType::Mine: case ExplType::Object: case ExplType::TankFire: kind = 3; break;
+                            case ExplType::Small: case ExplType::RcVehicle: kind = 0; break;
+                            default: break;
+                        }
+                        Log("EXPLOSION fx kind %d at %.1f %.1f %.1f", kind, p[0], p[1], p[2]);
+                        g_fx.Explosion(p, kind); g_audio.Impact(0.0f);
+                        float gz[3] = {p[0], p[1], p[2]};
+                        if (groundFn && groundFn(p, gz)) g_fx.Scorch(gz);
                     };
                     eh.fuel = [](const float* p, float) { g_fx.Fire(p); g_fx.Smoke(p, 0.9f); };
                     eh.shake = [&](const float* p, float s) {
@@ -3857,6 +3870,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
                         if (g_driveCar < 0 && d < radius) g_cj.Hurt(std::min(1.0f, 2.0f * (radius - d) / radius) * damage * 250.0f);
                     };
+                    if (const char* bo = getenv("GTA_BOOM")) {   // dev: GTA_BOOM=<ExplType index>[,dx,dy] blows one up (default 8 m +x) at frame 60
+                        static bool s_done = false;
+                        if (!s_done && frame >= 60) {
+                            s_done = true;
+                            int bt = 0; float bdx = 8.0f, bdy = 0.0f;
+                            sscanf(bo, "%d,%f,%f", &bt, &bdx, &bdy);
+                            const float bp[3] = {playerX + bdx, playerY + bdy, playerZ - EYE_HEIGHT};
+                            g_expl.Add((ExplType)bt, bp, eh);
+                        }
+                    }
                     for (const auto& bm : g_carBooms) g_expl.Add(ExplType::Car, bm.data(), eh);
                     g_carBooms.clear();
                     for (const auto& bm : g_dynBooms) g_expl.Add(ExplType::Object, bm.data(), eh);
