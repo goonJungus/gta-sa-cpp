@@ -74,6 +74,7 @@ struct VehicleInstance {
     float health = 1000.0f;           // below 250 it smokes, at 0 it burns and blows up
     float burnTime = 0.0f;
     bool wrecked = false;
+    bool removed = false;             // deleted by the script: not drawn, shot or entered
     float doomV = 0.0f, doomH = 0.05f;   // m_fDoomVerticalRotation / m_fDoomHorizontalRotation: turret yaw and pitch
     float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
 };

@@ -52,6 +52,7 @@
 #include "Hud.h"
 #include "Vehicle.h"
 #include "Script.h"
+#include "ScriptGame.h"
 #include "Radio.h"
 #include "Peds.h"
 #include "Projectiles.h"
@@ -285,6 +286,7 @@ static int g_lockPed = -1;              // locked-on pedestrian (CPlayerPed::m_p
 static float g_lockPos[3] = {0, 0, 0};  // its aim point
 static D3DMATRIX g_lastView = {};
 static std::vector<RadarBlip> g_blips;  // CRadar::ms_RadarTrace
+static ScriptGame g_sg;          // the mission script's game commands
 static int g_nextBlip = 1;       // the frame's view matrix (lock-on marker projection)      // aim camera zoom: tan(fov / 2) scale
 // CCamera::Find3rdPersonCamTargetVector: the ray from the camera through the crosshair.
 static void CrosshairRay(float yaw, float pitch, float out[3]) {
@@ -1512,6 +1514,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         s_scm.host.removeBlip = [](int h) { g_blips.erase(std::remove_if(g_blips.begin(), g_blips.end(), [h](const RadarBlip& b) { return b.handle == h; }), g_blips.end()); };
         s_scm.host.blipDisplay = [](int h, int mode) { for (RadarBlip& b : g_blips) if (b.handle == h) b.display = mode; };
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
+        g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud;
+        g_sg.playerInCar = [] { return g_driveCar >= 0; };
+        g_sg.playerCar = [] { return g_driveCar; };
+        g_sg.groundAt = [&](float x, float y) { return g_world.GetGroundHeight(x, y, playerZ + 50.0f); };
+        s_scm.command = [](ScmMachine::Call& c) { return g_sg.Handle(c); };
     }
     bool prevV = false;       // edge-detect for V key
     const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters
@@ -2357,11 +2364,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                            (double)qpcFreq.QuadPart);
         if (dt > 0.1f) dt = 0.1f; // clamp
         qpcLast = qpcNow;
-        if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); }
         // Headless --walk probe: wall-clock dt is ~0 at uncapped FPS, so the
         // player barely moves. Force a fixed 60Hz step so the walk covers real
         // distance deterministically (collision test, not a timing test).
         if (g_autoWalk || getenv("GTA_KEYS")) dt = 1.0f / 60.0f;   // headless motion tests: fixed step
+        if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); g_sg.Update(dt); }
 
         // ---- Dev/test keys (ignored in the scripted/flyover capture modes) ----
         if (playMode && !scripted && !flyover) {
@@ -3908,6 +3915,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 nearClip = 0.1f;
                 g_hideCjHead = false;
             }
+            if (scmRun && g_sg.cam.active && !g_freeCam) {   // the script camera (SET_FIXED_CAMERA_POSITION / POINT_CAMERA_AT_POINT)
+                const ScriptCamera& sc = g_sg.cam;
+                float sx = 0, sy = 0, sz = 0;
+                if (sc.shakeT > 0.0f && sc.shakeDur > 0.0f) {
+                    const float a = sc.shakeAmp * 0.002f * (sc.shakeT / sc.shakeDur);
+                    sx = a * std::sin(scmClock * 61.0); sy = a * std::sin(scmClock * 47.0 + 1.0); sz = a * std::sin(scmClock * 53.0 + 2.0);
+                }
+                D3DMATRIX view = MatrixLookAt(sc.pos[0] + sx, sc.pos[1] + sy, sc.pos[2] + sz, sc.look[0], sc.look[1], sc.look[2], 0, 0, 1);
+                g_renderer.SetViewMatrix(view);
+                camPosX = sc.pos[0]; camPosY = sc.pos[1]; camPosZ = sc.pos[2];
+                if (sc.nearClip > 0.0f) nearClip = sc.nearClip;
+            }
             // Rewrite: the view widens a little while sprinting (smoothed so it eases in and out).
             static float s_fovKick = 0.0f;
             {
@@ -5012,6 +5031,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (g_hudReady && g_camFlash > 0.0f) { g_hud.Flash(g_renderer, g_camFlash); g_camFlash = std::max(0.0f, g_camFlash - dt * 3.0f); }
             g_hud.Draw(g_renderer, hd);
         }
+        if (scmRun && g_hudReady) g_hud.DrawScript(g_renderer, g_sg.Overlay());
         if (g_hudReady) g_hud.Brightness(g_renderer, g_menu.Settings().brightness);
 
         // ---- SA pause menu + the dev key list beside it ----

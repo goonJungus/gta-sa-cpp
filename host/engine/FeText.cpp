@@ -39,6 +39,8 @@ bool FeText::Load(const std::string& gameDir, const char* file) {
         else if (fn.rfind("spanish", 0) == 0) m_lang = 4;
     }
     std::string path = gameDir + "\\text\\" + file;
+    m_gxtPath = path;
+    m_mkeys.clear(); m_mdata.clear(); m_mission.clear();
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) return false;
     std::fseek(f, 0, SEEK_END);
@@ -78,9 +80,63 @@ bool FeText::Load(const std::string& gameDir, const char* file) {
     return true;
 }
 
+bool FeText::LoadMission(const char* name) {
+    if (!name) return false;
+    std::string want = name;
+    for (char& ch : want) ch = (char)std::toupper((unsigned char)ch);
+    if (want == m_mission) return true;
+    m_mkeys.clear(); m_mdata.clear(); m_mission.clear();
+    FILE* f = std::fopen(m_gxtPath.c_str(), "rb");
+    if (!f) return false;
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    std::vector<uint8_t> buf(size > 0 ? (size_t)size : 0);
+    const size_t got = buf.empty() ? 0 : std::fread(buf.data(), 1, buf.size(), f);
+    std::fclose(f);
+    if (got != buf.size() || buf.size() < 12 || std::memcmp(&buf[4], "TABL", 4)) return false;
+    uint32_t tlen;
+    std::memcpy(&tlen, &buf[8], 4);
+    for (size_t e = 12; e + 12 <= 12 + tlen && e + 12 <= buf.size(); e += 12) {
+        char nm[9] = {};
+        std::memcpy(nm, &buf[e], 8);
+        if (want != nm) continue;
+        uint32_t off;
+        std::memcpy(&off, &buf[e + 8], 4);
+        size_t pos = (size_t)off + 8;   // the block starts with its 8 byte name
+        bool haveKeys = false, haveData = false;
+        while (pos + 8 <= buf.size() && !(haveKeys && haveData)) {
+            char tag[5] = {};
+            std::memcpy(tag, &buf[pos], 4);
+            uint32_t len;
+            std::memcpy(&len, &buf[pos + 4], 4);
+            pos += 8;
+            if (pos + len > buf.size()) break;
+            if (!std::strcmp(tag, "TKEY") && !haveKeys) {
+                m_mkeys.resize(len / 8);
+                std::memcpy(m_mkeys.data(), &buf[pos], (len / 8) * 8);
+                haveKeys = true;
+            } else if (!std::strcmp(tag, "TDAT") && !haveData) {
+                m_mdata.assign((const char*)&buf[pos], (const char*)&buf[pos] + len);
+                haveData = true;
+            } else break;
+            pos += len;
+        }
+        if (!haveKeys || !haveData) { m_mkeys.clear(); m_mdata.clear(); return false; }
+        std::sort(m_mkeys.begin(), m_mkeys.end(), [](const Key& a, const Key& b) { return a.hash < b.hash; });
+        m_mission = want;
+        return true;
+    }
+    return false;
+}
+
 std::string FeText::Get(const char* key) const {
     if (!key || !*key || *key == ' ') return std::string();
     uint32_t h = UppercaseKey(key);
+    if (!m_mkeys.empty()) {
+        auto mt = std::lower_bound(m_mkeys.begin(), m_mkeys.end(), h, [](const Key& k, uint32_t v) { return k.hash < v; });
+        if (mt != m_mkeys.end() && mt->hash == h && mt->offset < m_mdata.size()) return std::string(&m_mdata[mt->offset]);
+    }
     auto it = std::lower_bound(m_keys.begin(), m_keys.end(), h,
                                [](const Key& k, uint32_t v) { return k.hash < v; });
     if (it == m_keys.end() || it->hash != h || it->offset >= m_data.size())

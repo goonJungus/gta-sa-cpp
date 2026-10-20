@@ -242,6 +242,7 @@ int Peds::Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading
     if (id < 0) id = m_pool[(size_t)Rand((int)m_pool.size())];
     if (!GetModel(r, id)) return -1;
     Actor a;
+    a.uid = m_nextUid++;
     a.model = id; a.x = x; a.y = y; a.z = z; a.heading = heading;
     if (auto it = m_info.find(id); it != m_info.end()) a.voice = it->second.voice;
     if (auto it = m_info.find(id); it != m_info.end()) { auto w = m_defend.find(it->second.stat); if (w != m_defend.end()) a.weakness = w->second; }
@@ -524,6 +525,24 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
                 }
             } else continue;
         }
+        if (a.scripted) {   // a story character: stands still or walks to the point the script gave it
+            a.animTime += dt;
+            a.walking = false;
+            if (a.goal) {
+                const float dx = a.gx - a.x, dy = a.gy - a.y, d = std::sqrt(dx * dx + dy * dy);
+                const float speed = a.gspeed ? 5.7f : 1.56f;
+                if (d < 0.4f) a.goal = false;
+                else {
+                    a.heading = std::atan2(dy, dx);
+                    a.x += dx / d * std::min(d, speed * dt);
+                    a.y += dy / d * std::min(d, speed * dt);
+                    a.walking = true;
+                    a.fleeTimer = a.gspeed ? 0.1f : 0.0f;
+                }
+            }
+            if (groundAt) { const float g = groundAt(a.x, a.y, a.z + 1.0f); if (g > -1e5f) a.z += (g - a.z) * std::min(1.0f, 10.0f * dt); }
+            continue;
+        }
         const float pdx = player.x - a.x, pdy = player.y - a.y, pd = std::sqrt(pdx * pdx + pdy * pdy);
         // Gunfire or an aimed weapon close by: run away from CJ for a while.
         if (player.threat && pd < 25.0f) {
@@ -601,6 +620,7 @@ void Peds::Draw(D3DRenderer& r) {
     IDirect3DDevice9* dev = r.GetDevice();
     if (!dev) return;
     for (const Actor& a : m_actors) {
+        if (a.hidden) continue;
         auto it = m_models.find(a.model);
         if (it == m_models.end() || !it->second.valid) continue;
         Model& m = it->second;
