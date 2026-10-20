@@ -143,8 +143,8 @@ void Save(const char* ini) {
 
 // CStats::UpdateStatsWhenSprinting / Running / Swimming / Driving and the max-health part of UpdateFatAndMuscleStats,
 // with the ar_stats.dat values (STAT_INC_* amounts, STAT_TIMELIMIT_* seconds). Counters run in milliseconds.
-int UpdateActivity(float dt, int rate, bool swimming, bool underwater, bool driving, float carSpeed, bool hasDriver) {
-    static float stamina = 0, swim = 0, breath = 0, drive = 0, health = 0;
+int UpdateActivity(float dt, int rate, bool swimming, bool underwater, int vehicle, float carSpeed, bool hasDriver) {
+    static float stamina = 0, swim = 0, breath = 0, drive = 0, health = 0, bike = 0, fly = 0;
     const float ms = dt * 1000.0f;
     int raised = -1;
     auto fire = [&](float& counter, float limitSec, int stat, float inc) {
@@ -169,10 +169,18 @@ int UpdateActivity(float dt, int rate, bool swimming, bool underwater, bool driv
         breath += ms;
         fire(breath, 60.0f, STAT_LUNG_CAPACITY, 50.0f);
     }
-    if (driving) {
+    if (vehicle == 1) {   // UpdateStatsWhenDriving
         if (!hasDriver || carSpeed > 0.8f) drive += ms;
         else if (carSpeed > 0.2f) drive += ms * 0.5f;
         fire(drive, 300.0f, STAT_DRIVING_SKILL, 20.0f);
+    } else if (vehicle == 2) {   // UpdateStatsWhenOnMotorBike
+        if (carSpeed > 0.6f) bike += ms;
+        else if (carSpeed > 0.2f) bike += ms * 0.5f;
+        fire(bike, 180.0f, STAT_BIKE_SKILL, 25.0f);
+    } else if (vehicle == 3) {   // UpdateStatsWhenFlying
+        if (carSpeed > 1.3f) fly += ms;
+        else if (carSpeed > 0.5f) fly += ms * 0.5f;
+        fire(fly, 300.0f, STAT_FLYING_SKILL, 50.0f);
     }
     return raised;
 }

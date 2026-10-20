@@ -3480,7 +3480,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (sscanf(ss, "%d:%f", &id, &val) == 2) { Stats::Set(id, val); Log("STATSET: stat %d = %.0f", id, val); }
                     }
                     if (getenv("GTA_STATDBG") && (frame % 60) == 0) Log("STATDBG: respect %.1f sex %.1f hp %.1f/%.1f rate %d drive %d spd %.3f thr %d", Stats::Get(Stats::STAT_TOTAL_RESPECT), Stats::Get(Stats::STAT_SEX_APPEAL), g_cj.Health(), g_cj.MaxHealth(), rate, g_driveCar, carSpd, (int)((RawGameKey('W') & 0x8000) != 0));
-                    const int up = Stats::UpdateActivity(dt * s_statTime, rate, g_cj.Swimming(), g_cj.Underwater(), g_driveCar >= 0, carSpd, true);
+                    int vehKind = 0;   // CPlayerInfo::Process: the stat update follows the vehicle appearance
+                    if (g_driveCar >= 0) {
+                        const VehicleInfo* dvi = g_vehicles.Info(g_vehicles.Car((size_t)g_driveCar).model);
+                        const std::string dt2 = dvi ? dvi->type : "car";
+                        vehKind = dt2 == "bike" ? 2 : dt2 == "plane" || dt2 == "heli" ? 3 : dt2 == "boat" || dt2 == "bmx" ? 4 : 1;
+                    }
+                    const int up = Stats::UpdateActivity(dt * s_statTime, rate, g_cj.Swimming(), g_cj.Underwater(), vehKind, carSpd, true);
                     if (up == Stats::STAT_MAX_HEALTH) g_cj.SetMaxHealth(Stats::Get(Stats::STAT_MAX_HEALTH) / 5.69f);
                     if (up >= 0) {
                         if (g_hudReady) g_hud.StatUpdate(Stats::Get(up) / 10.0f);
