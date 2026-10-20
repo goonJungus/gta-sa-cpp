@@ -461,7 +461,12 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
     if (static const char* tr = std::getenv("GTA_SCMTRACE"); tr && (t.name == tr || !std::strcmp(tr, "*"))) {
         static int s_lines = 0;
         static const int s_max = std::getenv("GTA_SCMTRACEMAX") ? std::atoi(std::getenv("GTA_SCMTRACEMAX")) : 3000;
-        if (s_lines++ < s_max) {
+        static const int s_skip = std::getenv("GTA_SCMTRACESKIP") ? std::atoi(std::getenv("GTA_SCMTRACESKIP")) : 0;
+        static int s_seen = 0;
+        static const uint32_t s_after = std::getenv("GTA_SCMTRACEAFTER") ? (uint32_t)std::strtoul(std::getenv("GTA_SCMTRACEAFTER"), nullptr, 16) : 0;
+        static bool s_armed = s_after == 0;
+        if (op == s_after) s_armed = true;               // dev: start tracing once this command has run
+        if (s_armed && s_seen++ >= s_skip && s_lines++ < s_max) {   // dev: skip the first N traced commands
             std::string s;
             char b[64];
             for (const Arg& x : args) {

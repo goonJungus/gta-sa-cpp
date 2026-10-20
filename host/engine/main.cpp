@@ -1554,6 +1554,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         };
         g_sg.giveWeapon = [&](int w, int a) { if (cjReady) g_cj.GiveWeapon(w, a); Log("SCRIPT: weapon %d ammo %d", w, a); };
         g_sg.setWeapon = [&](int w) { if (cjReady) { const int i = g_cj.GunIndexOfType(w); g_cj.SelectGun(i); Log("SCRIPT: weapon in hand %d (gun %d)", w, i); } };
+        g_sg.playSound = [](int bank, int sound) { return g_audio.Play(bank, sound, 1.0f); };
+        g_sg.voicePlaying = [](int v) { return g_audio.IsPlaying(v); };
         g_sg.gameDir = g_gameDir;
         g_sg.drawCj = [&](D3DRenderer& rr, const AnimClip* c, float t, const float o[3]) { if (cjReady) g_cj.DrawCutscene(rr, c, t, o); };
         g_sg.cutsceneAudio = [](const std::string& name) {   // FindCutsceneAudioTrackId, then the preloaded track
