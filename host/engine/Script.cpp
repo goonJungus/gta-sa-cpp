@@ -404,6 +404,15 @@ void ScmMachine::Update(int32_t nowMs, int maxInstructions) {
     }
 }
 
+bool ScmMachine::LaunchSnippet(const std::vector<uint8_t>& code) {
+    ScmThread n;
+    n.pc = n.base = (uint32_t)m_space.size();
+    n.name = "snippet";
+    m_space.insert(m_space.end(), code.begin(), code.end());
+    m_threads.push_back(n);
+    return true;
+}
+
 bool ScmMachine::LaunchMission(int index) {
     const ScmHeader& h = m_file.Header();
     if (index < 0 || index >= (int)h.missionOffsets.size()) return false;
