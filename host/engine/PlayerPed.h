@@ -22,6 +22,7 @@
 // Rewrite control layers momentum, damped turning and body lean on top
 // (see Movement.h).
 
+#include "Clothes.h"
 #include "D3DRenderer.h"
 #include "IfpLoader.h"
 #include "Melee.h"
@@ -97,6 +98,10 @@ public:
     static void SetWeaponSkill(int skill) { WeaponStats::g_forced = skill; }
     void RefreshWeaponSkills();           // re-pick weapon.dat rows after a skill stat changed
     bool Init(D3DRenderer& r, const std::string& gameDir);
+    // CPedClothesDesc: what CJ wears. SetOutfit is CClothes::RebuildPlayer (models and textures rebuilt).
+    static PedClothesDesc DefaultOutfit();
+    const PedClothesDesc& Outfit() const { return m_outfit; }
+    bool SetOutfit(const PedClothesDesc& desc);
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return m_ready; }
 
@@ -341,7 +346,15 @@ private:
     std::vector<int> m_frameOfBone;            // bone id (0..511) -> frame index
     std::vector<RwMat> m_globals;              // per frame, relative to frame 0
     std::vector<Part> m_parts;
-    std::vector<IDirect3DTexture9*> m_textures;
+    std::vector<IDirect3DTexture9*> m_textures;   // CClothesBuilder::ConstructTextures: torso head legs feet necklace watch glasses hat extra1
+    bool BuildOutfit(const PedClothesDesc& want);
+    bool BuildTextures(const PedClothesDesc& d, float rNormal, float rFat, float rMuscle);
+    D3DRenderer* m_r = nullptr;
+    std::string m_gameDir;
+    PedClothesDesc m_outfit;
+    float m_texFat = -1.0f, m_texMuscle = -1.0f;   // the body ratios the textures were blended with
+    std::vector<int> m_baseNodeIds, m_baseNodeOfBone;
+    std::vector<RwMat> m_baseInverse;
     std::unordered_map<std::string, AnimClip> m_clips;
 
     std::deque<Assoc> m_assocs;          // stable references while a frame runs

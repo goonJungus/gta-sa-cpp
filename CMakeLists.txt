@@ -75,6 +75,8 @@ if(WIN32)
     host/engine/PlayerDriveby.cpp
     host/engine/PlayerJetpack.cpp
     host/engine/Cheat.cpp
+    host/engine/Clothes.cpp
+    host/engine/PlayerWardrobe.cpp
     host/engine/WeaponInfo.cpp
         host/engine/PlayerParachute.cpp
         host/engine/ParaCanopy.cpp

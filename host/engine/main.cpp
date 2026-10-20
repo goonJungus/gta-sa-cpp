@@ -3235,6 +3235,27 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 pin.jetBrake = pin.duckHeld;
                 pin.jetStop = (RawGameKey(VK_MBUTTON) & 0x8000) != 0;   // look behind
+                if (const char* of = getenv("GTA_OUTFIT"); of && frame == 5) {   // dev: "slot:model[:texture],..." e.g. torso:pimp:pimp
+                    PedClothesDesc d = g_cj.Outfit();
+                    static const char* slots[] = {"torso", "head", "hands", "legs", "feet", "necklace", "watch", "glasses", "hat", "extra1"};
+                    std::string list = of;
+                    for (size_t p = 0; p < list.size();) {
+                        size_t e = list.find(',', p);
+                        std::string it = list.substr(p, e == std::string::npos ? e : e - p);
+                        p = e == std::string::npos ? list.size() : e + 1;
+                        size_t c1 = it.find(':'), c2 = c1 == std::string::npos ? c1 : it.find(':', c1 + 1);
+                        if (c1 == std::string::npos) continue;
+                        const std::string sl = it.substr(0, c1), mo = it.substr(c1 + 1, c2 == std::string::npos ? c2 : c2 - c1 - 1);
+                        const std::string tx = c2 == std::string::npos ? "" : it.substr(c2 + 1);
+                        for (int i = 0; i < 10; i++) {
+                            if (sl != slots[i]) continue;
+                            const ClothesTexturePart tp = Clothes::GetDependentTexture((ClothesModelPart)i);
+                            if (tx.empty()) d.SetModel(mo.c_str(), (ClothesModelPart)i);
+                            else d.SetTextureAndModel(tx.c_str(), mo.c_str(), tp);
+                        }
+                    }
+                    g_cj.SetOutfit(d);
+                }
                 if (getenv("GTA_JETPACK") && frame == 5) g_cj.StartJetpack();   // dev: the jetpack without typing the cheat
                 switch (Cheat::Take()) {   // CCheat::AddToCheatString hit
                 case Cheat::Jetpack:
