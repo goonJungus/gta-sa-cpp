@@ -257,8 +257,10 @@ public:
     void SetMaxHealth(float hp) { m_health += hp - m_maxHealth; m_maxHealth = hp; }
     void AddHealth(float hp) { m_health = std::min(m_maxHealth, m_health + hp); }
     float Armor() const { return m_armor; }
-    float Breath() const { return m_breath / kBreathMax; }   // 0..1
-    bool ShowBreath() const { return m_swimming && m_swimState == SwimState::Under || m_breath < kBreathMax * 0.999f; }
+    float Breath() const { return m_breath / m_breathMax; }   // 0..1
+    // CStats::GetFatAndMuscleModifier(8), in game steps (1/50 s); the lungs start full
+    void SetBreathMax(float v) { if (!m_breathInit) { m_breathInit = true; m_breath = v; } m_breathMax = v; m_breath = std::min(m_breath, v); }
+    bool ShowBreath() const { return m_swimming && m_swimState == SwimState::Under || m_breath < m_breathMax * 0.999f; }
     void Hurt(float amount);            // armor first, then health
     void RestoreVitals() { m_health = m_maxHealth; m_armor = 100.0f; }   // CHEAT_HEALTH_ARMOR_MONEY
     float DamageFlash() const { return m_damageFlash; }       // 1 right after a hit, fades out
@@ -439,8 +441,9 @@ private:
     int m_gun = -1;     // the firearm in hand
     int m_melee = -1;   // the melee weapon in hand (fists when both are -1)
     int m_shotEvents = 0, m_reloadEvents = 0, m_dryEvents = 0;
-    static constexpr float kBreathMax = 39.0f;   // seconds under water (CStats air in lung, untrained)
-    float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = kBreathMax, m_damageFlash = 0.0f;
+    float m_breathMax = 1150.0f;   // steps of air; CPlayerPedData::m_fBreath
+    bool m_breathInit = false;
+    float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = 1150.0f, m_damageFlash = 0.0f;
     bool m_reloading = false, m_firing = false, m_shotDone = false, m_fireQueued = false;
     float m_flash = 0.0f;                      // muzzle flash time left
     float m_flashL = 0.0f;
