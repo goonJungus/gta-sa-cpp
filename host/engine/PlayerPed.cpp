@@ -173,11 +173,20 @@ void FromEuler(RwMat& mat, float x, float y, float z, unsigned flags) {   // rot
 
 // CPlayerPed::ProcessAnimGroups: the move set follows the weapon in hand.
 namespace {
-struct MoveSet { const char *idle, *walk, *run, *start; };   // null sprint / run stop: the group has none
-const MoveSet kSets[] = {{"idle_stance", "walk_player", "run_player", "walk_start"},
-                         {"idle_armed", "walk_armed", "run_armed", "walk_start_armed"},      // PLAYER2ARMED
-                         {"idle_rocket", "walk_rocket", "run_rocket", "walk_start_rocket"},  // PLAYERROCKET
-                         {"idle_csaw", "walk_csaw", "run_csaw", "walk_start_csaw"}};         // PLAYERCSAW
+struct MoveSet { const char *idle, *walk, *run, *start, *sprint; };   // null sprint / run stop: the group has none
+// Index = bodyGroup * 4 + weapon set; body group 0 player, 1 fat (fat.ifp), 2 muscular (muscular.ifp).
+const MoveSet kSets[] = {{"idle_stance", "walk_player", "run_player", "walk_start", "sprint_civi"},
+                         {"idle_armed", "walk_armed", "run_armed", "walk_start_armed", nullptr},      // PLAYER2ARMED
+                         {"idle_rocket", "walk_rocket", "run_rocket", "walk_start_rocket", nullptr},  // PLAYERROCKET
+                         {"idle_csaw", "walk_csaw", "run_csaw", "walk_start_csaw", nullptr},          // PLAYERCSAW
+                         {"fatidle", "fatwalk", "fatrun", "fatwalkstart", "fatsprint"},
+                         {"fatidle_armed", "fatwalk_armed", "fatrun_armed", "fatwalkst_armed", nullptr},
+                         {"fatidle_rocket", "fatwalk_rocket", "fatrun_rocket", "fatwalkst_rocket", nullptr},
+                         {"fatidle_csaw", "fatwalk_csaw", "fatrun_csaw", "fatwalkstart_csaw", nullptr},
+                         {"muscleidle", "musclewalk", "musclerun", "musclewalkstart", "musclesprint"},
+                         {"muscleidle_armed", "musclewalk_armed", "musclerun_armed", "msclewalkst_armed", nullptr},
+                         {"muscleidle_rocket", "musclewalk_rocket", "mscle_rckt_run", "mscle_rckt_walkst", nullptr},
+                         {"muscleidle_csaw", "musclewalk_csaw", "mscle_run_csaw", "msclewalkst_csaw", nullptr}};
 }  // namespace
 
 int PlayerPed::MoveSetId() const {
@@ -185,9 +194,10 @@ int PlayerPed::MoveSetId() const {
         {"SHOTGUN", 1}, {"SPAS12", 1}, {"AK47", 1}, {"M4", 1}, {"COUNTRYRIFLE", 1}, {"SNIPERRIFLE", 1},
         {"RLAUNCHER", 2}, {"RLAUNCHER_HS", 2}, {"CHAINSAW", 3}, {"FTHROWER", 3}, {"MINIGUN", 3}};
     const char* id = GunId();
+    int set = 0;   // the baseball bat group (PLAYERBBBAT) uses the plain player set
     for (const auto& g : kGuns)
-        if (!strcmp(id, g.gun)) return g.set;
-    return 0;   // the baseball bat group (PLAYERBBBAT) uses the plain player set
+        if (!strcmp(id, g.gun)) { set = g.set; break; }
+    return Clothes::MotionGroup(m_fatStat * 1000.0f, m_muscleStat * 1000.0f) * 4 + set;   // CClothes::GetPlayerMotionGroupToLoad
 }
 
 const AnimClip* PlayerPed::Clip(const char* name) const {
@@ -197,7 +207,9 @@ const AnimClip* PlayerPed::Clip(const char* name) const {
         else if (!strcmp(name, "walk_player")) name = m.walk;
         else if (!strcmp(name, "run_player")) name = m.run;
         else if (!strcmp(name, "walk_start")) name = m.start;
-        else if (!strcmp(name, "sprint_civi") || !strcmp(name, "run_stop") || !strcmp(name, "run_stopr")) return nullptr;
+        else if (!strcmp(name, "sprint_civi")) name = m.sprint;
+        else if (!strcmp(name, "run_stop") || !strcmp(name, "run_stopr")) return nullptr;
+        if (!name) return nullptr;
     }
     auto it = m_clips.find(name);
     return it == m_clips.end() ? nullptr : &it->second;
@@ -231,6 +243,8 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
             }
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
             for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw", "grenade", "rocket", "flame", "spraycan", "goggles", "camera"})   // melee groups
+                IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
+            for (const char* g : {"fat", "muscular"})   // CClothes::GetPlayerMotionGroupToLoad
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
             for (const char* g : {"colt45", "silenced", "python", "shotgun", "buddy", "uzi", "rifle", "sniper"})   // weapon groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
@@ -1380,16 +1394,19 @@ void PlayerPed::Update(const Input& inRaw) {
     const float dt = in.dt;
     if (MoveSetId() != m_moveSet) {   // CPed::ReApplyMoveAnims: swap the move set in place
         const MoveSet &from = kSets[m_moveSet], &to = kSets[MoveSetId()];
-        const char *const f[] = {from.idle, from.walk, from.run, from.start}, *const t[] = {to.idle, to.walk, to.run, to.start};
-        for (int i = 0; i < 4; i++) {
+        const char *const f[] = {from.idle, from.walk, from.run, from.start, from.sprint}, *const t[] = {to.idle, to.walk, to.run, to.start, to.sprint};
+        for (int i = 0; i < 5; i++) {
+            if (!f[i] || !t[i]) continue;
             auto a = m_clips.find(f[i]), b = m_clips.find(t[i]);
             if (a == m_clips.end() || b == m_clips.end()) continue;
             for (Assoc& as : m_assocs)
                 if (as.clip == &a->second) as.clip = &b->second;
         }
-        if (MoveSetId())   // no sprint / run stop in these groups
-            for (const char* n : {"sprint_civi", "run_stop", "run_stopr"})
+        if (MoveSetId())   // no run stop in these groups, no sprint in the armed ones
+            for (const char* n : {"sprint_civi", "run_stop", "run_stopr"}) {
+                if (!strcmp(n, "sprint_civi") && to.sprint) continue;
                 if (auto it = m_clips.find(n); it != m_clips.end()) Remove(&it->second);
+            }
         m_moveSet = MoveSetId();
     }
     m_damageFlash = std::max(0.0f, m_damageFlash - dt * 1.5f);
@@ -1752,6 +1769,7 @@ void PlayerPed::SetBodyShape(float fat, float muscle) {
     m_muscleStat = muscle;
     // CClothes::RebuildPlayerIfNeeded: the body textures are blended by the same ratios
     if (m_ready && m_r && (std::fabs(fat - m_texFat) > 0.01f || std::fabs(muscle - m_texMuscle) > 0.01f)) BuildOutfit(m_outfit);
+    fat = std::clamp((fat * 1000.0f - 200.0f) / 800.0f, 0.0f, 1.0f);   // CClothesBuilder: fat starts at stat 200
     if (fat + muscle > 1.0f) { const float k = 1.0f / (fat + muscle); fat *= k; muscle *= k; }
     const float r[3] = {1.0f - fat - muscle, fat, muscle};
     for (Part& p : m_parts) {

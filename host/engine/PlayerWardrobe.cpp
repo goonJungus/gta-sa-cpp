@@ -196,7 +196,7 @@ bool PlayerPed::BuildOutfit(const PedClothesDesc& want) {
         if (!d.modelKeys[i] && i != CLOTHES_MODEL_TORSO && i != CLOTHES_MODEL_LEGS) d.SetModel(kBase[i], (ClothesModelPart)i);
 
     // CreateSkinnedClump's blend ratios
-    float rM = std::clamp(m_muscleStat, 0.0f, 1.0f), rF = std::clamp(m_fatStat, 0.0f, 1.0f), rN = 1.0f - rM - rF;
+    float rM = std::clamp(m_muscleStat, 0.0f, 1.0f), rF = std::clamp((m_fatStat * 1000.0f - 200.0f) / 800.0f, 0.0f, 1.0f), rN = 1.0f - rM - rF;
     if (rN <= 0.0f) { const float t = 1.0f / (rF + rM); rM *= t; rF *= t; rN = 0.0f; }
     if (!BuildTextures(d, rN, rF, rM)) return false;
     m_texFat = m_fatStat;
