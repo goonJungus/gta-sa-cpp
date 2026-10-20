@@ -217,7 +217,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
         if (showPlayer) showPlayer(true);
         return true;
     }
-    case 0x056A: c.result = m_cut.skipped; return true;                                     // WAS_CUTSCENE_SKIPPED
+    case 0x056A: c.result = m_cut.skipped; std::fprintf(stderr, "[SCMGAME] WAS_CUTSCENE_SKIPPED -> %d\n", (int)m_cut.skipped); return true;                                     // WAS_CUTSCENE_SKIPPED
     case 0x0707: case 0x0701: return true;                                                  // SKIP_CUTSCENE_START_INTERNAL / SKIP_CUTSCENE_END
     // ---- characters ---------------------------------------------------------------------
     case 0x009A: {   // CREATE_CHAR(pedtype, model, x, y, z) -> char
@@ -755,7 +755,15 @@ void ScriptGame::Update(float dt) {
         }
         const std::string key = m_cutscene.Loaded() ? m_cutscene.Subtitle() : std::string();
         if (key != m_cutKey) { m_cutKey = key; std::fprintf(stderr, "[SCMGAME] cutscene %.0f ms subtitle '%s'\n", m_cutscene.TimeMs(), key.c_str()); m_subtitle = key.empty() ? std::string() : Text(key); m_subTimer = 0; }
-        if (m_cut.t >= m_cut.dur) {
+        // Retail Update_overlay: the skip button (or GTA_CUTSKIP=ms, dev) marks the cutscene skipped and finishes it.
+        static const float devSkipMs = std::getenv("GTA_CUTSKIP") ? (float)std::atof(std::getenv("GTA_CUTSKIP")) : -1.0f;
+        const bool skip = (skipPressed && skipPressed()) || (devSkipMs >= 0.0f && m_cutscene.TimeMs() >= devSkipMs);
+        if (skip && !m_cut.skipped) {
+            m_cut.skipped = true;
+            std::fprintf(stderr, "[SCMGAME] cutscene %s skipped at %.0f ms\n", m_cut.name.c_str(), m_cutscene.TimeMs());
+            m_cutscene.Skip();
+        }
+        if (m_cut.skipped || m_cut.t >= m_cut.dur) {
             m_cut.state = 3;
             if (cam.cutscene) { cam = ScriptCamera{}; }
             wideTarget = false;
