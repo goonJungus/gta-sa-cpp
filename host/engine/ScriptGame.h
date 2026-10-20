@@ -67,6 +67,7 @@ public:
     std::function<void(bool)> showPlayer;                        // hide CJ while a cutscene plays
     std::function<void(const std::string&)> cutsceneAudio;       // START_CUTSCENE: play the scene's audio track (CAudioEngine::PlayPreloadedCutsceneTrack)
     std::function<void()> cutsceneAudioStop;                     // the scene ended, was skipped or cleared
+    std::function<int()> menuInput;                              // edges this frame: 1 up, 2 down, 4 accept
     std::function<bool()> skipPressed;                           // CCutsceneMgr::IsCutsceneSkipButtonBeingPressed (edge)
 
     ScriptCamera cam;
@@ -121,7 +122,24 @@ private:
     struct ScriptPickup { int slot = -1; float x = 0, y = 0, z = 0; bool removed = false, collected = false, locked = false; };
     std::vector<ScriptPickup> m_pickups;
     int m_markers = 0;
-    int m_nextMenu = 0;                                                                 // CREATE_MENU handles
+    // CMenuSystem standard menus (CREATE_MENU and friends): two slots, up to 4 columns of 12 rows.
+    struct Menu {
+        bool used = false, interactive = false, background = false;
+        std::string title;
+        int columns = 0, rows = 0, active = 0, accepted = 0x9d;
+        float x = 0, y = 0, width[4] = {};
+        int align[4] = {};
+        std::string head[4];
+        std::string cell[4][12];
+        int n1[4][12], n2[4][12];
+        bool on[12];
+    };
+    Menu m_menus[2];
+    int m_curMenu = 0;
+    void MenuRows(Menu& m);
+    void MenuFix(Menu& m);                                                              // CMenuSystem::ActivateItems: the active row lands on a live row
+    void MenuUpdate();
+    void MenuDraw(const Menu& m, bool current);
     int AddPickup(int model, int type, int ammo, float x, float y, float z);
     struct Drive { int car; float x, y, speed; };
     std::map<int, Drive> m_drives;

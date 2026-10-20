@@ -610,10 +610,64 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x03D9: c.result = true; return true;                                                   // HAS_SAVE_GAME_FINISHED
     case 0x0494: c.Out(1, 0); c.Out(2, 0); c.Out(3, 0); c.Out(4, 0); return true;                 // GET_POSITION_OF_ANALOGUE_STICKS
     case 0x07B1: c.OutF(0, 0.0f); return true;                                                   // GET_BEAT_PROXIMITY
-    // Script menus: handles and the active row are tracked; the menu is not drawn and no accept input reaches it.
-    case 0x08D4: c.Out(8, m_nextMenu++); return true;                                            // CREATE_MENU
-    case 0x08D7: c.Out(1, -1); return true;                                                      // GET_MENU_ITEM_SELECTED (nothing accepted)
-    case 0x08DA: case 0x08DB: case 0x08EE: case 0x090E: return true;                             // DELETE_MENU, SET_MENU_COLUMN, SET_MENU_ITEM_WITH_NUMBER, SET_ACTIVE_MENU_ITEM
+    // Script menus (CMenuSystem standard menus), drawn from Update with the script text and rectangle queues.
+    case 0x08D4: {   // CREATE_MENU(title, x, y, width, columns, interactive, background, alignment) -> menu
+        int id = 0;
+        for (const Menu& mm : m_menus) if (mm.used) id++;
+        if (id > 1) { c.Out(8, 0); return true; }
+        Menu& m = m_menus[id];
+        m = Menu{};
+        m.used = true;
+        const std::string t = c.S(0);
+        m.title = t == "DUMMY" ? std::string() : t;
+        m.x = c.F(1); m.y = c.F(2);
+        m.columns = std::min(4, c.I(4));
+        m.interactive = c.I(5) != 0; m.background = c.I(6) != 0;
+        for (int i = 0; i < 4; i++) { m.width[i] = c.F(3); m.align[i] = c.I(7); }
+        for (int i = 0; i < 4; i++) for (int r = 0; r < 12; r++) m.n1[i][r] = m.n2[i][r] = -1;
+        for (int r = 0; r < 12; r++) m.on[r] = true;
+        m_curMenu = 0;
+        c.Out(8, id);
+        return true;
+    }
+    case 0x08D7: {   // GET_MENU_ITEM_SELECTED(menu): the highlighted row, -99 when the menu is not in use
+        const int id = c.I(0);
+        c.Out(1, id >= 0 && id < 2 && m_menus[id].used ? m_menus[id].active : -99);
+        return true;
+    }
+    case 0x08DA: {   // DELETE_MENU
+        const int id = c.I(0);
+        if (id >= 0 && id < 2 && m_menus[id].used) {
+            m_menus[id] = Menu{};
+            m_curMenu = m_menus[0].used ? 0 : (m_menus[1].used ? 1 : 0);
+        }
+        return true;
+    }
+    case 0x08DB: {   // SET_MENU_COLUMN(menu, column, header, 12 rows)
+        const int id = c.I(0), col = c.I(1);
+        if (id < 0 || id > 1 || !m_menus[id].used || col < 0 || col > 3) return true;
+        Menu& m = m_menus[id];
+        auto lab = [&](size_t i) { const std::string v = c.S(i); return v == "DUMMY" ? std::string() : v; };
+        m.head[col] = lab(2);
+        for (int r = 0; r < 12; r++) { m.cell[col][r] = lab(3 + (size_t)r); m.n1[col][r] = m.n2[col][r] = -1; }
+        if (col == 0) MenuRows(m);
+        return true;
+    }
+    case 0x08EE: {   // SET_MENU_ITEM_WITH_NUMBER(menu, column, row, text, number)
+        const int id = c.I(0), col = c.I(1), row = c.I(2);
+        if (id < 0 || id > 1 || !m_menus[id].used || col < 0 || col > 3 || row < 0 || row > 11) return true;
+        Menu& m = m_menus[id];
+        const std::string v = c.S(3);
+        m.cell[col][row] = v == "DUMMY" ? std::string() : v;
+        m.n1[col][row] = c.I(4); m.n2[col][row] = -1;
+        MenuRows(m);
+        return true;
+    }
+    case 0x090E: {   // SET_ACTIVE_MENU_ITEM(menu, row)
+        const int id = c.I(0);
+        if (id >= 0 && id < 2 && m_menus[id].used) m_menus[id].active = c.I(1);
+        return true;
+    }
     case 0x08E2: c.Out(1, 0); return true;                                                       // GET_TERRITORY_UNDER_CONTROL_PERCENTAGE
     case 0x0956: c.Out(1, 0); return true;                                                       // FIND_MAX_NUMBER_OF_GROUP_MEMBERS
     case 0x0981: case 0x0596: case 0x051A: case 0x0611: case 0x02D8: c.result = false; return true;   // HAS_TRAIN_DERAILED, IS_PLAYER_IN_SHORTCUT_TAXI, HAS_CHAR_BEEN_DAMAGED_BY_CHAR, IS_CHAR_PLAYING_ANIM, IS_CURRENT_CHAR_WEAPON
@@ -928,7 +982,90 @@ int ScriptGame::AddPickup(int model, int type, int ammo, float x, float y, float
     return (int)m_pickups.size();
 }
 
+
+// CMenuSystem::InsertMenu / InsertOneMenuItemWithNumber: the row count runs to the last filled row of column 0.
+void ScriptGame::MenuRows(Menu& m) {
+    m.rows = 0;
+    for (int r = 0; r < 12; r++) if (!m.cell[0][r].empty()) m.rows = r + 1;
+    MenuFix(m);
+}
+
+// CMenuSystem::ActivateItems: the active row moves on to the next live row, or back to the first.
+void ScriptGame::MenuFix(Menu& m) {
+    auto valid = [&](int r) { return r >= 0 && r < 12 && m.on[r] && !m.cell[0][r].empty(); };
+    while (!valid(m.active) && m.active < m.rows) m.active++;
+    if (m.active >= m.rows) { m.active = 0; while (!valid(m.active) && m.active < m.rows) m.active++; }
+    if (m.active >= m.rows) m.active = 0;
+}
+
+// CMenuSystem::Process for the menu in use: up and down move the highlight, accept marks the row.
+void ScriptGame::MenuUpdate() {
+    if (!m_menus[m_curMenu].used) m_curMenu = m_menus[0].used ? 0 : 1;
+    for (int i = 0; i < 2; i++) {
+        Menu& m = m_menus[i];
+        if (!m.used) continue;
+        const bool cur = i == m_curMenu;
+        if (cur && m.interactive) {
+            const int in = menuInput ? menuInput() : 0;
+            auto valid = [&](int r) { return r >= 0 && r < 12 && m.on[r] && !m.cell[0][r].empty(); };
+            if (in & 4) { if (m.on[std::max(0, std::min(11, m.active))]) m.accepted = m.active; }
+            if (m.accepted != m.active) m.accepted = 0x9d;
+            if (m.rows > 1) {
+                if (in & 1) {
+                    do { m.active--; } while (m.active >= 0 && !valid(m.active));
+                    if (m.active < 0) { m.active = m.rows; do { m.active--; } while (m.active >= 0 && !valid(m.active)); }
+                }
+                if (in & 2) {
+                    do { m.active++; } while (m.active < m.rows && !valid(m.active));
+                    if (m.active >= m.rows) { m.active = -1; do { m.active++; } while (m.active < m.rows && !valid(m.active)); }
+                }
+                if (m.active < 0) m.active = 0;
+            }
+        }
+        MenuDraw(m, cur);
+    }
+}
+
+// CMenuSystem::DisplayStandardMenu. The retail layout leans on font metrics this port does not read, so the
+// rows sit on a fixed 16 unit pitch and the highlight colour is a guess.
+void ScriptGame::MenuDraw(const Menu& m, bool current) {
+    const bool head = !m.head[0].empty() || !m.head[1].empty() || !m.head[2].empty() || !m.head[3].empty();
+    float total = 20.0f;
+    for (int i = 0; i < m.columns; i++) total += m.width[i];
+    const float top = m.y + 20.0f + (head ? 20.0f : 0.0f);
+    if (m.background) {
+        ScriptSprite sp;
+        sp.x0 = m.x; sp.y0 = m.y; sp.x1 = m.x + total; sp.y1 = top + 16.0f * (float)m.rows + 6.0f;
+        sp.colour = 0xBE000000;
+        if (!m.title.empty()) sp.label = Text(m.title);
+        sp.beforeFade = false;
+        m_spriteQueue.push_back(sp);
+    }
+    auto put = [&](int col, float y, const std::string& txt, uint32_t colour) {
+        float x = m.x + 10.0f;
+        for (int i = 0; i < col; i++) x += m.width[i];
+        ScriptTextItem it;
+        it.sx = 0.52f; it.sy = 1.0f; it.font = 1; it.shadow = 2; it.colour = colour; it.wrap = 640.0f;
+        if (m.align[col] == 0) { it.centre = true; x += m.width[col] * 0.5f; }
+        else if (m.align[col] == 2) { it.right = true; x += m.width[col]; }
+        it.x = x; it.y = y; it.text = txt;
+        m_queue.push_back(it);
+    };
+    for (int col = 0; col < m.columns; col++) {
+        if (!m.head[col].empty()) put(col, m.y + 20.0f, Text(m.head[col]), 0xFFE1E1E1);
+        for (int r = 0; r < m.rows; r++) {
+            if (m.cell[col][r].empty()) continue;
+            std::string t = Text(m.cell[col][r]);
+            const int n[2] = {m.n1[col][r], m.n2[col][r]};
+            for (int k = 0; k < 2 && n[k] != -1; k++) { const size_t p = t.find("~1~"); if (p != std::string::npos) t.replace(p, 3, std::to_string(n[k])); }
+            const bool act = m.interactive && current && r == m.active && m.on[r];
+            put(col, top + 16.0f * (float)r, t, act ? 0xFFFFE600 : (m.on[r] ? 0xFFE1E1E1 : 0xFF808080));
+        }
+    }
+}
+
 void ScriptGame::Update(float dt) {
+    MenuUpdate();
     for (const auto& f : m_frozenCars) {   // FREEZE_CAR_POSITION: held where it was frozen
         if (!cars || f.first < 1 || (size_t)f.first > cars->Count()) continue;
         VehicleInstance& v = cars->Car((size_t)f.first - 1);
