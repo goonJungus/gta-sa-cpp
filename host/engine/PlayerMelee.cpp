@@ -5,6 +5,7 @@
 
 #define NOMINMAX
 #include "PlayerPed.h"
+#include "Stats.h"
 
 #include <algorithm>
 #include <cctype>
@@ -31,11 +32,8 @@ const Melee::Combo* PlayerPed::CurrentCombo() const {
     return m_meleeTable.Find(n);
 }
 
-// CStats::GetFatAndMuscleModifier(4): stats 0..1000 (muscle 0x17, fat 0x15).
-float PlayerPed::FatMuscleModifier() const {
-    const float muscle = m_muscleStat * 1000.0f, fat = m_fatStat * 1000.0f;
-    return std::min(2.0f, 1.0f + (muscle - 50.0f) / 950.0f + (fat - 200.0f) * 0.5f / 800.0f);
-}
+// CTaskSimpleFight: the player's move damage is scaled by CStats::GetFatAndMuscleModifier(4).
+float PlayerPed::FatMuscleModifier() const { return Stats::FatMuscleMod(4); }
 
 namespace {
 constexpr int kBlockMove = Melee::kMoveCount;   // FightX_Block: the group's clip 8, ABLOCK times
@@ -57,6 +55,7 @@ void PlayerPed::FightStart(const Input& in, int move, const Melee::Combo* use) {
     a->delta = 8.0f;
     a->time = 0.0f;
     a->playing = true;
+    a->speed = Stats::FatMuscleMod(3);   // the fight clip runs at GetFatAndMuscleModifier(3)
     m_fight.active = true;
     m_fight.combo = c;
     m_fight.move = move;
@@ -65,7 +64,7 @@ void PlayerPed::FightStart(const Input& in, int move, const Melee::Combo* use) {
     m_fight.queued = false;
     m_fight.special = use != nullptr;
     m_fight.block = move == kBlockMove;
-    std::fprintf(stderr, "[MELEE] %s move %d clip %s%s\n", c->name.c_str(), move, clip->name.c_str(), m_fight.special ? " special" : "");
+    std::fprintf(stderr, "[MELEE] %s move %d clip %s%s speed %.3f\n", c->name.c_str(), move, clip->name.c_str(), m_fight.special ? " special" : "", a->speed);
     (void)in;
 }
 
@@ -120,6 +119,7 @@ void PlayerPed::UpdateMelee(const Input& in) {
             Melee::StrikeCentre(m_meleeTable, mv.level, pos, m_heading, s.pos);
             s.radius = mv.radius;
             s.damage = mv.damage * FatMuscleModifier();
+            std::fprintf(stderr, "[MELEE] strike damage %.3f (move %.1f x %.3f)\n", s.damage, mv.damage, FatMuscleModifier());
             s.move = m_fight.move;
             s.sword = c->name == "SWORD";
             s.hitAudio = mv.hitAudio;
