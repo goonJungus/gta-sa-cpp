@@ -3526,6 +3526,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
                 if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
                 g_cj.Update(pin);
+                { static const bool seatDbg = getenv("GTA_SEATDBG") != nullptr; if (seatDbg && frame % 200 == 0) Log("SEATDBG frame %d seated %d drive %d stick %.2f %.2f noclip %d clip %s", frame, (int)g_cj.InVehicle(), g_driveCar, pin.stickX, pin.stickY, (int)pin.noclip, g_cj.ClipName()); }
                 if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
                 if (g_cj.TakeJetDrop()) {   // CTaskSimpleJetPack::DropJetPack: the pack lies on the ground as a pickup
                     const float fz = playerZ - EYE_HEIGHT;
