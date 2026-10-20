@@ -106,7 +106,59 @@ bool HiddenPart(const std::string& n) {
            n.find("_lo") != std::string::npos || n.compare(0, 5, "extra") == 0 || n.empty();
 }
 
+// CAutomobile::PreRender: the rhino and swat van turret (misc_a yaws about Z by the vertical doom angle, misc_b pitches
+// about X by the horizontal one) and the fire truck nozzle (misc_a pitches about X, then yaws about Z). The rotation
+// replaces the frame's own and keeps its position.
+bool TurretRot(int model, int node, float doomV, float doomH, float r[9]) {
+    const float cv = std::cos(doomV), sv = std::sin(doomV), ch = std::cos(doomH), sh = std::sin(doomH);
+    const float rz[9] = {cv, sv, 0, -sv, cv, 0, 0, 0, 1};
+    const float rx[9] = {1, 0, 0, 0, ch, sh, 0, -sh, ch};
+    if ((model == 432 || model == 601) && node == 0) { std::memcpy(r, rz, sizeof(rz)); return true; }
+    if ((model == 432 || model == 601) && node == 1) { std::memcpy(r, rx, sizeof(rx)); return true; }
+    if (model == 407 && node == 0) {
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++) r[i * 3 + j] = rx[i * 3] * rz[j] + rx[i * 3 + 1] * rz[3 + j] + rx[i * 3 + 2] * rz[6 + j];
+        return true;
+    }
+    return false;
+}
+
+// Frame (car space) of a turret node: local frame with the turret rotation, on top of its parent.
+void NodeCarSpace(const VehicleModel& vm, int model, int node, float doomV, float doomH, float out[16]) {
+    const VehicleModel::Node& nd = vm.nodes[node];
+    float loc[16];
+    std::memcpy(loc, nd.local, sizeof(loc));
+    float r[9];
+    if (TurretRot(model, node, doomV, doomH, r))
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) loc[i * 4 + j] = r[i * 3 + j];
+    if (nd.parent >= 0 && vm.nodes[nd.parent].found) {
+        float pm[16];
+        NodeCarSpace(vm, model, nd.parent, doomV, doomH, pm);
+        Mul(loc, pm, out);
+    } else Mul(loc, nd.base, out);
+}
+
 }  // namespace
+
+bool Vehicles::NodeMatrix(size_t i, int node, float out[16]) const {
+    if (i >= m_cars.size() || node < 0 || node > 2) return false;
+    const VehicleInstance& c = m_cars[i];
+    auto it = m_models.find(c.model);
+    if (it == m_models.end() || !it->second.nodes[node].found) return false;
+    float cs[16];
+    NodeCarSpace(it->second, c.model, node, c.doomV, c.doomH, cs);
+    const float co = std::cos(c.heading), sn = std::sin(c.heading);
+    const float body[16] = {co, sn, 0, 0, -sn, co, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
+    Mul(cs, body, out);
+    return true;
+}
+
+bool Vehicles::NodeWorldPos(size_t i, int node, float out[3]) const {
+    float m[16];
+    if (!NodeMatrix(i, node, m)) return false;
+    out[0] = m[12]; out[1] = m[13]; out[2] = m[14];
+    return true;
+}
 
 bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
     m_dir = gameDir;
@@ -279,6 +331,20 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
                 vm.wheelFound[k] = true;
                 for (int c = 0; c < 3; c++) vm.wheelPos[k][c] = glob[i][12 + (size_t)c];
             }
+    {
+        static const char* kNode[3] = {"misc_a", "misc_b", "misc_c"};
+        for (size_t i = 0; i < w.frames.size(); i++)
+            for (int k = 0; k < 3; k++) {
+                if (w.frames[i].name != kNode[k]) continue;
+                VehicleModel::Node& nd = vm.nodes[k];
+                nd.found = true;
+                FrameMatrix(w.frames[i].m, nd.local);
+                const int p = w.frames[i].parent;
+                for (int j = 0; j < 3; j++) if (p >= 0 && (size_t)p < w.frames.size() && w.frames[(size_t)p].name == kNode[j]) nd.parent = j;
+                if (nd.parent < 0 && p >= 0 && (size_t)p < glob.size()) std::memcpy(nd.base, glob[(size_t)p].data(), sizeof(nd.base));
+                else { std::memset(nd.base, 0, sizeof(nd.base)); nd.base[0] = nd.base[5] = nd.base[10] = nd.base[15] = 1.0f; }
+            }
+    }
     for (size_t i = 0; i < w.frames.size(); i++)
         if (w.frames[i].name == "ped_frontseat") {   // the dummy sits on the passenger side; the driver mirrors it
             vm.seatFound = true;
@@ -325,6 +391,7 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         p.mesh = mesh;
         if (fr >= 0 && (size_t)fr < glob.size()) std::memcpy(p.m, glob[(size_t)fr].data(), sizeof(p.m));
         else { std::memset(p.m, 0, sizeof(p.m)); p.m[0] = p.m[5] = p.m[10] = p.m[15] = 1.0f; }
+        for (int k = 0; k < 3; k++) if (vm.nodes[k].found && name == (k == 0 ? "misc_a" : k == 1 ? "misc_b" : "misc_c")) p.node = k;
         vm.parts.push_back(p);
     }
     {
@@ -340,7 +407,7 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
     const VehicleModel* spawnModel = Model(r, id);
     if (!spawnModel) return -1;
     VehicleInstance c;
-    c.model = id; c.x = x; c.y = y; c.z = z + spawnModel->rideHeight;   // z is the ground under the car c.heading = heading;
+    c.model = id; c.x = x; c.y = y; c.z = z + spawnModel->rideHeight;   c.heading = heading;   // z is the ground under the car
     auto cc = m_carColours.find(Info(id)->dff);
     if (cc != m_carColours.end() && !cc->second.empty()) {
         m_rng = m_rng * 1664525u + 1013904223u;
@@ -390,6 +457,10 @@ void Vehicles::Draw(D3DRenderer& r) {
             r.UpdateMeshVertices(pp.mesh, vv.data(), (uint32_t)vv.size());
         }
         for (const VehiclePart& p : vm.parts) {
+            if (p.node >= 0) {   // a turret part follows its (rotated) frame
+                float nm[16];
+                if (NodeMatrix((size_t)(&c - m_cars.data()), p.node, nm)) { dev->SetTransform(D3DTS_WORLD, reinterpret_cast<D3DMATRIX*>(nm)); r.DrawMesh(p.mesh); continue; }
+            }
             Mul(p.m, body, &out._11);
             dev->SetTransform(D3DTS_WORLD, &out);
             r.DrawMesh(p.mesh);

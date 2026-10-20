@@ -665,6 +665,28 @@ int Peds::Explosion(const float c[3], float radius) {
     return killed;
 }
 
+bool Peds::WaterHit(size_t i, const float sec[3], float ts) {
+    if (i >= m_actors.size() || m_actors[i].dead) return false;
+    Actor& a = m_actors[i];
+    if (!a.getUp && !a.hitClip) {   // CTaskComplexFallAndGetUp: the ko_skid_front fall, then getup_front when the clip ends
+        auto ko = m_clips.find("ko_skid_front");
+        if (ko != m_clips.end()) { a.hitClip = &ko->second; a.hitTime = 0.0f; a.getUp = true; }
+    }
+    float mx = a.vx / 50.0f, my = a.vy / 50.0f, mz = a.vz / 50.0f;   // metres per step
+    mz += 2.0f * ts / 70.0f;                                         // ApplyMoveForce(0, 0, 2 * timeStep): ped mass 70
+    mx = (sec[0] * 0.6f + mx) * 0.5f;
+    my = (sec[1] * 0.6f + my) * 0.5f;
+    const float l = std::sqrt(mx * mx + my * my);
+    if (l > 0.2f) { mx *= 0.2f / l; my *= 0.2f / l; }
+    mz += ts / 70.0f;                                                // PushPeds' own ApplyMoveForce(0, 0, timeStep)
+    const float ax = (sec[0] / 10.0f - mx) / 10.0f, ay = (sec[1] / 10.0f - my) / 10.0f;
+    if (sec[0] * ax > 0.0f) mx = ax + sec[0];
+    if (sec[1] * ay > 0.0f) my = ay + sec[1];
+    a.vx = mx * 50.0f; a.vy = my * 50.0f; a.vz = mz * 50.0f;
+    a.flying = true;
+    return true;
+}
+
 void Peds::Choke(const float c[3], float radius) {
     // CWorld::SetPedsChoking: a box of the radius, z +-5; each live ped not already burning is gassed.
     for (Actor& a : m_actors) {

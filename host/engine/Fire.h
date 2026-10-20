@@ -58,6 +58,10 @@ public:
     bool PlentyAvailable() const;
     void Extinguish(int fire);
     void ExtinguishPoint(const float pos[3], float radius);
+    // CFireManager::ExtinguishPointWithWater: every fire within the radius loses strength * dt (CFire::ExtinguishWithWater)
+    // and goes out below zero. onHit gets the random smoke spot retail spawns around each fire it wets.
+    bool ExtinguishPointWithWater(const float pos[3], float radius, float strength, float dt, World* w = nullptr,
+                                  const std::function<void(const float*)>& onHit = nullptr);
     void ExtinguishAll();
     void Update(float dt, World& w);
     // CCreepingFire::TryToStartFireAtCoors: needs ground below and plenty of free fires.
