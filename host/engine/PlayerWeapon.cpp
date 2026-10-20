@@ -414,6 +414,8 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
             g.combo = m_meleeTable.Find(n);
         }
     std::fprintf(stderr, "[GUN] %zu weapons, %zu combos\n", m_guns.size(), m_meleeTable.combos.size());
+    if (std::getenv("GTA_GUNLIST"))
+        for (size_t i = 0; i < m_guns.size(); i++) std::fprintf(stderr, "[GUNLIST] %zu type %d slot %d name %s\n", i, m_guns[i].type, m_guns[i].slot, m_guns[i].name.c_str());
 }
 
 void PlayerPed::ShutdownGuns(D3DRenderer& r) {
