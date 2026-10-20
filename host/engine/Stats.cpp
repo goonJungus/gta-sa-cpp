@@ -18,6 +18,10 @@
 namespace Stats {
 namespace {
 float g_v[kCount] = {};
+// ar_stats.dat as shipped; LoadReactions replaces these
+float g_react[R_COUNT] = {50, 50, 10, 5, 20, 50, 50, 25, 50, 10, 50, 20, 0.8f, 5.0f, 3.0f, 0.6f, 0.45f, 0.6f, 0.4f, 1.5f, 3.0f, 2.0f, 10.0f,
+                          15, 15, 10, 5, 15, 10, 15, 10, 5, 5, 300, 180, 300, 300, 300, 300, 120, 180, 300, 150, 150, 60, 600,
+                          50, 20, 50, 100, 100, 100, 100, 50, 50, 50, 20, 5, 1000};
 
 // STAT_PISTOL_SKILL .. STAT_RIFLE_SKILL -> WeaponStats entry (Micro Uzi stat is the machine pistol one)
 const char* const kSkillWeapon[11] = {"PISTOL", "PISTOL_SILENCED", "DESERT_EAGLE", "SHOTGUN", "SAWNOFF", "SPAS12",
@@ -141,6 +145,24 @@ void Save(const char* ini) {
     }
 }
 
+float React(int index) { return index >= 0 && index < R_COUNT ? g_react[index] : 0.0f; }
+
+int LoadReactions(const char* path) {
+    FILE* f = std::fopen(path, "r");
+    if (!f) return 0;
+    int n = 0;
+    char line[256];
+    while (std::fgets(line, sizeof(line), f)) {
+        if (line[0] == '#' || line[0] == ';') continue;
+        int idx = 0;
+        char name[96];
+        float v = 0;
+        if (std::sscanf(line, "%d %95s %f", &idx, name, &v) == 3 && idx >= 0 && idx < R_COUNT) { g_react[idx] = v; n++; }
+    }
+    std::fclose(f);
+    return n;
+}
+
 // CStats::UpdateStatsWhenSprinting / Running / Swimming / Driving and the max-health part of UpdateFatAndMuscleStats,
 // with the ar_stats.dat values (STAT_INC_* amounts, STAT_TIMELIMIT_* seconds). Counters run in milliseconds.
 int UpdateActivity(float dt, int rate, bool swimming, bool underwater, int vehicle, float carSpeed, bool hasDriver) {
@@ -156,31 +178,31 @@ int UpdateActivity(float dt, int rate, bool swimming, bool underwater, int vehic
     };
     if (rate > 0) {
         health += ms;   // UpdateFatAndMuscleStats: the max-health counter runs on every call
-        fire(health, 600.0f, STAT_MAX_HEALTH, 20.0f);
+        fire(health, React(R_TIMELIMIT_MAX_HEALTH), STAT_MAX_HEALTH, React(R_INC_MAX_HEALTH));
         if (swimming) {
             swim += ms;
-            fire(swim, 180.0f, STAT_STAMINA, 50.0f);
+            fire(swim, React(R_TIMELIMIT_SWIM_STAMINA), STAT_STAMINA, React(R_INC_SWIM_STAMINA));
         } else {
             stamina += ms;
-            fire(stamina, 300.0f, STAT_STAMINA, rate >= 10 ? 10.0f : 5.0f);
+            fire(stamina, React(rate >= 10 ? R_TIMELIMIT_SPRINT_STAMINA : R_TIMELIMIT_RUNNING), STAT_STAMINA, React(rate >= 10 ? R_INC_SPRINT_STAMINA : R_INC_RUNNING));
         }
     }
     if (swimming && underwater) {
         breath += ms;
-        fire(breath, 60.0f, STAT_LUNG_CAPACITY, 50.0f);
+        fire(breath, React(R_TIMELIMIT_BREATH_UNDERWATER), STAT_LUNG_CAPACITY, React(R_INC_BREATH_UNDERWATER));
     }
     if (vehicle == 1) {   // UpdateStatsWhenDriving
         if (!hasDriver || carSpeed > 0.8f) drive += ms;
         else if (carSpeed > 0.2f) drive += ms * 0.5f;
-        fire(drive, 300.0f, STAT_DRIVING_SKILL, 20.0f);
+        fire(drive, React(R_TIMELIMIT_DRIVING_SKILL), STAT_DRIVING_SKILL, React(R_INC_DRIVING_SKILL));
     } else if (vehicle == 2) {   // UpdateStatsWhenOnMotorBike
         if (carSpeed > 0.6f) bike += ms;
         else if (carSpeed > 0.2f) bike += ms * 0.5f;
-        fire(bike, 180.0f, STAT_BIKE_SKILL, 25.0f);
+        fire(bike, React(R_TIMELIMIT_MOTORBIKE_SKILL), STAT_BIKE_SKILL, React(R_INC_MOTORBIKE_SKILL));
     } else if (vehicle == 3) {   // UpdateStatsWhenFlying
         if (carSpeed > 1.3f) fly += ms;
         else if (carSpeed > 0.5f) fly += ms * 0.5f;
-        fire(fly, 300.0f, STAT_FLYING_SKILL, 50.0f);
+        fire(fly, React(R_TIMELIMIT_FLYING_SKILL), STAT_FLYING_SKILL, React(R_INC_FLYING_SKILL));
     }
     return raised;
 }
