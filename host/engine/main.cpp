@@ -39,6 +39,7 @@
 #include "DffLoader.h"
 #include "TxdLoader.h"
 #include "ImgLoader.h"
+#include "Cheat.h"
 #include "IdeLoader.h"
 #include "IplLoader.h"
 #include "BinaryIpl.h"
@@ -282,6 +283,7 @@ static void CrosshairRay(float yaw, float pitch, float out[3]) {
 static bool g_hudReady = false;
 static bool g_menuReady = false;
 static bool g_escOpensMenu = false;      // play mode (not the capture modes)
+static int  g_money = getenv("GTA_MONEY") ? atoi(getenv("GTA_MONEY")) : 0;
 static int  g_keyQueue[64];              // WM_KEYDOWN -> main loop (menu input)
 static int  g_keyQueueN = 0;
 static int  g_wheelSteps = 0;   // mouse wheel notches since the last frame
@@ -475,6 +477,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         // the capture modes have no menu, so ESC still exits them.
         if (getenv("GTA_KEYLOG")) Log("KEY %u", (unsigned)wp);
         if (wp == VK_ESCAPE && !g_escOpensMenu) { g_running = false; return 0; }
+        if (wp >= 'A' && wp <= 'Z' && !(lp & (1 << 30))) Cheat::Push((char)wp);   // CCheat::AddToCheatString
         if (g_keyQueueN < (int)(sizeof(g_keyQueue) / sizeof(g_keyQueue[0])))
             g_keyQueue[g_keyQueueN++] = (int)wp;   // auto-repeat included: menu scrolling
         return 0;
@@ -3230,11 +3233,34 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     pin.carReverse = dc.speed < -0.3f || (RawGameKey('S') & 0x8000) != 0;
                     g_cj.SetDrivingSkill(0.0f);
                 }
+                pin.jetBrake = pin.duckHeld;
+                pin.jetStop = (RawGameKey(VK_MBUTTON) & 0x8000) != 0;   // look behind
+                if (getenv("GTA_JETPACK") && frame == 5) g_cj.StartJetpack();   // dev: the jetpack without typing the cheat
+                switch (Cheat::Take()) {   // CCheat::AddToCheatString hit
+                case Cheat::Jetpack:
+                    if (!g_cj.Jetpacking()) g_cj.StartJetpack();
+                    if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get("CHEAT1"), 3.0f);
+                    break;
+                case Cheat::HealthArmorMoney:
+                    g_cj.RestoreVitals();
+                    g_money += 250000;
+                    if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get("CHEAT1"), 3.0f);
+                    break;
+                default: break;
+                }
                 pin.climbScan = climbScan;
                 pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
                 if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
                 g_cj.Update(pin);
                 if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
+                g_cj.TakeJetDrop();   // the dropped pack becomes a pickup once pickups can be created at runtime
+                {   // CTaskSimpleJetPack owns the vertical speed while it flies
+                    float jv;
+                    if (g_cj.JetVelZ(jv)) { onGround = false; velZ = jv; }
+                    float nz[2][3];
+                    if (g_cj.Jetpacking() && g_cj.JetThrust() > 0.5f && g_cj.JetNozzles(playerX, playerY, playerZ - EYE_HEIGHT, nz))
+                        for (int n = 0; n < 2; n++) g_fx.Smoke(nz[n], 0.0f);
+                }
                 if (g_cj.Swimming()) {   // ride the surface, or dive
                     onGround = true; velZ = 0.0f;
                     const float origin = playerZ - EYE_HEIGHT + 1.0f;
@@ -3305,6 +3331,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (!onGround) {
                 velZ -= GRAVITY * dt;
                 if (cjReady) g_cj.ParaVelZ(velZ);   // the parachute script sets the fall speed
+                if (cjReady) g_cj.JetVelZ(velZ);
                 if (cjReady && g_hudReady && g_cj.TakeParaHelp()) g_hud.Subtitle(g_hud.Text().Get("PARA_01"), 1.0f);
                 playerZ += velZ * dt;
                 if (playerZ <= gz + EYE_HEIGHT) {
@@ -3498,7 +3525,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 D3DMATRIX view = MatrixLookAt(co.eye[0], co.eye[1], co.eye[2], co.eye[0] + co.dir[0],
                                               co.eye[1] + co.dir[1], co.eye[2] + co.dir[2], 0, 0, 1);
-                if (const char* gc = getenv("GTA_GUNCAM")) {   // dev: look at the gun hand from the side (1), above (2) or the front (3)
+                if (const char* gc = getenv("GTA_GUNCAM")) {   // dev: look at the gun hand from the side (1), above (2) the front (3) or behind (4)
                     float hp[3];
                     if (g_cj.BoneWorldPos(24, playerX, playerY, playerZ - EYE_HEIGHT, hp)) {
                         const float hl = std::sqrt(co.dir[0] * co.dir[0] + co.dir[1] * co.dir[1]) + 1e-6f;
@@ -3506,6 +3533,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const int m = atoi(gc);
                         float e[3] = {hp[0] + rx * 1.3f, hp[1] + ry * 1.3f, hp[2] + 0.1f};
                         if (m == 2) { e[0] = hp[0] - fx * 0.01f; e[1] = hp[1] - fy * 0.01f; e[2] = hp[2] + 1.8f; }
+                        if (m == 5) { e[0] = hp[0] + rx * 2.2f; e[1] = hp[1] + ry * 2.2f; e[2] = hp[2] + 0.3f; }
+                        if (m == 4) { e[0] = hp[0] - fx * 1.6f + rx * 0.5f; e[1] = hp[1] - fy * 1.6f + ry * 0.5f; e[2] = hp[2] + 0.3f; }   // from behind
                         if (m == 3) { e[0] = hp[0] + fx * 1.5f + rx * 0.3f; e[1] = hp[1] + fy * 1.5f + ry * 0.3f; e[2] = hp[2] + 0.1f; }
                         view = m == 2 ? MatrixLookAt(e[0], e[1], e[2], hp[0], hp[1], hp[2], fx, fy, 0)   // forward is up on screen
                                       : MatrixLookAt(e[0], e[1], e[2], hp[0], hp[1], hp[2], 0, 0, 1);
@@ -4313,7 +4342,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.health = g_cj.Health(); hd.maxHealth = g_cj.MaxHealth(); hd.armor = g_cj.Armor();
             hd.breath = g_cj.Breath(); hd.showBreath = g_cj.ShowBreath();
             hd.damageFlashAmount = g_cj.DamageFlash();
-            static int s_money = getenv("GTA_MONEY") ? atoi(getenv("GTA_MONEY")) : 0;
+            int& s_money = g_money;
             static int s_wanted = getenv("GTA_WANTED") ? atoi(getenv("GTA_WANTED")) : 0;
             hd.money = s_money; hd.wanted = s_wanted;
             hd.hour = (int)clockHour; hd.minute = (int)((clockHour - floorf(clockHour)) * 60.0f);

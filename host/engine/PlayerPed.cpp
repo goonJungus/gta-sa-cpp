@@ -1529,7 +1529,9 @@ void PlayerPed::Update(const Input& inRaw) {
         Skin();
         return;
     }
-    if (in.noclip) {
+    if (!in.noclip && UpdateJetpack(in)) {
+        if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false);
+    } else if (in.noclip) {
         // F4 fly: CJ floats in the skydive pose, accelerating when moving.
         m_inAir = false;
         m_busy = false;
@@ -1698,6 +1700,7 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
             m_canopy.Draw(r);
         }
     }
+    if (m_jet.on) DrawJetpack(r, w);
     if (!m_hideGun && (!m_seated || m_dbClip)) DrawGun(r, x, y, feetZ);
 }
 

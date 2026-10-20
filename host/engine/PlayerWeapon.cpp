@@ -254,7 +254,7 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
     }
     ImgLoader gta3;
     const bool haveImg = gta3.Open(gameDir + "\\models\\gta3.img");
-    if (haveImg) m_canopy.Load(r, gta3);
+    if (haveImg) { m_canopy.Load(r, gta3); LoadJetpack(r, gta3); }
 
     auto loadModel = [&](Gun& g, int model) {
         auto it = ide.find(model);

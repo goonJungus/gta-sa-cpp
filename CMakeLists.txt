@@ -73,6 +73,8 @@ if(WIN32)
         host/engine/PlayerMelee.cpp
         host/engine/PlayerThrow.cpp
     host/engine/PlayerDriveby.cpp
+    host/engine/PlayerJetpack.cpp
+    host/engine/Cheat.cpp
         host/engine/PlayerParachute.cpp
         host/engine/ParaCanopy.cpp
         host/engine/Projectiles.cpp
