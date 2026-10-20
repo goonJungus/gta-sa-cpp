@@ -64,6 +64,7 @@ public:
     std::string gameDir;
     Cutscene::DrawCj drawCj;                                     // CJ in a cutscene
     std::function<void(bool)> showPlayer;                        // hide CJ while a cutscene plays
+    std::function<bool()> skipPressed;                           // CCutsceneMgr::IsCutsceneSkipButtonBeingPressed (edge)
 
     ScriptCamera cam;
     float fade = 0.0f;                 // 0 clear .. 1 solid (script fade layer)

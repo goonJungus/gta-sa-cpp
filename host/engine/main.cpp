@@ -1543,6 +1543,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_sg.setWeapon = [&](int w) { if (cjReady) { const int i = g_cj.GunIndexOfType(w); g_cj.SelectGun(i); Log("SCRIPT: weapon in hand %d (gun %d)", w, i); } };
         g_sg.gameDir = g_gameDir;
         g_sg.drawCj = [&](D3DRenderer& rr, const AnimClip* c, float t, const float o[3]) { if (cjReady) g_cj.DrawCutscene(rr, c, t, o); };
+        g_sg.skipPressed = [] {   // Enter, Space or the left mouse button, on the press
+            static bool was = false;
+            const bool down = (GameKey(VK_RETURN) & 0x8000) || (GameKey(VK_SPACE) & 0x8000) || (GameKey(VK_LBUTTON) & 0x8000);
+            const bool hit = down && !was;
+            was = down;
+            return hit;
+        };
         g_sg.showPlayer = [&](bool on) { g_cutHideCj = !on; Log("SCRIPT: player %s", on ? "shown" : "hidden"); };
         g_sg.groundAt = [&](float x, float y) { return g_world.GetGroundHeight(x, y, playerZ + 50.0f); };
         s_scm.command = [](ScmMachine::Call& c) { return g_sg.Handle(c); };
