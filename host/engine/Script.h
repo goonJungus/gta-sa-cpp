@@ -62,6 +62,7 @@ struct ScmHost {
     std::function<void(float, float, float)> setPlayerPos;
     std::function<void(float&, float&, float&)> playerPos;
     std::function<void(int, int)> setTime;       // hour, minute
+    std::function<void(int&, int&)> getTime;     // hour, minute
     // radar blips: add (x, y, z, sprite, short range) -> handle; remove; display mode
     std::function<int(float, float, float, int, bool)> addBlip;
     std::function<void(int)> removeBlip;

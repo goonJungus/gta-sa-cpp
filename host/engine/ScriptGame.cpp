@@ -366,6 +366,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x04AE: case 0x04AF: c.Out(0, c.I(1)); return true;                              // SET_LVAR_INT_TO_CONSTANT
     case 0x03D0: c.result = true; return true;                               // HAS_MISSION_AUDIO_LOADED
     case 0x00D8: c.t.finished = true; return true;                           // MISSION_HAS_FINISHED: the mission thread ends
+    case 0x00BF: { int h = 12, m = 0; if (scm && scm->host.getTime) scm->host.getTime(h, m); c.Out(0, h); c.Out(1, m); std::fprintf(stderr, "[SCMGAME] GET_TIME_OF_DAY %02d:%02d\n", h, m); return true; }   // GET_TIME_OF_DAY
     case 0x00C0: if (scm && scm->host.setTime) scm->host.setTime(c.I(0), c.I(1)); return true;   // SET_TIME_OF_DAY
     default: break;
     }

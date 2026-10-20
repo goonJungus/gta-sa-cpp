@@ -1516,6 +1516,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
         s_scm.host.removeBlip = [](int h) { g_blips.erase(std::remove_if(g_blips.begin(), g_blips.end(), [h](const RadarBlip& b) { return b.handle == h; }), g_blips.end()); };
         s_scm.host.blipDisplay = [](int h, int mode) { for (RadarBlip& b : g_blips) if (b.handle == h) b.display = mode; };
+        s_scm.host.getTime = [&](int& h, int& m) { const int t = (int)(g_gameSeconds / 60.0f) % 1440; h = t / 60; m = t % 60; };
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
         g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud;
         g_sg.wantedLevel = [] { return g_wanted; }; g_sg.setWantedLevel = [](int w) { g_wanted = w; };
