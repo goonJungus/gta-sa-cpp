@@ -192,7 +192,7 @@ static int g_driveCar = -1;   // index of the car CJ is driving, -1 on foot
 static SHORT GameKey(int vk) {
     // While driving the pedestrian controls are muted; the car reads the raw keys.
     if (g_driveCar >= 0 && (vk == 'W' || vk == 'A' || vk == 'S' || vk == 'D' || vk == VK_SPACE || vk == VK_SHIFT ||
-                            vk == 'C' || vk == 'F' || vk == 'Q' || vk == 'E' || vk == VK_LBUTTON || vk == VK_RETURN)) return 0;
+                            vk == 'C' || vk == 'F' || vk == 'Q' || vk == 'E' || vk == VK_RETURN)) return 0;
     return RawGameKey(vk);
 }
 // Edge-triggered key read: true only on the frame the key goes down.
@@ -3214,6 +3214,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     pin.diveUp = jumpKeyDown;
                 }
                 pin.exitPressed = (GameKey('F') & 0x8000) != 0;   // CPad::GetExitVehicle lets go
+                if (g_driveCar >= 0) {
+                    const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar);
+                    pin.carSteer = -dc.steer;   // retail: positive = left
+                    pin.carSpeed = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy);
+                    pin.carReverse = dc.speed < -0.3f || (RawGameKey('S') & 0x8000) != 0;
+                    g_cj.SetDrivingSkill(0.0f);
+                }
                 pin.climbScan = climbScan;
                 pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
                 if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
@@ -3352,6 +3359,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const VehicleInstance& wc = g_vehicles.Car((size_t)g_driveCar);
                 playerX = wc.x + 2.5f; playerY = wc.y; playerZ = wc.z + EYE_HEIGHT; velZ = 3.0f; onGround = false;
                 g_driveCar = -1; g_audio.EngineStop(); g_radio.Tune(-1);
+                if (cjReady) g_cj.LeaveVehicle();
                 g_cj.Hurt(60.0f);
             }
             // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
@@ -3362,13 +3370,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 s_prevF = fDown;
                 if (fJust && g_driveCar < 0) {
                     const int n = g_vehicles.Nearest(playerX, playerY, 6.5f);
-                    if (n >= 0 && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) { g_driveCar = n; Log("DRIVE: got in car %d", n); g_radio.Tune(g_radioStation); }
+                    if (n >= 0 && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) {
+                        g_driveCar = n; Log("DRIVE: got in car %d", n); g_radio.Tune(g_radioStation);
+                        float sp[3]; bool low = false;
+                        if (cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low)) g_cj.EnterVehicle(low);
+                    }
                 } else if (fJust && g_driveCar >= 0) {
                     VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
                     playerX = c.x + std::cos(c.heading) * 2.4f; playerY = c.y + std::sin(c.heading) * 2.4f;
                     playerZ = c.z + EYE_HEIGHT; velZ = 0.0f; onGround = true;
                     c.speed = 0.0f;
                     g_driveCar = -1;
+                    if (cjReady) g_cj.LeaveVehicle();
                     g_audio.EngineStop();
                     g_radio.Tune(-1);
                     Log("DRIVE: got out");
@@ -3394,6 +3407,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (const VehicleInfo* vi = g_vehicles.Info(c.model)) {
                         const HandlingData* hd = g_vehicles.Handling(vi->handling);
                         g_audio.Engine(c.model, th, c.speed, (hd ? hd->maxVelocity : 160.0f) / 3.6f, hd ? hd->numGears : 5, dt);
+                    }
+                    {
+                        float sp[3];
+                        if (cjReady && g_vehicles.SeatWorld((size_t)g_driveCar, sp)) g_cj.SetSeat(sp, c.heading + 1.5707963f);
                     }
                     playerX = c.x; playerY = c.y; playerZ = c.z + EYE_HEIGHT + 0.7f;   // the camera rides above the roof
                     velZ = 0.0f; onGround = true; vx = vy = 0.0f;
@@ -3593,8 +3610,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // passes so a fence/window in front of CJ occludes him correctly.
         auto drawPlayerBox = [&]() {
             if (!playMode) return;
-            if (g_driveCar >= 0) return;   // CJ is inside the car
             float feetZ = playerZ - EYE_HEIGHT;
+            if (g_driveCar >= 0) {   // CJ sits at the car's driver seat
+                if (cjReady && !scripted && !flyover && g_cj.InVehicle()) {
+                    float sp[3];
+                    g_cj.SeatPlacement(sp);
+                    g_cj.SetHideGun(g_scoped);
+                    g_cj.Draw(g_renderer, sp[0], sp[1], sp[2] - 1.0f, false);
+                }
+                return;
+            }
             if (g_aimTest && g_dummy.Ready()) {
                 for (const AimDummy& d : g_aim.Dummies()) {
                     if (!d.alive()) continue;

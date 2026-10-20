@@ -80,6 +80,9 @@ public:
         bool duckJust = false;                // CPad::DuckJustDown
         bool aim = false;                     // CPad::GetTarget (aim button held)
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
+        float carSteer = 0.0f;                // seated: CVehicle::m_fSteerAngle, radians, positive = left
+        float carSpeed = 0.0f;                // seated: the car's speed, m/s
+        bool carReverse = false;              // seated: gas pedal below zero (CVehicle::m_GasPedal)
         ClimbScanFn climbScan;
     };
 
@@ -133,6 +136,17 @@ public:
     void SwitchAfterEmpty();            // CPlayerPed::ProcessWeaponSwitch: out of ammo, the next lower slot with ammo
     int GunIndex() const { return m_gun; }   // the firearm in hand, -1 for fists or a melee weapon
     int WeaponIndex() const { return m_gun >= 0 ? m_gun : m_melee; }   // anything in hand, -1 = fists
+    // CTaskSimpleCarDrive + CTaskSimpleGangDriveBy (PlayerDriveby.cpp). The host seats CJ at the car's
+    // seat dummy; the ped origin is the pelvis. EnterVehicle is CPed::ReplaceWeaponForVehicle: the
+    // SMG (Micro Uzi, Tec-9, MP5) in hand with the old weapon saved, LeaveVehicle gives it back.
+    void EnterVehicle(bool lowCar);
+    void LeaveVehicle();
+    bool InVehicle() const { return m_seated; }
+    void SetSeat(const float pos[3], float noseYaw) { m_seatPos[0] = pos[0]; m_seatPos[1] = pos[1]; m_seatPos[2] = pos[2]; m_seatYaw = noseYaw; }
+    void SeatPlacement(float out[3]) const { for (int i = 0; i < 3; i++) out[i] = m_seatPos[i]; }
+    bool Driveby() const { return m_seated && m_dbClip != nullptr; }
+    bool CanDriveby() const;               // an SMG with ammo is in hand
+    void SetDrivingSkill(float v) { m_drivingSkill = v; }   // STAT_DRIVING_SKILL 0..1000
     float WeaponRadiusOnScreen() const;   // CPlayerPed::GetWeaponRadiusOnScreen
     float TargetRange() const { return m_gun >= 0 ? m_guns[m_gun].targetRange : 0.0f; }
     // CWeaponInfo::GetTargetHeadRange: (skill + 2) * weapon range * 0.04
@@ -433,6 +447,15 @@ private:
     } m_throw;
     Launch m_launch;
     bool m_hideGun = false;
+    // seated in a car (PlayerDriveby.cpp)
+    bool m_seated = false, m_seatLow = false;
+    float m_seatPos[3] = {0, 0, 0}, m_seatYaw = 0.0f, m_drivingSkill = 0.0f;
+    int m_savedWeapon = -2;                // -2 none; else the WeaponIndex() to give back
+    const AnimClip* m_dbClip = nullptr;    // the Driveby_x clip in use
+    bool m_dbFiring = false, m_dbShot = false;
+    float m_dbTime = 0.0f;                 // the task's own clock for the hold / shot / loop
+    int m_dbSide = 0;                      // +1 left window, -1 right
+    void UpdateSeated(const Input& in);
     int m_goggles = 0, m_drawIdx = -1;
     int m_para = 0;
     int m_sky = 0;                       // player_parachute.scm skydive state

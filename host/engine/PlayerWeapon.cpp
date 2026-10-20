@@ -426,6 +426,7 @@ void PlayerPed::ShutdownGuns(D3DRenderer& r) {
 
 // Select a weapon (-1 = fists); resets the aim state.
 void PlayerPed::SelectGun(int index) {
+    if (m_seated) return;   // the weapon in a car is the SMG picked on entry
     m_gun = m_melee = -1;
     if (index >= 0 && index < (int)m_guns.size()) ((m_guns[index].spec->melee || m_guns[index].spec->thrown) ? m_melee : m_gun) = index;
     FightEnd(true);
@@ -650,6 +651,7 @@ void PlayerPed::UpdateGun(const Input& in) {
 // The weapon model sits on the right-hand bone matrix (RenderWeaponPedsForPC).
 bool PlayerPed::MuzzleWorld(float x, float y, float feetZ, float out[3]) const {
     if (m_gun < 0) return false;
+    if (m_seated) { x = m_seatPos[0]; y = m_seatPos[1]; feetZ = m_seatPos[2] - 1.0f; }   // the seat, whatever the caller passed
     const int f = m_frameOfBone[kBoneRHand];
     if (f < 0 || f >= (int)m_globals.size()) return false;
     const float* o = m_guns[m_gun].fireOffset;

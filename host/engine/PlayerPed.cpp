@@ -1493,6 +1493,15 @@ void PlayerPed::Update(const Input& inRaw) {
     m_stickX = in.stickX;
     m_stickY = in.stickY;
 
+    if (m_seated) {
+        UpdateSeated(in);
+        Advance(dt);
+        m_rootDX = m_rootDY = 0.0f;
+        BuildPose(); BuildGlobals(m_pose); ShoulderBoneRotation();
+        if (in.rewrite) ApplyRewritePose();
+        Skin();
+        return;
+    }
     if (m_climbing && !in.noclip) {
         m_velX = m_velY = 0.0f;
         ProcessClimb(in);
@@ -1652,6 +1661,7 @@ void PlayerPed::Skin() {
 bool PlayerPed::BoneWorldPos(int boneId, float x, float y, float feetZ, float out[3]) const {
     const int f = boneId >= 0 && boneId < 512 ? m_frameOfBone[boneId] : -1;
     if (f < 0 || f >= (int)m_globals.size()) return false;
+    if (m_seated) { x = m_seatPos[0]; y = m_seatPos[1]; feetZ = m_seatPos[2] - 1.0f; }
     const float a = m_heading - kPi * 0.5f, c = std::cos(a), s = std::sin(a);
     const float* p = m_globals[f].m[3];
     out[0] = x + p[0] * c - p[1] * s;
@@ -1688,7 +1698,7 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
             m_canopy.Draw(r);
         }
     }
-    if (!m_hideGun) DrawGun(r, x, y, feetZ);
+    if (!m_hideGun && (!m_seated || m_dbClip)) DrawGun(r, x, y, feetZ);
 }
 
 // ---- CTaskSimpleSwim @ 00688930 -------------------------------------------
