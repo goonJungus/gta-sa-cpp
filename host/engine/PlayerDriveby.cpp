@@ -8,6 +8,7 @@
 #include "PlayerPed.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -77,8 +78,12 @@ void PlayerPed::LeaveVehicle() {
     m_reloading = false;
     if (m_savedWeapon != -2) SelectGun(m_savedWeapon);
     m_savedWeapon = -2;
-    for (Assoc& a : m_assocs)
-        if (a.clip && (a.clip->name.rfind("car_", 0) == 0 || a.clip->name.rfind("drive", 0) == 0)) a.delta = -8.0f;
+    for (Assoc& a : m_assocs) {
+        if (!a.clip) continue;
+        std::string n = a.clip->name;   // the IFP names keep their case (CAR_sit_weak)
+        for (char& ch : n) ch = (char)std::tolower((unsigned char)ch);
+        if (n.rfind("car_", 0) == 0 || n.rfind("drive", 0) == 0) a.delta = -8.0f;
+    }
     if (const AnimClip* idle = Clip("idle_stance"))
         if (!Get(idle)) { Assoc* a = Add(idle, true, false); a->blend = 0.0f; a->delta = 8.0f; }
 }
