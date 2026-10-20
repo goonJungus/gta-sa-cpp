@@ -168,6 +168,61 @@ void Effects::Explosion(const float p[3]) {
     for (int i = 0; i < 10; i++) Smoke(p, 1.0f);
 }
 
+void Effects::Explosion(const float p[3], int kind) {
+    // scale of the fx system: tiny .3, small .55, medium 1, large 1.8, molotov .7
+    static const float kScale[5] = {0.3f, 0.55f, 1.0f, 1.8f, 0.7f};
+    const float sc = kScale[std::clamp(kind, 0, 4)];
+    const bool molotov = kind == 4;
+    auto add = [&](const Puff& f) { m_puffs.push_back(f); };
+    {   // the initial flash: a short, very bright, wide sprite
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k];
+        f.p[2] += 0.5f * sc;
+        f.life = 0.18f; f.size0 = 0.8f * sc; f.size1 = 3.2f * sc; f.rgb = 0xFFF0B0; f.alpha = 1.0f;
+        add(f);
+    }
+    const int nFire = (int)(8 + 22 * sc);
+    for (int i = 0; i < nFire; i++) {   // the fire ball: orange puffs rolling outward and up
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k] + Rnd(-0.4f, 0.4f) * sc;
+        f.v[0] = Rnd(-4.0f, 4.0f) * sc; f.v[1] = Rnd(-4.0f, 4.0f) * sc; f.v[2] = Rnd(0.5f, 5.0f) * (0.5f + 0.5f * sc);
+        f.life = Rnd(0.5f, 1.2f) * (0.6f + 0.4f * sc);
+        f.size0 = 0.6f * sc; f.size1 = Rnd(2.0f, 3.5f) * sc;
+        f.rgb = molotov ? (i % 2 ? 0xFF8A1E : 0xFFB43C) : (i % 3 == 0 ? 0xFFD23C : 0xFF6414); f.alpha = 0.85f;
+        add(f);
+    }
+    for (int i = 0; i < (int)(6 + 14 * sc); i++) {   // sparks
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k];
+        f.v[0] = Rnd(-6.0f, 6.0f) * sc; f.v[1] = Rnd(-6.0f, 6.0f) * sc; f.v[2] = Rnd(3.0f, 9.0f) * (0.5f + 0.5f * sc);
+        f.life = Rnd(0.6f, 1.3f); f.size0 = 0.08f; f.size1 = 0.05f;
+        f.rgb = 0xFFC850; f.alpha = 1.0f; f.spark = true;
+        add(f);
+    }
+    if (!molotov) {
+        for (int i = 0; i < (int)(4 + 14 * sc); i++) {   // debris: dark chunks thrown out that fall back
+            Puff f = {};
+            for (int k = 0; k < 3; k++) f.p[k] = p[k];
+            f.v[0] = Rnd(-7.0f, 7.0f) * sc; f.v[1] = Rnd(-7.0f, 7.0f) * sc; f.v[2] = Rnd(4.0f, 11.0f) * (0.5f + 0.5f * sc);
+            f.life = Rnd(1.0f, 2.0f); f.size0 = Rnd(0.07f, 0.16f); f.size1 = f.size0;
+            f.rgb = i % 2 ? 0x4A4038 : 0x2A2622; f.alpha = 1.0f; f.spark = true;
+            add(f);
+        }
+        const int nSmoke = (int)(3 + 9 * sc);
+        for (int i = 0; i < nSmoke; i++) Smoke(p, 1.0f);   // the rising column
+    } else {
+        Smoke(p, 0.5f); Smoke(p, 0.5f);
+    }
+}
+
+void Effects::Scorch(const float p[3], float size) {
+    Scorch_ s = {};
+    for (int k = 0; k < 3; k++) s.p[k] = p[k];
+    s.size = size; s.life = 30.0f;
+    if (m_scorch.size() > 32) m_scorch.erase(m_scorch.begin());
+    m_scorch.push_back(s);
+}
+
 void Effects::Tracer(const float a[3], const float b[3]) {
     Trace t = {};
     for (int k = 0; k < 3; k++) { t.a[k] = a[k]; t.b[k] = b[k]; }
@@ -185,10 +240,12 @@ void Effects::Update(float dt) {
     m_puffs.erase(std::remove_if(m_puffs.begin(), m_puffs.end(), [](const Puff& f) { return f.age >= f.life; }), m_puffs.end());
     for (Trace& t : m_traces) t.age += dt;
     m_traces.erase(std::remove_if(m_traces.begin(), m_traces.end(), [](const Trace& t) { return t.age >= t.life; }), m_traces.end());
+    for (Scorch_& c : m_scorch) c.age += dt;
+    m_scorch.erase(std::remove_if(m_scorch.begin(), m_scorch.end(), [](const Scorch_& c) { return c.age >= c.life; }), m_scorch.end());
 }
 
 void Effects::Render(D3DRenderer& r) {
-    if (!m_tex || (m_puffs.empty() && m_traces.empty())) return;
+    if (!m_tex || (m_puffs.empty() && m_traces.empty() && m_scorch.empty())) return;
     const D3DMATRIX& v = r.GetViewMatrix();
     const float right[3] = {v._11, v._21, v._31}, up[3] = {v._12, v._22, v._32};
     std::vector<D3DRenderer::ColorTexVertex> vs;
@@ -204,6 +261,13 @@ void Effects::Render(D3DRenderer& r) {
         const uint16_t q[6] = {0, 1, 2, 0, 2, 3};
         for (uint16_t k : q) ix.push_back(base + k);
     };
+    for (const Scorch_& c : m_scorch) {   // flat dark blob on the ground, fading over the last 5 s
+        const float a = 0.7f * std::min(1.0f, (c.life - c.age) / 5.0f) * std::min(1.0f, c.age * 8.0f);
+        const float h = c.size * 0.5f * 0.6f;
+        const float rx[3] = {h, 0, 0}, ux[3] = {0, h, 0};
+        const float cp[3] = {c.p[0], c.p[1], c.p[2] + 0.04f};
+        quad(cp, rx, ux, ((uint32_t)(a * 255.0f) << 24) | 0x0A0806);
+    }
     for (const Puff& f : m_puffs) {
         const float t = f.age / f.life, s = f.size0 + (f.size1 - f.size0) * t;
         const float a = f.alpha * (1.0f - t) * (f.spark ? 1.0f : std::min(1.0f, t * 8.0f));

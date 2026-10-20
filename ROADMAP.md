@@ -74,7 +74,7 @@ Source: the retail decomp (CPlayerPed, CStats, CTask*, CWeapon, CClothes, CPlaye
 - [ ] CPR and medic treat injured peds, paramedic tasks (w 1)
 - [x] Vehicle and object damage from explosions (TriggerExplosion: rel * damage * 1100 on cars, rel * 250 on peds, move force mass / 1400 * rel * visible on props); creeping fire (CFire, CFireManager, CCreepingFire: 60 fires, 32x32 status grid, merge, spread, extinguish in water) (w 3)
 - [x] Explosion types (CExplosion: all 13 eExplosionType with retail radius, visible distance, expiry, 0-3 spawned fires, molotov set-on-fire, car fuel puffs, aircraft secondary blasts, camera shake) (w 1)
-- [ ] Explosion visuals: debris, scorch decals, shadows and per-type particle systems (explosion_small / medium / large / molotov / tiny) (w 1)
+- [x] Explosion visuals: per-type fx scale (explosion_tiny / small / medium / large / molotov per the AddExplosion switch), flash, fire ball, sparks, falling debris, smoke column, 30 s scorch mark under each blast (permanent shadow) (w 1)
 - [ ] Driveby shooting from cars and bikes (CTaskSimpleGangDriveBy, per-seat aiming, weapons allowed) (w 2)
 - [ ] Melee gaps: blocking, ground attacks and stomps, kicks, pistol whip, hits on cars and objects, hit reactions, grab (w 2)
 - [ ] Dive, evasive step, cover (CCover, seek cover, blind fire, peek), hands up, cower, shake fist (w 2)

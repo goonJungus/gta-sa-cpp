@@ -28,6 +28,10 @@ public:
     void Spray(const float p[3], uint32_t rgb);   // a paint / foam puff from the spray can or extinguisher
     void Fire(const float p[3]);
     void Explosion(const float p[3]);
+    // CExplosion fx systems: 0 explosion_tiny, 1 _small, 2 _medium, 3 _large, 4 _molotov.
+    void Explosion(const float p[3], int kind);
+    // CShadows::AddPermanentShadow of a blast: a scorch mark flat on the ground (size 8, 30 s).
+    void Scorch(const float p[3], float size = 8.0f);
     // A tracer streak from a to b.
     void Tracer(const float a[3], const float b[3]);
 
@@ -36,5 +40,7 @@ private:
     struct Trace { float a[3], b[3]; float age, life; };
     std::vector<Puff> m_puffs;
     std::vector<Trace> m_traces;
+    struct Scorch_ { float p[3], size, age, life; };
+    std::vector<Scorch_> m_scorch;
     IDirect3DTexture9* m_tex = nullptr;
 };
