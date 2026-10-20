@@ -34,19 +34,21 @@ struct WeaponInfo {
     bool AimWithArm() const { return flags & 0x2; }
     bool FirstPerson() const { return flags & 0x4; }
     bool OnlyFreeAim() const { return flags & 0x8; }
-    bool MoveAim() const { return flags & 0x100; }
-    bool MoveFire() const { return flags & 0x200; }
-    bool Throw() const { return flags & 0x10000; }
-    bool Heavy() const { return flags & 0x20000; }
-    bool ContinuousFire() const { return flags & 0x40000; }
-    bool TwinPistol() const { return flags & 0x80000; }
-    bool Reload() const { return flags & 0x100000; }
-    bool CrouchFire() const { return flags & 0x200000; }
-    bool Reload2Start() const { return flags & 0x400000; }
-    bool LongReload() const { return flags & 0x800000; }
-    bool SlowsDown() const { return flags & 0x1000000; }
-    bool RandSpeed() const { return flags & 0x2000000; }
-    bool Expands() const { return flags & 0x4000000; }
+    // CWeaponInfo::flags bit layout (byte 0: aim bits, byte 1: handling, byte 2: area-effect shots)
+    bool MoveAim() const { return flags & 0x10; }
+    bool MoveFire() const { return flags & 0x20; }
+    bool Throw() const { return flags & 0x100; }
+    bool Heavy() const { return flags & 0x200; }
+    bool ContinuousFire() const { return flags & 0x400; }
+    bool TwinPistol() const { return flags & 0x800; }
+    bool Reload() const { return flags & 0x1000; }
+    bool CrouchFire() const { return flags & 0x2000; }
+    bool Reload2Start() const { return flags & 0x4000; }
+    bool LongReload() const { return flags & 0x8000; }
+    bool SlowsDown() const { return flags & 0x10000; }
+    bool RandSpeed() const { return flags & 0x20000; }
+    bool Expands() const { return flags & 0x40000; }
+    bool RangeGrows() const { return flags & 0x80000; }
 };
 
 namespace WeaponTable {

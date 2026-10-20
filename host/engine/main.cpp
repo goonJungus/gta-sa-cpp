@@ -56,6 +56,7 @@
 #include "Peds.h"
 #include "Projectiles.h"
 #include "BulletInfo.h"
+#include "ShotInfo.h"
 #include "WeaponInfo.h"
 #include "Speech.h"
 #include "Delirium.h"
@@ -74,6 +75,8 @@
 #include "Stats.h"
 
 static D3DRenderer g_renderer;
+static ShotInfo g_shots;   // flamethrower / spray can / extinguisher shots (CShotInfo)
+static FireManager::World g_fireWorld;   // the world hooks the fire manager runs with, kept for the shots
 static BulletInfo g_bullets;   // scoped sniper bullets in flight (CBulletInfo)
 static Projectiles g_proj;   // thrown weapons in flight
 static FireManager g_fires;          // CFireManager
@@ -4261,6 +4264,66 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     }
                     g_expl.Update(dt, eh);
                     g_fires.Update(dt, fw);
+                    g_fireWorld = fw;
+                    {   // CShotInfo::Update
+                        static unsigned s_shotFrame = 0;
+                        ShotInfo::Env se;
+                        se.pedsNear = [&](int type, const float* o, float range2, float damage) {
+                            bool any = false;
+                            for (size_t i = 0; g_peds.Ready() && i < g_peds.Count(); i++) {   // not in a car, alive, not already burning
+                                if (!g_peds.Alive(i)) continue;
+                                const float dx = g_peds.X(i) - o[0], dy = g_peds.Y(i) - o[1], dz = g_peds.Z(i) + 1.0f - o[2];
+                                if (getenv("GTA_SHOTDBG") && type == ShotInfo::Spray) Log("SHOTDBG shot %.2f %.2f %.2f ped %zu d %.2f %.2f %.2f", o[0], o[1], o[2], i, dx, dy, dz);
+                                if (dx * dx + dy * dy + dz * dz >= range2) continue;
+                                if (type == ShotInfo::Flame) {
+                                    if (g_peds.Burning(i)) continue;
+                                    if (g_fires.StartFireOn(FireManager::Target::Ped, (int)i, 0.8f, 7000.0f, 100) >= 0) { g_peds.SetBurning(i, true); Log("SHOT FLAME PED %zu ON FIRE", i); any = true; }
+                                } else {
+                                    const bool kill = g_peds.Damage((int)i, damage, false);
+                                    Log("SHOT %s PED %zu damage %.0f kill %d", type == ShotInfo::Spray ? "SPRAY" : "FOAM", i, damage, (int)kill);
+                                    if (g_hudReady) g_hud.Hit(kill);
+                                    any = true;
+                                }
+                            }
+                            return any;
+                        };
+                        se.carsAndWorldOnFire = [&](const float* o) {
+                            eh.setCarsOnFire(o, 4.0f);
+                            eh.setWorldOnFire(o, 0.1f);
+                        };
+                        se.extinguish = [&](const float* o, float range) {
+                            const int before = g_fires.NumInRange(o, range);
+                            if (before == 0) return false;
+                            g_fires.ExtinguishPoint(o, range);
+                            Log("SHOT FOAM EXTINGUISHED %d fires", before - g_fires.NumInRange(o, range));
+                            return true;
+                        };
+                        se.sprayHit = [&](const float* o, const float* off) {
+                            int kind = 0; float hnz = 0.0f;
+                            const float b[3] = {o[0] + off[0], o[1] + off[1], o[2] + off[2]};
+                            const bool hit = g_world.RayCast(o[0], o[1], o[2], b[0], b[1], b[2], &kind, &hnz) < 1.0f;
+                            if (hit) Log("SHOT SPRAY HIT surface at %.2f %.2f %.2f", o[0], o[1], o[2]);
+                            return hit;
+                        };
+                        if (s_shotFrame == 5) {   // dev: GTA_FIREAT=x,y starts a fire on the ground there (extinguisher test)
+                            float fx = 0, fy = 0;
+                            if (const char* e = getenv("GTA_FIREAT")) if (sscanf(e, "%f,%f", &fx, &fy) == 2) {
+                                const float g = g_world.GetGroundHeight(fx, fy, playerZ);
+                                const float fp[3] = {fx, fy, g};
+                                Log("DEV FIRE at %.1f %.1f %.1f -> %d", fx, fy, g, g_fires.StartFire(fp, 0.8f, false, 60000.0f, 0));
+                            }
+                        }
+                        g_shots.Update(g_bulletMs, dt * 50.0f, s_shotFrame++, se);
+                        if (g_cj.GunIndex() >= 0) {
+                            for (int i = 0; i < ShotInfo::kSlots; i++) {   // one effect per live shot
+                                float p[3];
+                                if (!g_shots.Position(i, p)) continue;
+                                const int t = g_shots.TypeOf(i);
+                                if (t == ShotInfo::Flame) { g_fx.Fire(p); if (rand() % 6 == 0) g_fx.Smoke(p, 0.4f); }
+                                else g_fx.Spray(p, t == ShotInfo::Spray ? 0x40F040u : 0xF0F0F0u);
+                            }
+                        }
+                    }
                     { static int s_nf = -1; if (g_fires.Num() != s_nf) { s_nf = g_fires.Num(); Log("FIRES %d", s_nf); } }
                 }
                 st.shots += evShots; st.reloads += evReload;
@@ -4329,22 +4392,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         }
                         continue;
                     }
-                    if (heavy == 37 || heavy == 41 || heavy == 42) {   // CWeapon::FireAreaEffect: a stream along the aim, fire / paint / foam
+                    if (heavy == 37 || heavy == 41 || heavy == 42) {   // CWeapon::FireAreaEffect: a CShotInfo shot along the aim, fire / paint / foam
                         if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, hm)) {
-                            const float reach = std::max(1.0f, g_cj.GunRange());
-                            float tt = 0.0f; bool hd = false;
-                            const int pi2 = g_peds.Ready() ? g_peds.Trace(hm, g_aimDir, reach, &tt, &hd) : -1;
-                            const float use = pi2 >= 0 ? tt : reach;
-                            for (int k = 1; k <= 3; k++) {
-                                const float d = use * (float)k / 3.0f;
-                                const float pt[3] = {hm[0] + g_aimDir[0] * d, hm[1] + g_aimDir[1] * d, hm[2] + g_aimDir[2] * d};
-                                if (heavy == 37) { g_fx.Fire(pt); if (k == 3) g_fx.Smoke(pt, 0.4f); }
-                                else g_fx.Spray(pt, heavy == 41 ? 0x40F040u : 0xF0F0F0u);
-                            }
-                            if (pi2 >= 0 && heavy == 37) {
-                                const bool kill = g_peds.Damage(pi2, g_cj.GunDamage(), false);
-                                Log("FLAME HIT %d kill %d", pi2, (int)kill);
-                                if (g_hudReady) g_hud.Hit(kill);
+                            const char* rowName = heavy == 37 ? "FTHROWER" : heavy == 41 ? "SPRAYCAN" : "EXTINGUISHER";
+                            const WeaponInfo* wi = WeaponTable::Get(rowName, 1);
+                            if (wi) {
+                                ShotInfo::Params sp;
+                                sp.speed = wi->speed; sp.range = wi->radius; sp.lifeMs = wi->lifespan; sp.spread = wi->spread; sp.damage = (float)wi->damage;
+                                sp.slowsDown = wi->SlowsDown(); sp.randSpeed = wi->RandSpeed(); sp.expands = wi->RangeGrows();
+                                const float tgt[3] = {hm[0] + g_aimDir[0], hm[1] + g_aimDir[1], hm[2] + g_aimDir[2]};
+                                const int slot = g_shots.Add(heavy == 37 ? ShotInfo::Flame : heavy == 41 ? ShotInfo::Spray : ShotInfo::Extinguisher, sp, hm, tgt, g_bulletMs);
+                                Log("SHOT ADD %s slot %d speed %.3f range %.4f life %.0f spread %.2f flags slow %d rand %d grow %d", rowName, slot, sp.speed, sp.range, sp.lifeMs, sp.spread, (int)sp.slowsDown, (int)sp.randSpeed, (int)sp.expands);
+                                if (heavy == 37 && slot >= 0 && rand() % 3 == 0) {   // CWeapon::FireAreaEffect: one in three starts a creeping fire a few metres on
+                                    const float dist = 3.5f + 2.5f * (float)(rand() % 1000) / 999.0f;
+                                    const float cp[3] = {hm[0] + g_aimDir[0] * dist, hm[1] + g_aimDir[1] * dist, hm[2] + g_aimDir[2] * dist + 0.5f};
+                                    const bool ok = g_fires.TryCreeping(cp, 0, false, 2300.0f, g_fireWorld);
+                                    Log("FLAME CREEP at %.1f %.1f %.1f %s", cp[0], cp[1], cp[2], ok ? "started" : "no ground");
+                                    if (ok) Stats::Increment(Stats::STAT_FIRES_STARTED);
+                                }
                             }
                         }
                         continue;
