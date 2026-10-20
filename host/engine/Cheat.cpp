@@ -17,6 +17,7 @@ constexpr Entry kCheats[] = {
     {0x5fd1b49d, Cheat::Skinny},            // KVGYZQK
     {0xcf5fda18, Cheat::WeaponSkills},      // EHIBXQS
     {0xf01286e9, Cheat::VehicleSkills},     // VKYPQCF
+    {0x680416b1, Cheat::Stamina},           // CHEAT_MAX_STAMINA (row between the confirmed weapon / vehicle skill rows)
     {0x8ca870dd, Cheat::Adrenaline},        // IAVENJQ typed (m_aCheatHashKeys labels around the wanted rows are shifted in the decomp)
 };
 
