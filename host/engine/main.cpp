@@ -1377,8 +1377,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
     Stats::Init();   // CStats::Init, then the saved [Stats] values
     Stats::Load(g_iniPath);
-    Stats::g_hooks.health = [] { return g_cj.Health(); };
-    Stats::g_hooks.maxHealth = [] { return g_cj.MaxHealth(); };
+    Stats::g_hooks.health = [] { return g_cj.Health() * 5.69f; };   // the stats count health in 569 = 100 hp
+    Stats::g_hooks.maxHealth = [] { return g_cj.MaxHealth() * 5.69f; };
     Stats::g_hooks.addHealth = [](float amount, bool) { g_cj.AddHealth(amount / 5.69f); };
     {   // [Player] WeaponSkill (-1 = earned through play): 0 poor, 1 standard, 2 pro (twin pistols); GTA_SKILL overrides
         int skill = GetPrivateProfileIntA("Player", "WeaponSkill", -1, g_iniPath);
@@ -3447,7 +3447,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     static const float s_statTime = getenv("GTA_STATTIME") ? (float)atof(getenv("GTA_STATTIME")) : 1.0f;   // dev: speed up the activity counters
                     float carSpd = 0.0f;
                     if (g_driveCar >= 0) { const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar); carSpd = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy) / 50.0f; }
-                    if (getenv("GTA_STATDBG") && (frame % 60) == 0) Log("STATDBG: rate %d drive %d spd %.3f thr %d", rate, g_driveCar, carSpd, (int)((RawGameKey('W') & 0x8000) != 0));
+                    if (const char* si = getenv("GTA_STATINC"); si && frame == 40) {   // dev: "hurt:hp" then "id:amount" raises a stat
+                        int id = 0; float amt = 0;
+                        if (sscanf(si, "%d:%f", &id, &amt) == 2) {
+                            if (const char* h = getenv("GTA_STATHURT")) g_cj.Hurt((float)atof(h));
+                            Log("STATINC: health %.2f/%.2f before", g_cj.Health(), g_cj.MaxHealth());
+                            Stats::Increment(id, amt);
+                            Log("STATINC: stat %d = %.0f, health %.2f/%.2f after, fat %.0f", id, Stats::Get(id), g_cj.Health(), g_cj.MaxHealth(), Stats::Get(Stats::STAT_FAT));
+                        }
+                    }
+                    if (getenv("GTA_STATDBG") && (frame % 60) == 0) Log("STATDBG: hp %.1f/%.1f rate %d drive %d spd %.3f thr %d", g_cj.Health(), g_cj.MaxHealth(), rate, g_driveCar, carSpd, (int)((RawGameKey('W') & 0x8000) != 0));
                     const int up = Stats::UpdateActivity(dt * s_statTime, rate, g_cj.Swimming(), g_cj.Underwater(), g_driveCar >= 0, carSpd, true);
                     if (up == Stats::STAT_MAX_HEALTH) g_cj.SetMaxHealth(Stats::Get(Stats::STAT_MAX_HEALTH) / 5.69f);
                     if (up >= 0) {
