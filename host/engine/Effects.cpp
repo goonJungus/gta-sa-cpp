@@ -32,7 +32,7 @@ void Effects::Shutdown(D3DRenderer& r) {
     if (m_tex) r.DestroyTexture(m_tex);
     m_tex = nullptr;
     m_puffs.clear();
-    m_traces.clear();
+    for (Trace& t : m_traces) t.exists = false;
 }
 
 void Effects::Impact(const float p[3], float nz) {
@@ -223,11 +223,41 @@ void Effects::Scorch(const float p[3], float size) {
     m_scorch.push_back(s);
 }
 
-void Effects::Tracer(const float a[3], const float b[3]) {
-    Trace t = {};
-    for (int k = 0; k < 3; k++) { t.a[k] = a[k]; t.b[k] = b[k]; }
-    t.life = 0.12f;
-    m_traces.push_back(t);
+int Effects::AddTrace(const float from[3], const float to[3], float radius, float lifeMs, int alpha) {
+    int slot = -1;
+    for (int i = 0; i < 16; i++) if (!m_traces[i].exists) { slot = i; break; }
+    if (slot < 0) return -1;
+    Trace& t = m_traces[slot];
+    t.exists = true;
+    for (int k = 0; k < 3; k++) { t.a[k] = from[k]; t.b[k] = to[k]; }
+    t.createMs = m_clockMs;
+    t.alpha = alpha;
+    t.radius = radius;
+    // the lifetime follows the slot, so a burst of traces stays visible for a moment each
+    t.lifeMs = slot < 5 ? lifeMs : slot < 10 ? lifeMs / 2.0f : lifeMs / 4.0f;
+    return slot;
+}
+
+void Effects::Tracer(const float a[3], const float b[3], bool suppress) {
+    if (suppress) return;
+    float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+    const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (len < 1e-4f) return;
+    for (float& v : d) v /= len;
+    const float off = len * (float)(rand() % 10001) / 10000.0f;
+    const float r = std::min(2.0f + 3.0f * (float)(rand() % 10001) / 10000.0f, len - off);
+    float from[3], to[3];
+    for (int k = 0; k < 3; k++) { from[k] = a[k] + d[k] * off; to[k] = from[k] + d[k] * r; }
+    AddTrace(from, to, 0.01f, 300.0f, 70);
+}
+
+int Effects::ActiveTraces() const { int n = 0; for (const Trace& t : m_traces) n += t.exists; return n; }
+bool Effects::TraceInfo(int i, float* life, float* radius, int* alpha) const {
+    if (i < 0 || i >= 16 || !m_traces[i].exists) return false;
+    if (life) *life = m_traces[i].lifeMs;
+    if (radius) *radius = m_traces[i].radius;
+    if (alpha) *alpha = m_traces[i].alpha;
+    return true;
 }
 
 void Effects::Update(float dt) {
@@ -238,14 +268,14 @@ void Effects::Update(float dt) {
         else for (int k = 0; k < 3; k++) f.v[k] *= std::max(0.0f, 1.0f - 2.5f * dt);   // dust slows
     }
     m_puffs.erase(std::remove_if(m_puffs.begin(), m_puffs.end(), [](const Puff& f) { return f.age >= f.life; }), m_puffs.end());
-    for (Trace& t : m_traces) t.age += dt;
-    m_traces.erase(std::remove_if(m_traces.begin(), m_traces.end(), [](const Trace& t) { return t.age >= t.life; }), m_traces.end());
+    m_clockMs += dt * 1000.0f;
+    for (Trace& t : m_traces) if (t.exists && m_clockMs - t.createMs >= t.lifeMs) t.exists = false;   // CBulletTrace::Update
     for (Scorch_& c : m_scorch) c.age += dt;
     m_scorch.erase(std::remove_if(m_scorch.begin(), m_scorch.end(), [](const Scorch_& c) { return c.age >= c.life; }), m_scorch.end());
 }
 
 void Effects::Render(D3DRenderer& r) {
-    if (!m_tex || (m_puffs.empty() && m_traces.empty() && m_scorch.empty())) return;
+    if (!m_tex || (m_puffs.empty() && !ActiveTraces() && m_scorch.empty())) return;
     const D3DMATRIX& v = r.GetViewMatrix();
     const float right[3] = {v._11, v._21, v._31}, up[3] = {v._12, v._22, v._32};
     std::vector<D3DRenderer::ColorTexVertex> vs;
@@ -274,30 +304,35 @@ void Effects::Render(D3DRenderer& r) {
         const float rx[3] = {right[0] * s, right[1] * s, right[2] * s}, ux[3] = {up[0] * s, up[1] * s, up[2] * s};
         quad(f.p, rx, ux, ((uint32_t)(a * 255.0f) << 24) | f.rgb);
     }
+    // CBulletTraces::Render: a thin band from the start to the end that narrows and fades as it ages;
+    // only the vertex at the end centre carries alpha.
+    const float camPos[3] = {-(v._41 * v._11 + v._42 * v._12 + v._43 * v._13), -(v._41 * v._21 + v._42 * v._22 + v._43 * v._23), -(v._41 * v._31 + v._42 * v._32 + v._43 * v._33)};
     for (const Trace& tr : m_traces) {
-        const float t = tr.age / tr.life;
-        float d[3] = {tr.b[0] - tr.a[0], tr.b[1] - tr.a[1], tr.b[2] - tr.a[2]};
-        const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        if (len < 0.1f) continue;
-        // the bright head runs from the muzzle to the target in the first part of its life
-        const float head = std::min(1.0f, t * 4.0f), tail = std::max(0.0f, t * 4.0f - 0.5f);
-        float p0[3], p1[3];
-        for (int k = 0; k < 3; k++) { p0[k] = tr.a[k] + d[k] * std::min(1.0f, tail); p1[k] = tr.a[k] + d[k] * head; }
-        const float mid[3] = {(p0[0] + p1[0]) * 0.5f, (p0[1] + p1[1]) * 0.5f, (p0[2] + p1[2]) * 0.5f};
-        // axis along the streak, width across it facing the camera
-        float ax[3] = {(p1[0] - p0[0]) * 0.5f, (p1[1] - p0[1]) * 0.5f, (p1[2] - p0[2]) * 0.5f};
-        const float al = std::sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
-        if (al < 0.01f) continue;
-        // width direction: perpendicular to the axis and the view direction
-        const float vz[3] = {v._13, v._23, v._33};
-        float cr[3];
-        cr[0] = vz[1] * ax[2] - vz[2] * ax[1]; cr[1] = vz[2] * ax[0] - vz[0] * ax[2]; cr[2] = vz[0] * ax[1] - vz[1] * ax[0];
-        const float cl = std::sqrt(cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]);
-        if (cl < 1e-4f) continue;
-        const float w = 0.025f / cl;
-        const float wx[3] = {cr[0] * w, cr[1] * w, cr[2] * w};
-        const float a = (1.0f - t) * 0.9f;
-        quad(mid, ax, wx, ((uint32_t)(a * 255.0f) << 24) | 0xFFE8A0);
+        if (!tr.exists) continue;
+        const float t = 1.0f - (m_clockMs - tr.createMs) / tr.lifeMs;
+        float dir[3] = {tr.b[0] - tr.a[0], tr.b[1] - tr.a[1], tr.b[2] - tr.a[2]};
+        const float dl = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        float c2o[3] = {tr.a[0] - camPos[0], tr.a[1] - camPos[1], tr.a[2] - camPos[2]};
+        const float cl0 = std::sqrt(c2o[0] * c2o[0] + c2o[1] * c2o[1] + c2o[2] * c2o[2]);
+        if (dl < 1e-4f || cl0 < 1e-4f) continue;
+        for (int k = 0; k < 3; k++) { dir[k] /= dl; c2o[k] /= cl0; }
+        float sz[3] = {c2o[1] * dir[2] - c2o[2] * dir[1], c2o[2] * dir[0] - c2o[0] * dir[2], c2o[0] * dir[1] - c2o[1] * dir[0]};
+        const float sl = std::sqrt(sz[0] * sz[0] + sz[1] * sz[1] + sz[2] * sz[2]);
+        if (sl < 1e-5f) continue;
+        for (float& x : sz) x = x / sl * tr.radius * t;
+        float cur[3];
+        for (int k = 0; k < 3; k++) cur[k] = tr.b[k] - (tr.b[k] - tr.a[k]) * t;
+        const float P[6][3] = {
+            {cur[0], cur[1], cur[2]}, {cur[0] + sz[0], cur[1] + sz[1], cur[2] + sz[2]}, {cur[0] - sz[0], cur[1] - sz[1], cur[2] - sz[2]},
+            {tr.b[0], tr.b[1], tr.b[2]}, {tr.b[0] + sz[0], tr.b[1] + sz[1], tr.b[2] + sz[2]}, {tr.b[0] - sz[0], tr.b[1] - sz[1], tr.b[2] - sz[2]}};
+        if (vs.size() + 6 > 65000) break;
+        const uint16_t base = (uint16_t)vs.size();
+        for (int i = 0; i < 6; i++) {
+            const uint32_t a = i == 3 ? (uint32_t)std::clamp((float)tr.alpha * t, 0.0f, 255.0f) : 0u;
+            vs.push_back({P[i][0], P[i][1], P[i][2], (a << 24) | 0xFFFF80, 0.5f, 0.5f});
+        }
+        const uint16_t q[12] = {4, 1, 3, 1, 0, 3, 0, 2, 3, 3, 2, 5};
+        for (uint16_t k : q) ix.push_back(base + k);
     }
     if (!ix.empty()) r.DrawBlendedTriangles(vs.data(), (uint32_t)vs.size(), ix.data(), (uint32_t)ix.size(), m_tex);
 }

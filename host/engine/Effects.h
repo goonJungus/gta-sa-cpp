@@ -32,14 +32,20 @@ public:
     void Explosion(const float p[3], int kind);
     // CShadows::AddPermanentShadow of a blast: a scorch mark flat on the ground (size 8, 30 s).
     void Scorch(const float p[3], float size = 8.0f);
-    // A tracer streak from a to b.
-    void Tracer(const float a[3], const float b[3]);
+    // CBulletTraces::AddTrace(muzzle, hit, weapon, entity): a short streak somewhere along the shot's path
+    // (2..5 m long, 300 ms, alpha 70). suppress = the player's first-person / scope modes while standing still.
+    void Tracer(const float a[3], const float b[3], bool suppress = false);
+    // CBulletTraces::AddTrace(from, to, radius, disappearTime, alpha): sixteen slots, the later ones live shorter.
+    int AddTrace(const float from[3], const float to[3], float radius, float lifeMs, int alpha);
+    int ActiveTraces() const;
+    bool TraceInfo(int slot, float* life, float* radius, int* alpha) const;
 
 private:
     struct Puff { float p[3], v[3]; float age, life, size0, size1; uint32_t rgb; float alpha; bool spark; };
-    struct Trace { float a[3], b[3]; float age, life; };
+    struct Trace { bool exists = false; float a[3], b[3]; float createMs, lifeMs, radius; int alpha; };
     std::vector<Puff> m_puffs;
-    std::vector<Trace> m_traces;
+    Trace m_traces[16];
+    float m_clockMs = 0.0f;
     struct Scorch_ { float p[3], size, age, life; };
     std::vector<Scorch_> m_scorch;
     IDirect3DTexture9* m_tex = nullptr;
