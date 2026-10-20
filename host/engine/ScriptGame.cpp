@@ -358,7 +358,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x01E8: case 0x022B: case 0x091E: case 0x06D7: case 0x06D8: case 0x06D9: case 0x06DC: case 0x06DD:   // roads and trains
     case 0x02B9: case 0x076C:                                                                                 // garages, gang strength
     case 0x0955: case 0x0952: case 0x0954: case 0x040D: case 0x01EB: case 0x03DE: case 0x09BA: // beat track, mission audio, densities, zone names, stats
-    case 0x0109: case 0x01B7: case 0x01B6: case 0x0662: case 0x0459: case 0x0A2D:
+    case 0x01B7: case 0x01B6: case 0x0662: case 0x0459: case 0x0A2D:
         return true;
     case 0x0953: c.Out(0, 2); return true;   // GET_BEAT_TRACK_STATUS: 2 = ready to play
     case 0x0112: c.result = false; return true;  // HAS_DEATHARREST_BEEN_EXECUTED
@@ -497,6 +497,71 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0A4B: case 0x0736: case 0x09FA: c.result = false; return true;                       // IS_PC_USING_JOYPAD, IS_PS2_KEYBOARD_KEY_JUST_PRESSED, HAS_GAME_JUST_RETURNED_FROM_FRONTEND
     case 0x0A4A: c.Out(0, 0); c.Out(1, 0); return true;                                         // GET_PC_MOUSE_MOVEMENT
     case 0x091A: c.Out(0, 0); return true;                                                      // GET_LATEST_CONSOLE_COMMAND
+    // ---- score (the player's cash) -----------------------------------------------------------
+    case 0x0109: if (scm && scm->host.addMoney) scm->host.addMoney(c.I(1)); return true;       // ADD_SCORE(player, n)
+    case 0x010A: c.result = scm && scm->host.getMoney && scm->host.getMoney() > c.I(1); return true;   // IS_SCORE_GREATER(player, n)
+    case 0x010B: c.Out(1, scm && scm->host.getMoney ? scm->host.getMoney() : 0); return true;   // STORE_SCORE(player) -> n
+    // ---- cars: queries and settings ------------------------------------------------------------
+    case 0x0137: { VehicleInstance* v = carAlive(c.I(0)); c.result = v && v->model == c.I(1); return true; }   // IS_CAR_MODEL
+    case 0x0441: { VehicleInstance* v = carAlive(c.I(0)); c.Out(1, v ? v->model : -1); return true; }          // GET_CAR_MODEL
+    case 0x0174: { VehicleInstance* v = carAlive(c.I(0)); c.OutF(1, v ? v->heading * 57.295776f : 0.0f); return true; }   // GET_CAR_HEADING (degrees)
+    case 0x0172: {   // GET_CHAR_HEADING(char) (degrees)
+        float h = 0.0f;
+        if (c.I(0) == kPlayer) { if (getPlayerHeading) h = getPlayerHeading(); }
+        else { const int i = CharIndex(c.I(0)); if (i >= 0) h = peds->Heading((size_t)i); }
+        c.OutF(1, h * 57.295776f); return true;
+    }
+    case 0x01C1: { VehicleInstance* v = carAlive(c.I(0)); c.result = v && std::fabs(v->speed) < 0.01f; return true; }   // IS_CAR_STOPPED
+    case 0x020D: { VehicleInstance* v = carAlive(c.I(0)); c.result = v != nullptr; return true; }               // IS_CAR_UPRIGHT: cars do not roll over yet
+    case 0x0227: { VehicleInstance* v = carAlive(c.I(0)); c.Out(1, v ? (int)v->health : 0); return true; }     // GET_CAR_HEALTH
+    case 0x056E: c.result = carAlive(c.I(0)) != nullptr; return true;                                           // DOES_VEHICLE_EXIST
+    case 0x056D: c.result = c.I(0) == kPlayer || CharIndex(c.I(0)) >= 0; return true;                           // DOES_CHAR_EXIST
+    case 0x0519: if (VehicleInstance* v = carAlive(c.I(0)); v && c.I(1)) m_frozenCars[c.I(0)] = {v->x, v->y, v->z}; else m_frozenCars.erase(c.I(0)); return true;        // FREEZE_CAR_POSITION(car, on)
+    case 0x07D5: if (VehicleInstance* v = carAlive(c.I(0))) { v->vx += c.F(1); v->vy += c.F(2); } return true;   // APPLY_FORCE_TO_CAR(car, fx, fy, fz, ox, oy, oz): per-mass impulse, no mass model
+    case 0x0431: c.result = carAlive(c.I(0)) != nullptr; return true;                                           // IS_CAR_PASSENGER_SEAT_FREE: no passengers are simulated
+    case 0x0432: c.Out(2, -1); return true;                                                                      // GET_CHAR_IN_CAR_PASSENGER_SEAT
+    case 0x0A32: c.result = false; return true;                                                                  // IS_CHAR_ATTACHED_TO_ANY_CAR
+    case 0x096E: case 0x0803: c.result = false; return true;                                                     // IS_CAR_LOW_RIDER, DOES_CAR_HAVE_HYDRAULICS
+    case 0x096D: c.Out(2, 0); return true;                                                                       // GET_CURRENT_CAR_MOD: nothing fitted
+    case 0x0811: c.Out(1, c.I(0) == kPlayer && playerCar && playerCar() >= 0 ? playerCar() + 1 : (m_charCar.count(c.I(0)) ? m_charCar[c.I(0)] : -1)); return true;   // GET_CAR_CHAR_IS_USING
+    case 0x056C: case 0x0602: {   // IS_CHAR_IN_ANY_POLICE_VEHICLE / IS_CHAR_IN_TAXI
+        int h = -1;
+        if (c.I(0) == kPlayer) { if (playerInCar && playerInCar() && playerCar) h = playerCar() + 1; }
+        else { const auto it = m_charCar.find(c.I(0)); if (it != m_charCar.end()) h = it->second; }
+        const VehicleInstance* v = carAlive(h);
+        const int m = v ? v->model : 0;
+        if (c.op == 0x0602) c.result = m == 420 || m == 438;
+        else c.result = m == 427 || m == 430 || m == 432 || m == 433 || m == 490 || m == 523 || m == 528 || (m >= 596 && m <= 599) || m == 601;
+        return true;
+    }
+    case 0x0878: case 0x02AC: case 0x07F5: return true;                                                          // SET_VEHICLE_DIRT_LEVEL, SET_CAR_PROOFS, CONTROL_CAR_HYDRAULICS: no effect yet
+    case 0x02CE: {   // GET_GROUND_Z_FOR_3D_COORD(x, y, z) -> z
+        float g = groundAt ? groundAt(c.F(0), c.F(1)) : -1e6f;
+        c.OutF(3, g > -1e5f ? g : 0.0f); return true;
+    }
+    // ---- chars: queries and settings -----------------------------------------------------------
+    case 0x02F2: {   // IS_CHAR_MODEL(char, model)
+        if (c.I(0) == kPlayer) { c.result = c.I(1) == 0; return true; }
+        const int i = CharIndex(c.I(0));
+        c.result = i >= 0 && peds->ModelOf((size_t)i) == c.I(1);
+        return true;
+    }
+    case 0x0337: { const int i = CharIndex(c.I(0)); if (i >= 0) peds->SetHidden((size_t)i, !c.I(1)); return true; }   // SET_CHAR_VISIBLE
+    case 0x0376: {   // CREATE_RANDOM_CHAR(x, y, z) -> char
+        if (!peds || !r) { c.Out(3, 0); return true; }
+        float z = c.F(2);
+        if (groundAt) { const float g = groundAt(c.F(0), c.F(1)); if (g > -1e5f && z < g + 0.2f) z = g; }
+        const int i = peds->Spawn(*r, -1, c.F(0), c.F(1), z, 0.0f);
+        if (i < 0) { c.Out(3, 0); return true; }
+        peds->SetScripted((size_t)i, true);
+        c.Out(3, peds->Uid((size_t)i));
+        return true;
+    }
+    case 0x02A9: case 0x02AB: case 0x0237: case 0x03BF: case 0x01C5: case 0x03FE: case 0x0393: case 0x04D7: case 0x0619:   // char/gang flags: only-damaged-by-player, proofs, gang weapons, ignore player, keep alive, money, anim speed, freeze, collision
+    case 0x0489: case 0x09F5: case 0x094E: case 0x094F: case 0x0967: case 0x09AB:                                         // speech: shut up, disable/enable, facial talk, passenger say
+    case 0x015B: case 0x018C: case 0x0221: case 0x0299: case 0x014F: case 0x0151:                                         // pad shake, one-off sound, brakes, garage, clear on-screen timer / counter
+        return true;
+    case 0x094D: case 0x00E1: case 0x02E0: case 0x074F: c.result = false; return true;                                   // IS_CHAR_TALKING, IS_BUTTON_PRESSED, IS_CHAR_SHOOTING, IS_CHAR_RESPONDING_TO_EVENT: nothing reports these yet
     // ---- language: comparisons with constants, bit tests, bitwise operators --------------
     case 0x04A3: case 0x04A4: c.result = c.I(0) == c.I(1); return true;                      // IS_INT_(L)VAR_EQUAL_TO_CONSTANT
     case 0x04B0: case 0x04B1: c.result = c.I(0) > c.I(1); return true;                      // IS_INT_(L)VAR_GREATER_THAN_CONSTANT
@@ -740,6 +805,11 @@ int ScriptGame::AddPickup(int model, int type, int ammo, float x, float y, float
 }
 
 void ScriptGame::Update(float dt) {
+    for (const auto& f : m_frozenCars) {   // FREEZE_CAR_POSITION: held where it was frozen
+        if (!cars || f.first < 1 || (size_t)f.first > cars->Count()) continue;
+        VehicleInstance& v = cars->Car((size_t)f.first - 1);
+        v.x = f.second[0]; v.y = f.second[1]; v.z = f.second[2]; v.speed = 0; v.vx = v.vy = 0;
+    }
     for (ScriptPickup& p : m_pickups) {   // collected: the slot freed itself, or the player stands on a tracked one
         if (p.removed || p.collected) continue;
         if (p.slot >= 0) { if (pickups && !pickups->At(p.slot).used) p.collected = true; continue; }
