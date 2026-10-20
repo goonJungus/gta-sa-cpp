@@ -128,7 +128,7 @@ public:
     // A line of text above the radar (zone / street names, pick-ups, help).
     void ShowMessage(const std::string& text, float seconds);
     // CHud::SetHelpMessageStatUpdate: the "+" skill box with a stat bar (pct 0..100), shown for 5 s.
-    void StatUpdate(float pct) { m_statPct = pct; m_statTimer = 5.0f; }
+    void StatUpdate(float pct, bool increase = true) { m_statPct = pct; m_statUp = increase; m_statTimer = 5.0f; }
     // PRINT_NOW: the subtitle line at the bottom centre (CHud::DrawSubtitles), for a number of seconds.
     void Subtitle(const std::string& text, float seconds) { m_sub = text; m_subTimer = seconds; }
 
@@ -192,6 +192,7 @@ private:
     std::string m_sub;
     float m_subTimer = 0.0f;
     float m_statPct = 0.0f, m_statTimer = 0.0f;
+    bool m_statUp = true;
     std::string m_lastZone;
     float m_zoneTimer = 0.0f;
 };

@@ -656,7 +656,7 @@ void Hud::Draw(D3DRenderer& r, const HudData& d) {
         const float u = sh / 448.0f;
         m_font.SetScreen(640.0f * u, 448.0f * u);
         g.DrawRect(32.0f * u, 140.0f * u, 190.0f * u, 168.0f * u, 0xA0000000);
-        Text(g, FeFont::SUBTITLES, 36.0f * u, 143.0f * u, "+", 0.4f, 0.9f, 0xFFFFFFFF, FeFont::LEFT, 1);
+        Text(g, FeFont::SUBTITLES, 36.0f * u, 143.0f * u, m_statUp ? "+" : "-", 0.4f, 0.9f, 0xFFFFFFFF, FeFont::LEFT, 1);
         Bar(g, 52.0f * u, 152.0f * u, 130.0f * u, 8.0f * u, m_statPct, 0xFFD23C3C, d.rewrite);
     }
     if (d.lockOn) DrawLockOn(g, d, sh);
