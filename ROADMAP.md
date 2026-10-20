@@ -57,7 +57,7 @@ the sections from "Gap list" down are systems not yet started or only started.
 Source: the retail decomp (CPlayerPed, CStats, CTask*, CWeapon, CClothes, CPlayerInfo) and the retail feature set.
 - [ ] Weapon polish against retail captures: pistol, silenced pistol, Desert Eagle, micro SMG, Tec-9, sawn-off, MP5 aim pose and hold (w 2)
 - [x] Weapon skill progression per weapon (poor, gangster, hitman): WeaponStats stat 0..1000 per firearm, ar_stats.dat inc and timelimit, weapon.dat reqStat thresholds (CPed::GetWeaponSkill), rows re-picked live (clip, damage, range, twin pistols), "+" help box with stat bar, saved in ini [Stats] (w 1)
-- [ ] Ammu-Nation shooting range: four weapon challenges (pistol, micro SMG, shotgun, AK-47) (w 1)
+- [ ] Ammu-Nation shooting range: four weapon challenges (pistol, micro SMG, shotgun, AK-47); needs interiors and the range script first (w 1)
 - [ ] Lock-on auto target (CWeapon lock-on pick, target switching, free aim versus auto aim) (w 2)
 - [ ] Spray paint and the 100 gang tags (CTagManager: tag alpha, spray progress, tag counts per zone) (w 2)
 - [ ] Health, armour, body-armour absorb, death ("wasted"), arrest ("busted"), hospital and police respawn, money and weapon loss (w 3)
@@ -283,7 +283,7 @@ Each decomp class family that has no line above. Source: decomp `src/<Class>` fo
 - [ ] CPedIK full: look at, head and torso IK, IKChainManager slots, look-at tasks, arm point tasks for all peds (w 2)
 - [ ] CPhysical full: all entity physics (mass, centre, damping, collision response, attached entities, submerged buoyancy cBuoyancy, speed limits), cTransmission gearbox, cHandlingDataMgr (w 4)
 - [x] CWeaponInfo full table: every weapon.dat row at all skill levels, retail anim loop times (WeaponInfo.cpp) (w 1)
-- [ ] CBulletInfo, CShotInfo, CProjectileInfo, CWeaponEffects, CBulletTrace, CHandObject as their own pools (w 1)
+- [~] CBulletInfo, CShotInfo, CWeaponEffects, CBulletTrace, CHandObject as their own pools (CProjectileInfo is Projectiles.cpp; tracer in Effects, lock-on marker in Hud, hand model in PlayerWeapon) (w 1)
 - [ ] CRemote and RC vehicles with the remote camera (w 1)
 - [ ] CCover points, CCoverPoint, take-cover scanning (w 1)
 - [ ] CBreakManager and break objects (breakable world props) (w 2)
