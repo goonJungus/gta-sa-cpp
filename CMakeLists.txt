@@ -97,6 +97,8 @@ if(WIN32)
         host/engine/Hud.cpp
         host/engine/Audio.cpp
         host/engine/Effects.cpp
+        host/engine/VehicleGuns.cpp
+        host/engine/WaterCannon.cpp
         host/engine/AimTest.cpp
         host/engine/Gamepad.cpp
         host/engine/Movement.cpp

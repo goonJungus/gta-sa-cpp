@@ -42,6 +42,7 @@ struct VehiclePart {
     D3DRenderMesh* mesh = nullptr;
     float m[16] = {};                 // part frame -> car, D3D row vectors
     bool wheel = false;
+    int node = -1;                    // misc_a / misc_b / misc_c (0..2) when the part hangs on a turret frame
 };
 
 struct VehicleModel {
@@ -58,6 +59,9 @@ struct VehicleModel {
     float wheelBase = 2.8f;           // front to rear axle
     float seatPos[3] = {-0.45f, 0.1f, 0.35f};   // ped_frontseat dummy in car space (driver side)
     bool seatFound = false;
+    // The misc_a, misc_b and misc_c frames (eCarNodes CAR_MISC_A..C): tank turret, barrel and muzzle, fire truck nozzle.
+    struct Node { bool found = false; int parent = -1; float local[16] = {}; float base[16] = {}; };
+    Node nodes[3];
 };
 
 struct VehicleInstance {
@@ -70,6 +74,7 @@ struct VehicleInstance {
     float health = 1000.0f;           // below 250 it smokes, at 0 it burns and blows up
     float burnTime = 0.0f;
     bool wrecked = false;
+    float doomV = 0.0f, doomH = 0.05f;   // m_fDoomVerticalRotation / m_fDoomHorizontalRotation: turret yaw and pitch
     float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
 };
 
@@ -107,6 +112,10 @@ public:
     int Nearest(float x, float y, float range) const;
     // The driver's seat (ped_frontseat) of car i in the world, and whether the car sits low.
     bool SeatWorld(size_t i, float out[3], bool* low = nullptr) const;
+    // A turret frame (0 misc_a, 1 misc_b, 2 misc_c) of car i in the world with the turret rotation applied
+    // (RwFrameGetLTM). False when the model has no such frame.
+    bool NodeMatrix(size_t i, int node, float out[16]) const;
+    bool NodeWorldPos(size_t i, int node, float out[3]) const;
 
 private:
     VehicleModel* Model(D3DRenderer& r, int id);

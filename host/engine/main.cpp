@@ -74,9 +74,13 @@
 #include "Fire.h"
 #include "Explosion.h"
 #include "Stats.h"
+#include "VehicleGuns.h"
+#include "WaterCannon.h"
 
 static D3DRenderer g_renderer;
 static Pickups g_pickups;   // CPickups: 620 slots
+static WaterCannons g_waterCannons;   // CWaterCannons
+static std::vector<std::array<float, 3>> g_tankBooms;   // rhino shells that landed this frame
 static int g_wanted = getenv("GTA_WANTED") ? atoi(getenv("GTA_WANTED")) : 0;
 static int g_collectBuf = 0;   // CPickups::CollectPickupBuffer
 static ShotInfo g_shots;   // flamethrower / spray can / extinguisher shots (CShotInfo)
@@ -1166,6 +1170,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_hudReady && g_menu.Settings().language > 0) g_hud.SetLanguage(GameDir(), kLanguageFiles[g_menu.Settings().language]);
         if (g_menu.Settings().antiAlias > 0) g_renderer.SetAntiAlias(g_menu.Settings().antiAlias);
         g_fx.Init(g_renderer);
+        g_waterCannons.Init(g_renderer);
         Log("AUDIO: %s", g_audio.Init(GameDir()) ? "ready" : "unavailable (audio/CONFIG, audio/sfx?)");
         if (g_audio.Ready()) { g_radio.Init(GameDir(), &g_audio); g_speech.Init(&g_audio); }
         if (g_menu.Settings().movementStyle == 1) {   // optional physics plugin: only when its DLL and data are configured
@@ -3719,6 +3724,38 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         float sp[3];
                         if (cjReady && g_vehicles.SeatWorld((size_t)g_driveCar, sp)) g_cj.SetSeat(sp, c.heading + 1.5707963f);
                     }
+                    if (VehicleGuns::Kind gk = VehicleGuns::KindOf(c.model); gk != VehicleGuns::Kind::None && !c.wrecked) {   // TankControl / FireTruckControl
+                        static bool s_prevGun = false;
+                        const bool gunKey = ((GameKey(VK_LBUTTON) | GameKey(VK_RETURN)) & 0x8000) != 0;
+                        const float cf[3] = {std::cos(yaw) * std::cos(pitch), std::sin(yaw) * std::cos(pitch), std::sin(pitch)};   // the camera front
+                        VehicleInstance& gc = g_vehicles.Car((size_t)g_driveCar);
+                        if (gk == VehicleGuns::Kind::Tank) {
+                            VehicleGuns::AimTank(gc, cf, dt);
+                            VehicleGuns::TankShot ts;
+                            if (gunKey && !s_prevGun && VehicleGuns::FireTank(g_vehicles, (size_t)g_driveCar, g_bulletMs, &ts)) {
+                                float d[3] = {ts.end[0] - ts.origin[0], ts.end[1] - ts.origin[1], ts.end[2] - ts.origin[2]};
+                                const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                                for (float& v : d) v /= len;
+                                float tw = worldReady ? g_world.RayCast(ts.origin[0], ts.origin[1], ts.origin[2], ts.end[0], ts.end[1], ts.end[2]) : 1.0f;
+                                float tp = 2.0f, tv = 2.0f, tt = 0.0f; bool head = false;
+                                int pi2 = -1, vi2 = -1;
+                                if (g_peds.Ready()) { pi2 = g_peds.Trace(ts.origin, d, len, &tt, &head); if (pi2 >= 0) tp = tt / len; }
+                                if (g_vehicles.Ready()) { vi2 = g_vehicles.Trace(ts.origin, d, len, &tt); if (vi2 >= 0 && vi2 != g_driveCar) tv = tt / len; else vi2 = -1; }
+                                const float tmin = std::min(tw, std::min(tp, tv));
+                                float boom[3];   // the shell blows 4% short of whatever it hit, else at the end of the ray
+                                for (int k = 0; k < 3; k++) boom[k] = tmin < 1.0f ? ts.origin[k] + (ts.end[k] - ts.origin[k]) * tmin * 0.96f : ts.end[k];
+                                g_tankBooms.push_back({boom[0], boom[1], boom[2]});
+                                Log("TANK FIRE from %.1f %.1f %.1f dir %.2f %.2f %.2f hit %s at %.1f m -> boom %.1f %.1f %.1f", ts.origin[0], ts.origin[1], ts.origin[2], d[0], d[1], d[2],
+                                    tmin >= 1.0f ? "none" : tmin == tw ? "world" : tmin == tp ? "ped" : "car", tmin * len, boom[0], boom[1], boom[2]);
+                                for (int k = 0; k < 3; k++) { const float sp[3] = {ts.origin[0] + d[0] * (1.0f + (float)k), ts.origin[1] + d[1] * (1.0f + (float)k), ts.origin[2] + d[2] * (1.0f + (float)k)}; g_fx.Smoke(sp, 0.2f); }
+                            }
+                        } else {
+                            VehicleGuns::AimWater(gc, cf, dt);
+                            if (gunKey) VehicleGuns::FireWater(g_vehicles, (size_t)g_driveCar, g_waterCannons, g_bulletMs, dt);
+                        }
+                        if (getenv("GTA_VEHGUNDBG") && frame % 15 == 0) Log("VEHGUN car %d model %d doomV %.3f doomH %.3f fire %d", g_driveCar, gc.model, gc.doomV, gc.doomH, (int)gunKey);
+                        s_prevGun = gunKey;
+                    }
                     playerX = c.x; playerY = c.y; playerZ = c.z + EYE_HEIGHT + 0.7f;   // the camera rides above the roof
                     velZ = 0.0f; onGround = true; vx = vy = 0.0f;
                 }
@@ -3985,6 +4022,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (const char* e = getenv("GTA_TLMS")) tlMs = (uint32_t)strtoul(e, nullptr, 10);
             g_world.RenderTrafficLights(g_renderer, camPosX, camPosY, camPosZ, tlMs, lampI);
             g_fx.Render(g_renderer);
+            {
+                WaterCannons::RenderHooks rh;
+                rh.ray = [](const float* a, const float* b, float* nz) { return worldReady ? g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2], nullptr, nz) : 1.0f; };
+                rh.splash = [](const float* p, const float*) { g_fx.Splash(p, 0.5f); };
+                const float cfw[3] = {g_lastView._13, g_lastView._23, g_lastView._33};
+                g_waterCannons.Render(g_renderer, cfw, rh);
+            }
             g_prof.End(FrameProfiler::P_RENDER);
         } else {
             for (auto& obj : mapObjects) {
@@ -4301,9 +4345,39 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_peds.Choke(e.pos, e.radius);
                         }
                     }
+                    for (const auto& bm : g_tankBooms) g_expl.Add(ExplType::TankFire, bm.data(), eh);
+                    g_tankBooms.clear();
                     g_expl.Update(dt, eh);
                     g_fires.Update(dt, fw);
                     g_fireWorld = fw;
+                    {   // CWaterCannons::Update
+                        WaterCannons::Hooks wh;
+                        wh.extinguish = [&](const float* p, float r, float s) {
+                            g_fires.ExtinguishPointWithWater(p, r, s, dt, &g_fireWorld, [](const float* sp) { g_fx.Smoke(sp, 0.0f); });
+                        };
+                        wh.pedCount = (int)g_peds.Count();
+                        wh.pedPos = [](int i, float* o) { if (!g_peds.Alive((size_t)i)) return false; o[0] = g_peds.X((size_t)i); o[1] = g_peds.Y((size_t)i); o[2] = g_peds.Z((size_t)i) + 1.0f; return true; };
+                        wh.pedHit = [](int i, const float* sp, const float* ss, float ts) {
+                            const bool wh2 = g_peds.WaterHit((size_t)i, ss, ts);
+                            if (getenv("GTA_VEHGUNDBG")) Log("WATER pedHit %d -> %d", i, (int)wh2);
+                            if (wh2) {
+                                static int s_hits = 0;
+                                if (getenv("GTA_VEHGUNDBG") && s_hits++ % 10 == 0) Log("WATER HIT ped %d section %.1f %.1f %.1f speed %.2f %.2f %.2f", i, sp[0], sp[1], sp[2], ss[0], ss[1], ss[2]);
+                                const float pp[3] = {g_peds.X((size_t)i), g_peds.Y((size_t)i), g_peds.Z((size_t)i) + 1.0f};
+                                g_fx.Smoke(pp, 0.0f);
+                            }
+                        };
+                        if (getenv("GTA_VEHGUNDBG") && frame % 30 == 0) for (int i = 0; i < wh.pedCount; i++) { float pp[3]; if (wh.pedPos(i, pp)) Log("WATER ped %d at %.1f %.1f %.1f", i, pp[0], pp[1], pp[2]); }
+                        g_waterCannons.Update(dt * 50.0f, (uint32_t)frame, g_bulletMs, wh);
+                        if (getenv("GTA_VEHGUNDBG") && frame % 15 == 0 && g_waterCannons.ActiveCannons() > 0) {
+                            float sp[3], sv[3];
+                            const int n = g_waterCannons.ActiveSections(1);
+                            const bool ok = g_waterCannons.Section(1, 0, sp, sv);
+                            float fs = -1.0f;
+                            for (const auto& f : g_fires.Fires()) if (f.active) fs = f.strength;
+                            Log("WATER cannons %d sections %d first %s %.1f %.1f %.1f fire strength %.3f", g_waterCannons.ActiveCannons(), n, ok ? "ok" : "-", sp[0], sp[1], sp[2], fs);
+                        }
+                    }
                     {   // CPickups::Update
                         const uint32_t nowMs = (uint32_t)g_bulletMs;
                         const float feet = playerZ - EYE_HEIGHT;
@@ -4446,9 +4520,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             return hit;
                         };
                         if (s_shotFrame == 5) {   // dev: GTA_FIREAT=x,y starts a fire on the ground there (extinguisher test)
-                            float fx = 0, fy = 0;
-                            if (const char* e = getenv("GTA_FIREAT")) if (sscanf(e, "%f,%f", &fx, &fy) == 2) {
-                                const float g = g_world.GetGroundHeight(fx, fy, playerZ);
+                            float fx = 0, fy = 0, fz = 0;
+                            if (const char* e = getenv("GTA_FIREAT")) if (sscanf(e, "%f,%f,%f", &fx, &fy, &fz) >= 2) {   // optional z skips the ground probe (world may not be streamed yet)
+                                const float g = std::strchr(e, ',') && std::strchr(std::strchr(e, ',') + 1, ',') ? fz : g_world.GetGroundHeight(fx, fy, playerZ);
                                 const float fp[3] = {fx, fy, g};
                                 Log("DEV FIRE at %.1f %.1f %.1f -> %d", fx, fy, g, g_fires.StartFire(fp, 0.8f, false, 60000.0f, 0));
                             }

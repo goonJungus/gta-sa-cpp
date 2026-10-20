@@ -30,6 +30,27 @@ void FireManager::Extinguish(int i) {
     m_fires[(size_t)i].active = false;
 }
 
+bool FireManager::ExtinguishPointWithWater(const float p[3], float radius, float strength, float dt, World* w,
+                                           const std::function<void(const float*)>& onHit) {
+    bool any = false;
+    for (Fire& f : m_fires) {
+        if (!f.active) continue;
+        const float dx = f.pos[0] - p[0], dy = f.pos[1] - p[1], dz = f.pos[2] - p[2];
+        if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
+        any = true;
+        f.strength -= strength * dt;
+        if (onHit) {
+            const float sp[3] = {f.pos[0] + RandF(-1.28f, 1.28f), f.pos[1] + RandF(-1.28f, 1.28f), f.pos[2] + RandF(-0.64f, 0.64f)};
+            onHit(sp);
+        }
+        if (f.strength < 0.0f) {   // CFire::Extinguish
+            f.active = false;
+            if (f.target == Target::Ped && w && w->pedBurning) w->pedBurning(f.index, false);
+        }
+    }
+    return any;
+}
+
 void FireManager::ExtinguishAll() { for (Fire& f : m_fires) f.active = false; }
 
 void FireManager::ExtinguishPoint(const float p[3], float radius) {

@@ -87,6 +87,11 @@ public:
     // CExplosion: peds inside `radius` take min(1, 2 (R - d) / R) * 250 (d from the centre to the ped
     // origin, one metre above the feet); survivors flee. Returns the number killed.
     int Explosion(const float centre[3], float radius);
+    // CWaterCannon::PushPeds for one ped inside a section: CEventHitByWaterCannon (a fall and get-up knock-down,
+    // a lift of 2 * timeStep / mass, the ped's horizontal speed mixed 0.6 : 1 with the jet's and capped at 0.2 per
+    // step) and then the push rule speed = (jet / 10 - ped) / 10 + jet where the directions agree. secSpeed is the
+    // section's speed in metres per 20 ms step. Returns false for a dead ped.
+    bool WaterHit(size_t i, const float secSpeed[3], float timeStep);
     // CWorld::SetPedsChoking: peds inside `radius` stagger away from the gas.
     void Choke(const float centre[3], float radius);
     // CFire on a ped (CTaskComplexOnFire): it runs, screams (CTX_GLOBAL_PAIN_ON_FIRE) and burns for
