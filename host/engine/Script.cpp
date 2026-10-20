@@ -57,6 +57,84 @@ const CmdInfo* FindCmd(uint16_t op) {
     return lo < sizeof(kCmds) / sizeof(kCmds[0]) && kCmds[lo].op == op ? &kCmds[lo] : nullptr;
 }
 
+
+// Byte length of the argument at p (type byte included), 0 when it is not an argument.
+size_t ArgSpan(const std::vector<uint8_t>& b, size_t p) {
+    if (p >= b.size()) return 0;
+    switch (b[p]) {
+    case 1: case 6: return p + 5 <= b.size() ? 5 : 0;
+    case 2: case 3: case 5: case 0x0A: case 0x0B: case 0x10: case 0x11: return p + 3 <= b.size() ? 3 : 0;
+    case 4: return p + 2 <= b.size() ? 2 : 0;
+    case 7: case 8: case 0x0C: case 0x0D: case 0x12: case 0x13: return p + 7 <= b.size() ? 7 : 0;
+    case 9: return p + 9 <= b.size() ? 9 : 0;
+    case 0x0E: return p + 2 <= b.size() && p + 2 + b[p + 1] <= b.size() ? 2 + (size_t)b[p + 1] : 0;
+    case 0x0F: return p + 17 <= b.size() ? 17 : 0;
+    }
+    return 0;
+}
+
+// Does a run of `depth` commands parse from p? Commands the table lacks get a count tried from 0 up (one count per
+// opcode along the path, `assumed`), within a node budget.
+bool ParseRun(const std::vector<uint8_t>& b, size_t p, int depth, std::map<uint16_t, int>& assumed, int& budget) {
+    if (depth == 0 || p + 2 > b.size()) return true;
+    if (--budget < 0) return false;
+    const uint16_t op = (uint16_t)((b[p] | (b[p + 1] << 8)) & 0x7FFF);
+    if (op > 0x0AF0) return false;
+    p += 2;
+    const CmdInfo* ci = FindCmd(op);
+    if (op == 0x004F || op == 0x0913) {
+        while (p < b.size() && b[p] != 0) { const size_t l = ArgSpan(b, p); if (!l) return false; p += l; }
+        return ParseRun(b, p + 1, depth - 1, assumed, budget);
+    }
+    auto after = [&](int n, size_t& q) {
+        q = p;
+        for (int i = 0; i < n; i++) { const size_t l = ArgSpan(b, q); if (!l) return false; q += l; }
+        return true;
+    };
+    size_t q;
+    if (ci) return after(ci->args, q) && ParseRun(b, q, depth - 1, assumed, budget);
+    if (CmdName(op)[0] == '?') return false;   // not a command at all
+    auto it = assumed.find(op);
+    if (it != assumed.end()) return after(it->second, q) && ParseRun(b, q, depth - 1, assumed, budget);
+    for (int n = 0; n <= 12; n++) {
+        if (!after(n, q)) break;
+        assumed[op] = n;
+        if (ParseRun(b, q, depth - 1, assumed, budget)) return true;
+        assumed.erase(op);
+    }
+    return false;
+}
+
+// Commands the compiled-script table lacks (mission scripts use many main never does): the argument count is
+// the smallest one after which the following commands parse, found once and kept.
+int InferArgs(const std::vector<uint8_t>& b, size_t afterOp, uint16_t op) {
+    static std::map<uint16_t, int> s_cache;
+    auto it = s_cache.find(op);
+    if (it != s_cache.end()) return it->second;
+    int best = -1;
+    size_t p = afterOp;
+    for (int n = 0; n <= 20; n++) {
+        std::map<uint16_t, int> assumed;
+        assumed[op] = n;
+        int budget = 40000;
+        if (ParseRun(b, p, 20, assumed, budget)) { best = n; break; }
+        const size_t l = ArgSpan(b, p);
+        if (!l) break;
+        p += l;
+    }
+    if (static const bool dbg = std::getenv("GTA_SCMGAME") != nullptr; dbg) std::fprintf(stderr, "[SCM] inferred %d args for 0x%04X %s\n", best, op, CmdName(op));
+    s_cache[op] = best;
+    return best;
+}
+
+// A command not in the condition list that is named like a test.
+bool NamedCond(uint16_t op) {
+    const char* n = CmdName(op);
+    static const char* pre[] = {"IS_", "HAS_", "CAN_", "LOCATE_", "DOES_", "ARE_", "WAS_", "SHOULD_"};
+    for (const char* q : pre) if (!std::strncmp(n, q, std::strlen(q))) return true;
+    return false;
+}
+
 }  // namespace
 
 bool ScmFile::Load(const std::string& path) {
@@ -355,7 +433,11 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
     // A game command: the argument count comes from the table. Commands the host implements run;
     // the rest are skipped (their outputs read 0, their condition fails) and listed once in the log.
     const CmdInfo* ci = FindCmd(op);
-    if (!ci && op != 0x0913) return fail();
+    int inferred = -1;
+    if (!ci && op != 0x0913) {
+        inferred = InferArgs(m_space, t.pc, op);
+        if (inferred < 0) return fail();
+    }
     std::vector<Arg> args;
     if (op == 0x0913) {   // START_NEW_STREAMED_SCRIPT: arguments up to a zero byte
         while (t.pc < m_space.size() && m_space[t.pc] != 0) {
@@ -365,7 +447,7 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
         }
         if (t.pc < m_space.size()) t.pc++;
     } else {
-        for (int i = 0; i < ci->args; i++) {
+        for (int i = 0; i < (ci ? (int)ci->args : inferred); i++) {
             Arg v;
             if (!ReadArg(t, v)) return fail();
             args.push_back(v);
@@ -395,7 +477,7 @@ bool ScmMachine::Step(ScmThread& t, int32_t nowMs) {
                 if (args[i].type == 2 || args[i].type == 3) Var(t, args[i]) = 0;
         result = false;
     }
-    if ((ci && ci->cond) || IsCondOp(op)) Compare(t, notFlag ? !result : result);
+    if ((ci && ci->cond) || IsCondOp(op) || (!ci && NamedCond(op))) Compare(t, notFlag ? !result : result);
     return true;
 }
 

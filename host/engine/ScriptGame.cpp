@@ -479,6 +479,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x07FB: if (getenv("GTA_SCMGAME")) fprintf(stderr, "[SCMGAME] SWITCH_ENTRY_EXIT %s %d by %s\n", c.S(0).c_str(), c.I(1), c.t.name.c_str()); if (enex) enex->SetEnabledByName(c.S(0).c_str(), c.I(1) != 0); return true;   // SWITCH_ENTRY_EXIT
     case 0x08E7: if (getenv("GTA_SCMGAME")) fprintf(stderr, "[SCMGAME] DISABLE_ALL_ENTRY_EXITS %d by %s\n", c.I(0), c.t.name.c_str()); if (enex) enex->SetAllDisabled(c.I(0) != 0); return true;                  // DISABLE_ALL_ENTRY_EXITS
     case 0x094B: c.OutStr(1, enex ? enex->LastName() : ""); return true;                    // GET_NAME_OF_ENTRY_EXIT_CHAR_USED
+    case 0x0317: return true;                                                                // REGISTER_MISSION_GIVEN
     case 0x08AD: return true;                                                                // SET_CHAR_HAS_USED_ENTRY_EXIT
     case 0x03EE: c.result = true; return true;  // CAN_PLAYER_START_MISSION
     case 0x07D0: c.Out(0, 3); return true;      // GET_CURRENT_DAY_OF_WEEK
