@@ -141,4 +141,40 @@ void Save(const char* ini) {
     }
 }
 
+// CStats::UpdateStatsWhenSprinting / Running / Swimming / Driving and the max-health part of UpdateFatAndMuscleStats,
+// with the ar_stats.dat values (STAT_INC_* amounts, STAT_TIMELIMIT_* seconds). Counters run in milliseconds.
+int UpdateActivity(float dt, int rate, bool swimming, bool underwater, bool driving, float carSpeed, bool hasDriver) {
+    static float stamina = 0, swim = 0, breath = 0, drive = 0, health = 0;
+    const float ms = dt * 1000.0f;
+    int raised = -1;
+    auto fire = [&](float& counter, float limitSec, int stat, float inc) {
+        if (counter > limitSec * 1000.0f) {
+            counter = 0.0f;
+            Increment(stat, inc);
+            raised = stat;
+        }
+    };
+    if (rate > 0) {
+        health += ms;   // UpdateFatAndMuscleStats: the max-health counter runs on every call
+        fire(health, 600.0f, STAT_MAX_HEALTH, 20.0f);
+        if (swimming) {
+            swim += ms;
+            fire(swim, 180.0f, STAT_STAMINA, 50.0f);
+        } else {
+            stamina += ms;
+            fire(stamina, 300.0f, STAT_STAMINA, rate >= 10 ? 10.0f : 5.0f);
+        }
+    }
+    if (swimming && underwater) {
+        breath += ms;
+        fire(breath, 60.0f, STAT_LUNG_CAPACITY, 50.0f);
+    }
+    if (driving) {
+        if (!hasDriver || carSpeed > 0.8f) drive += ms;
+        else if (carSpeed > 0.2f) drive += ms * 0.5f;
+        fire(drive, 300.0f, STAT_DRIVING_SKILL, 20.0f);
+    }
+    return raised;
+}
+
 }  // namespace Stats

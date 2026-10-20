@@ -335,5 +335,7 @@ void SetRecord(int stat, float value);     // CStats::SetNewRecordStat: only a h
 int MaxGroupMembers();                     // CStats::FindMaxNumberOfGroupMembers (from total respect)
 void Load(const char* ini);                // [Stats] S<id>=value
 void Save(const char* ini);
+// CStats::UpdateStatsWhen*: returns the stat that rose this call, or -1.
+int UpdateActivity(float dt, int exerciseRate, bool swimming, bool underwater, bool driving, float carSpeed, bool hasDriver);
 
 }  // namespace Stats

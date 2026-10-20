@@ -3283,7 +3283,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     pin.carSteer = -dc.steer;   // retail: positive = left
                     pin.carSpeed = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy);
                     pin.carReverse = dc.speed < -0.3f || (RawGameKey('S') & 0x8000) != 0;
-                    g_cj.SetDrivingSkill(0.0f);
+                    g_cj.SetDrivingSkill(Stats::Get(Stats::STAT_DRIVING_SKILL) / 10.0f);
                 }
                 pin.jetBrake = pin.duckHeld;
                 pin.jetStop = (RawGameKey(VK_MBUTTON) & 0x8000) != 0;   // look behind
@@ -3432,6 +3432,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 // STAT_INC_BODY_MUSCLE (10) muscle, or with no fat left costs STAT_DEC_BODY_MUSCLE (15) muscle.
                 static float s_fatCounterMs = 0.0f;
                 const int rate = g_cj.ExerciseRate();
+                {
+                    float carSpd = 0.0f;
+                    if (g_driveCar >= 0) { const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar); carSpd = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy) / 50.0f; }
+                    const int up = Stats::UpdateActivity(dt, rate, g_cj.Swimming(), g_cj.Underwater(), g_driveCar >= 0, carSpd, true);
+                    if (up >= 0) {
+                        if (g_hudReady) g_hud.StatUpdate(Stats::Get(up) / 10.0f);
+                        Log("STATS: stat %d now %.0f", up, Stats::Get(up));
+                    }
+                }
                 if (rate > 0) {
                     s_fatCounterMs += dt * 1000.0f * (float)rate / 10.0f;
                     if (s_fatCounterMs > 150.0f * 1000.0f) {
