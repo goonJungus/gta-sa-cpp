@@ -217,6 +217,7 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             h.brakeDecel = (float)std::atof(t[17].c_str());
             h.brakeBias = (float)std::atof(t[18].c_str());
             h.steeringLock = (float)std::atof(t[20].c_str());
+            h.monetaryValue = std::atoi(t[30].c_str());
             if (t.size() > 31) h.low = (std::strtoul(t[31].c_str(), nullptr, 16) & 0x4u) != 0;
             m_handling[h.name] = h;
         }
