@@ -447,6 +447,7 @@ private:
     float m_jumpMod = 1.0f;   // CStats::GetFatAndMuscleModifier(2): jump launch, launch / land clip speed
     float m_breathMax = 1150.0f;   // steps of air; CPlayerPedData::m_fBreath
     bool m_breathInit = false;
+    int m_breathLog = 0;
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = 1150.0f, m_damageFlash = 0.0f;
     bool m_reloading = false, m_firing = false, m_shotDone = false, m_fireQueued = false;
     float m_flash = 0.0f;                      // muzzle flash time left
