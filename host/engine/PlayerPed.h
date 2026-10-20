@@ -169,6 +169,17 @@ public:
     float AttackCounter() const { return m_attackCounter; }
     float GunAccuracy() const { return m_gun >= 0 ? m_guns[m_gun].accuracy : 1.0f; }
     bool GunCanAim() const { return m_gun >= 0 && (m_guns[m_gun].flags & 1); }
+    bool GunOwnedAt(int i) const { return i >= 0 && i < (int)m_guns.size() && m_guns[i].owned; }
+    int GunIndexOfType(int type) const;   // index of a weapon type, -1 if none
+    void ClearWeapons();                  // carry nothing (CPed::ClearWeapons)
+    bool GiveWeapon(int type, int ammo);  // CPed::GiveWeapon: replaces the weapon of the slot; adds the ammo if already carried
+    bool SlotHasOtherAmmo(int type) const;  // the slot holds a different weapon that still has ammo
+    int PickupSlotState(int type) const;      // 0 slot empty or same weapon, 1 another with ammo (or exchangeable), 2 another without ammo
+    bool WantsNewWeapon(int type) const;      // CPlayerPed::DoesPlayerWantNewWeapon(type, false)
+    bool CanPickWeaponNow(int type) const;    // CPickups::PlayerCanPickUpThisWeaponTypeAtThisMoment
+    bool SlotExchangeable(int type) const;    // the weapon's slot is 3, 4 or 5
+    void GrantAmmo(int type, int ammo);       // CPed::GrantAmmo: into whatever weapon holds that slot
+    void DrawJetpackPickup(D3DRenderer& r, const float world[4][4]);   // the pack model lying on the ground
     int GunCount() const;                 // guns carried (the wheel lists these plus the fists)
     const char* GunNameAt(int i) const;
     int GunSlotAt(int i) const;           // weapon.dat weapon slot (the weapon wheel categories)
@@ -266,6 +277,7 @@ public:
     void SetBreathMax(float v) { if (!m_breathInit) { m_breathInit = true; m_breath = v; } m_breathMax = v; m_breath = std::min(m_breath, v); }
     bool ShowBreath() const { return m_swimming && m_swimState == SwimState::Under || m_breath < m_breathMax * 0.999f; }
     void Hurt(float amount);            // armor first, then health
+    void SetArmor(float a) { m_armor = a; }
     void RestoreVitals() { m_health = m_maxHealth; m_armor = 100.0f; }   // CHEAT_HEALTH_ARMOR_MONEY
     float DamageFlash() const { return m_damageFlash; }       // 1 right after a hit, fades out
     bool Dead() const { return m_health <= 0.0f; }
@@ -419,6 +431,7 @@ private:
         const char* fireClip = nullptr;                                      // standing fire clip (poor skill uses its own)
         std::string name;
         int clipSize = 0, ammo = 0, total = 0;
+        bool owned = true;                                                   // carried (pickups hand weapons out; all start owned)
         IDirect3DTexture9* icon = nullptr;
         float loopStart = 0, loopEnd = 0, fireTime = 0, reloadTime = 1.0f;   // seconds (standing loop)
         float loop2Start = 0, loop2End = 0, fire2Time = 0;                   // the crouched loop (weapon.dat anim loop 2)

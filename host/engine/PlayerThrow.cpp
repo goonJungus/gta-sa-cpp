@@ -201,7 +201,7 @@ void PlayerPed::SwitchAfterEmpty() {
         for (size_t i = 0; i < m_guns.size(); i++) {
             const Gun& g = m_guns[i];
             if (g.slot != s || (int)i == cur || (s >= 9 && s <= 11)) continue;   // retail skips camera, gifts and goggles (seen: detonator -> minigun)
-            if (g.ammo + g.total > 0) { SelectGun((int)i); return; }
+            if (g.owned && g.ammo + g.total > 0) { SelectGun((int)i); return; }
         }
     SelectGun(-1);
 }

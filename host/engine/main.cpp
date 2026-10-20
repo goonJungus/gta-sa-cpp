@@ -57,6 +57,7 @@
 #include "Projectiles.h"
 #include "BulletInfo.h"
 #include "ShotInfo.h"
+#include "Pickups.h"
 #include "WeaponInfo.h"
 #include "Speech.h"
 #include "Delirium.h"
@@ -75,6 +76,9 @@
 #include "Stats.h"
 
 static D3DRenderer g_renderer;
+static Pickups g_pickups;   // CPickups: 620 slots
+static int g_wanted = getenv("GTA_WANTED") ? atoi(getenv("GTA_WANTED")) : 0;
+static int g_collectBuf = 0;   // CPickups::CollectPickupBuffer
 static ShotInfo g_shots;   // flamethrower / spray can / extinguisher shots (CShotInfo)
 static FireManager::World g_fireWorld;   // the world hooks the fire manager runs with, kept for the shots
 static BulletInfo g_bullets;   // scoped sniper bullets in flight (CBulletInfo)
@@ -166,6 +170,7 @@ static int WheelCatOfSlot(int slot) {
     switch (slot) { case 0: case 1: case 10: return 0; case 2: return 1; case 4: return 2; case 3: return 3; case 5: return 4; case 6: return 5; case 7: return 6; default: return 7; }
 }
 static int WheelItemCat(int item) { return item <= 0 ? 0 : WheelCatOfSlot(g_cj.GunSlotAt(item - 1)); }
+static bool WheelItemOwned(int item) { return item <= 0 || g_cj.GunOwnedAt(item - 1); }
 // A controller drives the same virtual keys the keyboard does: A sprint, X jump, B crouch, Y exit / use,
 // RB reload, LB weapon wheel, triggers aim (left) and fire (right).
 static bool PadKey(int vk) {
@@ -1436,6 +1441,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (const char* e = getenv("GTA_SKIN")) g_cj.SetSkin(e);
             else if (has) g_cj.SetSkin(sk);
         }
+        {   // [Player] StartWeapons = all (default) or none; GTA_NOGUNS=1 forces none
+            char sw[16] = {};
+            GetPrivateProfileStringA("Player", "StartWeapons", "all", sw, sizeof sw, g_iniPath);
+            if (getenv("GTA_NOGUNS") || _stricmp(sw, "none") == 0) g_cj.ClearWeapons();
+        }
+        g_pickups.Load(g_renderer, GameDir());
         if (const char* e = getenv("GTA_GUN")) g_cj.SelectGun(atoi(e));   // dev: weapon index
         if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
         Stats::Set(Stats::STAT_FAT, fat * 1000.0f); Stats::Set(Stats::STAT_MUSCLE, mus * 1000.0f);
@@ -3286,7 +3297,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_wheelSel = g_cj.WeaponIndex() + 1;
                             const int nItems = g_cj.GunCount() + 1;
                             for (int c = 0; c < 8; c++) g_wheelPick[c] = -1;
-                            for (int i = nItems - 1; i >= 0; i--) g_wheelPick[WheelItemCat(i)] = i;   // first weapon of each category
+                            for (int i = nItems - 1; i >= 0; i--) if (WheelItemOwned(i)) g_wheelPick[WheelItemCat(i)] = i;   // first weapon of each category
                             g_wheelCat = WheelItemCat(g_wheelSel);
                             g_wheelPick[g_wheelCat] = g_wheelSel;
                         }
@@ -3310,7 +3321,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         }
                         if (s_wheelNotch) {   // scroll cycles the weapons inside the category
                             std::vector<int> inCat;
-                            for (int i = 0; i < n; i++) if (WheelItemCat(i) == g_wheelCat) inCat.push_back(i);
+                            for (int i = 0; i < n; i++) if (WheelItemOwned(i) && WheelItemCat(i) == g_wheelCat) inCat.push_back(i);
                             if (!inCat.empty()) {
                                 int at = 0;
                                 for (size_t k = 0; k < inCat.size(); k++) if (inCat[k] == g_wheelPick[g_wheelCat]) at = (int)k;
@@ -3412,7 +3423,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
                 g_cj.Update(pin);
                 if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
-                g_cj.TakeJetDrop();   // the dropped pack becomes a pickup once pickups can be created at runtime
+                if (g_cj.TakeJetDrop()) {   // CTaskSimpleJetPack::DropJetPack: the pack lies on the ground as a pickup
+                    const float fz = playerZ - EYE_HEIGHT;
+                    float p[3] = {playerX, playerY, fz + 0.4f};   // CPickups::CreatePickupCoorsCloseToCoors: 1.5 m out at a random angle, on the ground, in clear sight
+                    for (int tries = 0; tries < 32; tries++) {
+                        const float ang = (float)(rand() & 0xff) * 0.024543693f;
+                        const float qx = playerX + std::sin(ang) * 1.5f, qy = playerY + std::cos(ang) * 1.5f;
+                        const float gz = g_world.GetGroundHeight(qx, qy, fz + 1.0f);
+                        if (gz < -500.0f) continue;
+                        int kd = 0; float hn = 0.0f;
+                        if (g_world.RayCast(playerX, playerY, fz + 0.3f, qx, qy, gz + 0.9f, &kd, &hn) < 1.0f) continue;
+                        p[0] = qx; p[1] = qy; p[2] = gz + 0.5f;
+                        break;
+                    }
+                    const int sl = g_pickups.Add(p, Pickups::Jetpack, 0, Pickups::OnceTimeoutSlow, 0, false, (uint32_t)g_bulletMs);
+                    Log("PICKUP ADD slot %d jetpack at %.2f %.2f %.2f", sl, p[0], p[1], p[2]);
+                }
                 {   // CTaskSimpleJetPack owns the vertical speed while it flies
                     float jv;
                     if (g_cj.JetVelZ(jv)) { onGround = false; velZ = jv; }
@@ -3937,6 +3963,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_vehicles.Draw(g_renderer);
             g_peds.Draw(g_renderer);
             g_proj.Draw(g_renderer, g_cj);
+            { const float camPos3[3] = {camPosX, camPosY, camPosZ};
+            g_pickups.Draw(g_renderer, (uint32_t)g_bulletMs, camPos3,
+                           [&](int w, const float m[4][4]) { g_cj.DrawGunModel(g_renderer, g_cj.GunIndexOfType(w), m); },
+                           [&](const float m[4][4]) { g_cj.DrawJetpackPickup(g_renderer, m); }); }
             // Water (translucent) before the world's alpha meshes: it's a far,
             // low surface, so nearer glass/foliage blends over it.
             // Wavyness = WindClipped + 0.3 in CWeather::Update; there is no wind yet.
@@ -4274,6 +4304,107 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     g_expl.Update(dt, eh);
                     g_fires.Update(dt, fw);
                     g_fireWorld = fw;
+                    {   // CPickups::Update
+                        const uint32_t nowMs = (uint32_t)g_bulletMs;
+                        const float feet = playerZ - EYE_HEIGHT;
+                        static bool s_prevCollect = false;
+                        {   // the collect key: F, buffered for 6 frames
+                            const bool f = (GameKey('F') & 0x8000) != 0;
+                            if (f && !s_prevCollect) g_collectBuf = 6; else if (g_collectBuf > 0) g_collectBuf--;
+                            s_prevCollect = f;
+                        }
+                        if (frame == (getenv("GTA_PICKUPAT") ? atoi(getenv("GTA_PICKUPAT")) : 3) && getenv("GTA_PICKUP")) {   // dev: kind/weapon/type/x/y/ammo;...  (ammo -1 = an empty pickup)
+                            static const char* kKind[] = {"weapon", "cash", "health", "armour", "adrenaline", "info", "bribe", "bonus", "jetpack"};
+                            std::string spec = getenv("GTA_PICKUP");
+                            size_t at = 0;
+                            while (at < spec.size()) {
+                                size_t end = spec.find(';', at);
+                                if (end == std::string::npos) end = spec.size();
+                                char kn[16] = {};
+                                int wt = 0, ty = 0, am = 0;
+                                float px = 0, py = 0;
+                                if (sscanf(spec.substr(at, end - at).c_str(), "%15[^/]/%d/%d/%f/%f/%d", kn, &wt, &ty, &px, &py, &am) == 6) {
+                                    int kind = 0;
+                                    for (int k = 0; k < Pickups::kKinds; k++) if (!_stricmp(kn, kKind[k])) kind = k;
+                                    const float p[3] = {px, py, GetGroundHeight(px, py, feet + 1.0f) + 0.5f};
+                                    const int sl = g_pickups.Add(p, kind, wt, ty, am < 0 ? 0 : am, am < 0, nowMs);
+                                    Log("PICKUP ADD slot %d %s weapon %d type %d ammo %d at %.2f %.2f %.2f", sl, kn, wt, ty, am, p[0], p[1], p[2]);
+                                }
+                                at = end + 1;
+                            }
+                        }
+                        if (const char* ts = getenv("GTA_TIMESKIP")) {   // dev: "frame:ms" jumps the pickup clock
+                            int tf = 0, tm = 0;
+                            if (sscanf(ts, "%d:%d", &tf, &tm) == 2 && frame == tf) { g_bulletMs += (float)tm; Log("PICKUP DEV clock +%d ms", tm); }
+                        }
+                        if (getenv("GTA_GUNDBG") && frame % 5 == 4) { static int s_lg = -2; if (g_cj.WeaponIndex() != s_lg) { s_lg = g_cj.WeaponIndex(); Log("GUNDBG frame %d weapon index %d type %d", frame, s_lg, s_lg >= 0 ? g_cj.GunType(s_lg) : -1); } }
+                        if (frame == 2) {   // dev: GTA_HURT=hp takes health off, GTA_ARMOUR=n sets armour
+                            if (const char* h = getenv("GTA_HURT")) { g_cj.Hurt((float)atof(h)); Log("PICKUP DEV hurt: hp %.0f", g_cj.Health()); }
+                            if (const char* ar = getenv("GTA_ARMOUR")) g_cj.SetArmor((float)atof(ar));
+                        }
+                        if (getenv("GTA_PICKFILL") && frame == 3) {   // dev: fill every slot with cash far away to test the cap
+                            for (int k = 0; k < Pickups::kSlots + 5; k++) {
+                                const float p[3] = {5000.0f + (float)k, 5000.0f, 10.0f};
+                                const int sl = g_pickups.Add(p, Pickups::Cash, 0, k % 2 ? Pickups::Money : Pickups::OnceTimeout, 1 + k, false, nowMs + (uint32_t)k * 10);
+                                if (k >= Pickups::kSlots - 2) Log("PICKUP FILL %d -> slot %d used %d", k, sl, g_pickups.Used());
+                            }
+                        }
+                        if (g_peds.Ready()) {   // a dead ped drops its cash (CPed::CreateDeadPedMoney)
+                            static std::vector<char> s_was;
+                            static std::vector<int> s_cash;
+                            for (size_t i = s_was.size(); i < g_peds.Count(); i++) {
+                                s_was.push_back(g_peds.Alive(i));
+                                s_cash.push_back(getenv("GTA_PEDCASH") ? atoi(getenv("GTA_PEDCASH")) : (rand() % 100 < 3 ? 400 : rand() % 25));   // GTA_PEDCASH: dev fixed wallet
+                            }
+                            for (size_t i = 0; i < g_peds.Count(); i++) {
+                                const bool al = g_peds.Alive(i);
+                                if (s_was[i] && !al) {
+                                    if (s_cash[i] > 10) {
+                                        const float p[3] = {g_peds.X(i), g_peds.Y(i), g_peds.Z(i) + 0.5f};
+                                        g_pickups.CreateSomeMoney(p, s_cash[i], nowMs);
+                                        Log("PICKUP DEADPED %zu cash %d -> %d pickups", i, s_cash[i], g_pickups.Used());
+                                    }
+                                    s_cash[i] = 0;
+                                } else if (!s_was[i] && al) s_cash[i] = rand() % 100 < 3 ? 400 : rand() % 25;
+                                s_was[i] = al;
+                            }
+                        }
+                        Pickups::Env pe;
+                        pe.player[0] = playerX; pe.player[1] = playerY; pe.player[2] = feet + 1.0f;
+                        pe.alive = !g_cj.Dead();
+                        pe.onFoot = g_driveCar < 0;
+                        pe.health = g_cj.Health(); pe.maxHealth = g_cj.MaxHealth(); pe.armour = g_cj.Armor();
+                        pe.wanted = g_wanted; pe.onJetpack = g_cj.Jetpacking();
+                        pe.collectKey = g_collectBuf > 0;
+                        pe.slotState = [&](int w) { return g_cj.PickupSlotState(w); };
+                        pe.wantsWeapon = [&](int w) { return g_cj.WantsNewWeapon(w); };
+                        pe.canPickNow = [&](int w) { return g_cj.CanPickWeaponNow(w); };
+                        pe.exchangeable = [&](int w) { return g_cj.SlotExchangeable(w); };
+                        pe.grantWeapon = [&](int w, int a) { g_cj.GiveWeapon(w, a); };
+                        pe.grantAmmo = [&](int w, int a) { g_cj.GrantAmmo(w, a); };
+                        pe.help = [&](const char* k) {
+                            if (!g_hudReady) return;
+                            std::string t = g_hud.Text().Get(k);
+                            const std::string tok = "~k~~PED_ANSWER_PHONE~";   // the collect key is shown by name: F here
+                            for (size_t at; (at = t.find(tok)) != std::string::npos;) t.replace(at, tok.size(), "F");
+                            g_hud.ShowMessage(t.c_str(), 5.0f);
+                        };
+                        pe.giveMoney = [&](int a) { g_money += a; };
+                        pe.goodie = [&](int kind) {
+                            switch (kind) {
+                            case Pickups::Health: g_cj.AddHealth(g_cj.MaxHealth()); break;
+                            case Pickups::Armour: g_cj.SetArmor(100.0f); break;
+                            case Pickups::Adrenaline: Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); break;   // ResetSprintEnergy
+                            case Pickups::Bribe: g_wanted = std::max(0, g_wanted - 1); Stats::Increment(Stats::STAT_NUMBER_OF_POLICE_BRIBES, 1.0f); break;
+                            case Pickups::Jetpack: g_cj.StartJetpack(); break;
+                            default: break;
+                            }
+                        };
+                        pe.log = [&](const char* what, int slot, int a, int b) {
+                            Log("PICKUP %s slot %d %d %d | money %d hp %.0f armour %.0f wanted %d", what, slot, a, b, g_money, g_cj.Health(), g_cj.Armor(), g_wanted);
+                        };
+                        g_pickups.Update(nowMs, pe);
+                    }
                     {   // CShotInfo::Update
                         static unsigned s_shotFrame = 0;
                         ShotInfo::Env se;
@@ -4702,7 +4833,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 hd.wheelItems.push_back(f);
                 for (int i = 0; i < g_cj.GunCount(); i++) {
                     WheelItem w;
-                    w.name = g_cj.GunNameAt(i); w.icon = g_cj.GunIconAt(i); w.cat = WheelItemCat(i + 1);
+                    w.name = g_cj.GunNameAt(i); w.icon = g_cj.GunIconAt(i); w.cat = g_cj.GunOwnedAt(i) ? WheelItemCat(i + 1) : -1;
                     w.clip = g_cj.GunClipAt(i); w.total = g_cj.GunTotalAt(i); w.clipSize = g_cj.GunClipSizeAt(i);
                     hd.wheelItems.push_back(w);
                 }
@@ -4715,8 +4846,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (getenv("GTA_STATDBG") && (frame % 50) == 0) Log("BREATH %.3f hp %.1f", g_cj.Breath(), g_cj.Health());
             hd.damageFlashAmount = g_cj.DamageFlash();
             int& s_money = g_money;
-            static int s_wanted = getenv("GTA_WANTED") ? atoi(getenv("GTA_WANTED")) : 0;
-            hd.money = s_money; hd.wanted = s_wanted;
+            hd.money = s_money; hd.wanted = g_wanted;
             hd.hour = (int)clockHour; hd.minute = (int)((clockHour - floorf(clockHour)) * 60.0f);
             hd.armed = g_cj.GunIndex() >= 0 || g_cj.HoldingThrown();
             hd.weaponIcon = g_cj.GunIcon();

@@ -84,6 +84,7 @@ if(WIN32)
         host/engine/ParaCanopy.cpp
         host/engine/Projectiles.cpp
         host/engine/ShotInfo.cpp
+        host/engine/Pickups.cpp
         host/engine/BulletInfo.cpp
         host/engine/Melee.cpp
         host/engine/Vehicle.cpp
