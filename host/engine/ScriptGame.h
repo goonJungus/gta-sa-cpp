@@ -70,6 +70,9 @@ public:
     std::function<void(const std::string&)> cutsceneAudio;       // START_CUTSCENE: play the scene's audio track (CAudioEngine::PlayPreloadedCutsceneTrack)
     std::function<void()> cutsceneAudioStop;                     // the scene ended, was skipped or cleared
     std::function<int()> menuInput;                              // edges this frame: 1 up, 2 down, 4 accept
+    std::function<int(int, int)> playSound;                      // bank, sound -> voice (0 = nothing played)
+    std::function<bool(int)> voicePlaying;
+    std::function<void(int)> stopSound;
     std::function<bool()> skipPressed;                           // CCutsceneMgr::IsCutsceneSkipButtonBeingPressed (edge)
 
     ScriptCamera cam;
@@ -108,6 +111,7 @@ private:
     bool m_carrecOpen = false;
     std::map<int, std::vector<Frame>> m_recs;                    // loaded recordings by number
     Playback m_play[16];
+    struct MissionAudio { int bank = -1, sound = -1, voice = 0, event = 0; } m_mission[4];   // CAEScriptAudioEntity wavLinks
     void RestoreFrame(VehicleInstance& v, const Frame& f, bool pause);
     struct CutState { std::string name; int state = 0; float t = 0; float dur = 0; bool skipped = false; };   // 0 none, 1 loaded, 2 running, 3 finished
     Cutscene m_cutscene;

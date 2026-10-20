@@ -380,7 +380,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x0112: c.result = false; return true;  // HAS_DEATHARREST_BEEN_EXECUTED
     case 0x09B2: c.Out(1, 496); c.Out(2, 1); c.result = true; return true;   // GET_RANDOM_CAR_MODEL_IN_MEMORY: a common sedan is always resident
     case 0x04AE: case 0x04AF: c.Out(0, c.I(1)); return true;                              // SET_LVAR_INT_TO_CONSTANT
-    case 0x03D0: c.result = true; return true;                               // HAS_MISSION_AUDIO_LOADED
+    case 0x03D0: c.result = true; return true;                               // HAS_MISSION_AUDIO_LOADED (the bank is read when it plays)
     case 0x00D8: c.t.finished = true; return true;                           // MISSION_HAS_FINISHED: the mission thread ends
     case 0x00BF: { int h = 12, m = 0; if (scm && scm->host.getTime) scm->host.getTime(h, m); c.Out(0, h); c.Out(1, m); std::fprintf(stderr, "[SCMGAME] GET_TIME_OF_DAY %02d:%02d\n", h, m); return true; }   // GET_TIME_OF_DAY
     case 0x00C0: if (scm && scm->host.setTime) scm->host.setTime(c.I(0), c.I(1)); return true;   // SET_TIME_OF_DAY
@@ -820,8 +820,35 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x075C: c.result = c.I(0) != 0; return true;   // DOES_BLIP_EXIST
     case 0x00A3: case 0x00A4: return InArea(c, c.op == 0x00A3 ? "IS_CHAR_IN_AREA_2D" : "IS_CHAR_IN_AREA_3D");
     // ---- mission audio: no voice playback yet; loading and playing finish at once ---------
-    case 0x03CF: case 0x03D1: case 0x0A09: case 0x03E7: return true;   // LOAD_MISSION_AUDIO, PLAY_MISSION_AUDIO, SHUT_CHAR_UP_FOR_SCRIPTED_SPEECH, FLASH_HUD_OBJECT
-    case 0x03D2: c.result = true; return true;                          // HAS_MISSION_AUDIO_FINISHED
+    case 0x03CF: {   // LOAD_MISSION_AUDIO(slot, sampleId): CAudioEngine::PreloadMissionAudio
+        const int slot = c.I(0) - 1, ev = c.I(1);
+        if (slot < 0 || slot > 3) return true;
+        MissionAudio& m = m_mission[slot];
+        if (m.voice && voicePlaying && voicePlaying(m.voice)) return true;   // a playing sample blocks the preload
+        m = MissionAudio();
+        if (ev >= 2000 && ev != 65535) {   // GetBankAndSoundFromScriptSlotAudioEvent: 200 sounds per bank from bank 147
+            m.bank = 0x93 + (ev - 2000) / 200;
+            m.sound = (ev - 2000) % 200;
+            m.event = ev;
+        }
+        if (getenv("GTA_SCMGAME")) fprintf(stderr, "[SCMGAME] LOAD_MISSION_AUDIO slot %d event %d -> bank %d sound %d\n", slot + 1, ev, m.bank, m.sound);
+        return true;
+    }
+    case 0x03D1: {   // PLAY_MISSION_AUDIO(slot)
+        const int slot = c.I(0) - 1;
+        if (slot < 0 || slot > 3) return true;
+        MissionAudio& m = m_mission[slot];
+        if (m.bank >= 0 && playSound) m.voice = playSound(m.bank, m.sound);
+        if (getenv("GTA_SCMGAME")) fprintf(stderr, "[SCMGAME] PLAY_MISSION_AUDIO slot %d bank %d sound %d voice %d\n", slot + 1, m.bank, m.sound, m.voice);
+        return true;
+    }
+    case 0x0A09: case 0x03E7: return true;   // LOAD_MISSION_AUDIO, PLAY_MISSION_AUDIO, SHUT_CHAR_UP_FOR_SCRIPTED_SPEECH, FLASH_HUD_OBJECT
+    case 0x03D2: {   // HAS_MISSION_AUDIO_FINISHED(slot)
+        const int slot = c.I(0) - 1;
+        c.result = slot < 0 || slot > 3 || !m_mission[slot].voice || !voicePlaying || !voicePlaying(m_mission[slot].voice);
+        if (getenv("GTA_SCMGAME")) fprintf(stderr, "[SCMGAME] HAS_MISSION_AUDIO_FINISHED slot %d -> %d\n", slot + 1, (int)c.result);
+        return true;
+    }
     // ---- plain switches with no game effect yet -------------------------------------------
     case 0x042C: case 0x030D: case 0x0997: case 0x01F0: case 0x0111: case 0x06CF: case 0x0746: case 0x0180:   // totals, wanted, death state, timer bars, relationship, mission flag
     case 0x014C: case 0x0914: case 0x0929: case 0x07D3: case 0x0884: case 0x0928: case 0x08E8: case 0x0363: case 0x03B7: case 0x090F:

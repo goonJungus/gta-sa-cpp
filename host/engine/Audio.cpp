@@ -212,6 +212,13 @@ int Audio::Play(int bank, int sound, float vol, float pan, float pitch, bool loo
     return v.id;
 }
 
+bool Audio::IsPlaying(int voice) {
+    if (!voice) return false;
+    std::lock_guard<std::mutex> g(m_lock);
+    for (const Voice& v : m_voices) if (v.id == voice) return true;
+    return false;
+}
+
 void Audio::Stop(int voice) {
     if (!voice) return;
     std::lock_guard<std::mutex> g(m_lock);

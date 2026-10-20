@@ -39,6 +39,7 @@ public:
     // (0 = nothing played) that Stop / SetVoice accept for loops.
     int Play(int bank, int sound, float vol = 1.0f, float pan = 0.0f, float pitch = 1.0f, bool loop = false);
     void Stop(int voice);
+    bool IsPlaying(int voice);   // a voice that was started and has not ended or been stopped
     void SetVoice(int voice, float vol, float pan, float pitch);
     int SoundCount(int bank);
 
