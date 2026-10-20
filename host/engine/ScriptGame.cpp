@@ -295,11 +295,13 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x05D3: {   // TASK_GO_STRAIGHT_TO_COORD(char, x, y, z, mode, time)
         const int i = CharIndex(c.I(0));
         if (i >= 0) peds->SetGoal((size_t)i, c.F(1), c.F(2), c.I(4));
+        else if (c.I(0) == kPlayer) { playerGoal.on = true; playerGoal.x = c.F(1); playerGoal.y = c.F(2); playerGoal.mode = c.I(4); }
         return true;
     }
     case 0x0792: case 0x0687: {   // CLEAR_CHAR_TASKS(_IMMEDIATELY)(char)
         const int i = CharIndex(c.I(0));
         if (i >= 0) { peds->ClearGoal((size_t)i); }
+        if (c.I(0) == kPlayer) playerGoal.on = false;
         m_drives.erase(c.I(0));
         return true;
     }

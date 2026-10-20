@@ -2991,6 +2991,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 mx = ax; my = ay;
                 mlen = std::min(1.0f, sqrtf(ax * ax + ay * ay));
             }
+            if (g_sg.playerGoal.on && !g_cj.InVehicle()) {   // the script sent CJ somewhere (TASK_GO_STRAIGHT_TO_COORD)
+                const float gx = g_sg.playerGoal.x - playerX, gy = g_sg.playerGoal.y - playerY;
+                const float gd = sqrtf(gx * gx + gy * gy);
+                if (gd < 0.6f) { g_sg.playerGoal.on = false; mx = my = 0.0f; mlen = 0.0f; }
+                else {
+                    mx = gx / gd; my = gy / gd; mlen = 1.0f;
+                    speed = g_sg.playerGoal.mode >= 4 ? CJ_SPRINT_SPEED : g_sg.playerGoal.mode == 2 ? CJ_WALK_SPEED : CJ_RUN_SPEED;
+                }
+            } else if (!g_sg.playerControl) { mx = my = 0.0f; mlen = 0.0f; }   // SET_PLAYER_CONTROL off
             if (scripted) {
                 // Scripted path: 5 legs x 4s, loop around Grove Street.
                 scriptedTime += dt;
@@ -3526,7 +3535,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
                 if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
                 g_cj.Update(pin);
-                { static const bool seatDbg = getenv("GTA_SEATDBG") != nullptr; if (seatDbg && frame % 200 == 0) Log("SEATDBG frame %d seated %d drive %d stick %.2f %.2f noclip %d clip %s", frame, (int)g_cj.InVehicle(), g_driveCar, pin.stickX, pin.stickY, (int)pin.noclip, g_cj.ClipName()); }
+                { static const bool seatDbg = getenv("GTA_SEATDBG") != nullptr; if (seatDbg && frame % 200 == 0) Log("SEATDBG frame %d pos %.1f %.1f seated %d drive %d stick %.2f %.2f noclip %d clip %s", frame, playerX, playerY, (int)g_cj.InVehicle(), g_driveCar, pin.stickX, pin.stickY, (int)pin.noclip, g_cj.ClipName()); }
                 if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
                 if (g_cj.TakeJetDrop()) {   // CTaskSimpleJetPack::DropJetPack: the pack lies on the ground as a pickup
                     const float fz = playerZ - EYE_HEIGHT;
