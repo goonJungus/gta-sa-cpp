@@ -14,6 +14,7 @@
 
 class D3DRenderer;
 class Peds;
+class Pickups;
 class Vehicles;
 
 // The camera the script placed (CCamera in fixed mode). main applies it over the player camera.
@@ -36,12 +37,16 @@ public:
     Vehicles* cars = nullptr;
     D3DRenderer* r = nullptr;
     Hud* hud = nullptr;
+    Pickups* pickups = nullptr;
+    std::function<uint32_t()> nowMs;                              // the pickup clock
     // main supplies these
     std::function<bool()> playerInCar;
     std::function<int()> playerCar;                              // Vehicles index or -1
     std::function<void(int)> putPlayerInCar;
     std::function<void()> playerLeaveCar;
     std::function<float(float, float)> groundAt;                 // world height or < -1e5
+    std::function<int()> wantedLevel;
+    std::function<void(int)> setWantedLevel;
     std::function<void(float)> setPlayerHeading;
     std::function<float()> getPlayerHeading;
 
@@ -80,6 +85,12 @@ private:
     bool EntityPos(int kind, int h, float& x, float& y, float& z, bool& inCar, float* speed = nullptr);   // kind 0 char, 1 car, 2 object
     bool Locate(ScmMachine::Call& c, const std::string& name);
     bool InArea(ScmMachine::Call& c, const std::string& name);
+    // CREATE_PICKUP and friends. A pickup of a model the pickup drawer knows lives in a Pickups slot;
+    // the rest (property signs, collectibles) are tracked and collected by walking into them.
+    struct ScriptPickup { int slot = -1; float x = 0, y = 0, z = 0; bool removed = false, collected = false, locked = false; };
+    std::vector<ScriptPickup> m_pickups;
+    int m_markers = 0;
+    int AddPickup(int model, int type, int ammo, float x, float y, float z);
     struct Drive { int car; float x, y, speed; };
     std::map<int, Drive> m_drives;
 
