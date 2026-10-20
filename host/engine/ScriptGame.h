@@ -15,6 +15,7 @@
 class D3DRenderer;
 class Peds;
 class Pickups;
+class EntryExit;
 class Vehicles;
 
 // The camera the script placed (CCamera in fixed mode). main applies it over the player camera.
@@ -38,6 +39,9 @@ public:
     D3DRenderer* r = nullptr;
     Hud* hud = nullptr;
     Pickups* pickups = nullptr;
+    EntryExit* enex = nullptr;
+    std::function<int()> getArea;                                // CGame::currArea
+    std::function<void(int)> setArea;
     std::function<uint32_t()> nowMs;                              // the pickup clock
     // main supplies these
     std::function<bool()> playerInCar;

@@ -11,6 +11,7 @@
 
 #include "Peds.h"
 #include "Pickups.h"
+#include "EntryExit.h"
 #include "Stats.h"
 #include "Vehicle.h"
 
@@ -319,7 +320,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x07E0: return true;   // SET_BLIP_AS_FRIENDLY
     // ---- world switches and stats that have no game effect yet ------------------------
     case 0x01E8: case 0x022B: case 0x091E: case 0x06D7: case 0x06D8: case 0x06D9: case 0x06DC: case 0x06DD:   // roads and trains
-    case 0x07FB: case 0x04BB: case 0x02B9: case 0x076C:                                                       // entry exits, area visible, garages, gang strength
+    case 0x02B9: case 0x076C:                                                                                 // garages, gang strength
     case 0x0955: case 0x0952: case 0x0954: case 0x040D: case 0x01EB: case 0x03DE: case 0x09BA: // beat track, mission audio, densities, zone names, stats
     case 0x0109: case 0x01B7: case 0x01B6: case 0x0662: case 0x0459: case 0x0A2D:
         return true;
@@ -465,8 +466,14 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         (void)x; (void)y; (void)z; (void)ic;
         return true;
     }
-    case 0x09E8: c.Out(1, 0); return true;      // GET_CHAR_AREA_VISIBLE(char) -> area 0 (outside)
-    case 0x077E: c.Out(0, 0); return true;      // GET_AREA_VISIBLE -> 0
+    case 0x09E8: c.Out(1, (c.I(0) == kPlayer && getArea) ? getArea() : 0); return true;   // GET_CHAR_AREA_VISIBLE
+    case 0x077E: c.Out(0, getArea ? getArea() : 0); return true;                           // GET_AREA_VISIBLE
+    case 0x04BB: if (setArea) setArea(c.I(0)); return true;                                 // SET_AREA_VISIBLE
+    case 0x0860: if (c.I(0) == kPlayer && setArea) setArea(c.I(1)); return true;            // SET_CHAR_AREA_VISIBLE
+    case 0x07FB: if (enex) enex->SetEnabledByName(c.S(0).c_str(), c.I(1) != 0); return true;   // SWITCH_ENTRY_EXIT
+    case 0x08E7: if (enex) enex->SetAllDisabled(c.I(0) != 0); return true;                  // DISABLE_ALL_ENTRY_EXITS
+    case 0x094B: c.OutStr(1, enex ? enex->LastName() : ""); return true;                    // GET_NAME_OF_ENTRY_EXIT_CHAR_USED
+    case 0x08AD: return true;                                                                // SET_CHAR_HAS_USED_ENTRY_EXIT
     case 0x03EE: c.result = true; return true;  // CAN_PLAYER_START_MISSION
     case 0x07D0: c.Out(0, 3); return true;      // GET_CURRENT_DAY_OF_WEEK
     case 0x09FB: c.Out(0, 0); return true;      // GET_CURRENT_LANGUAGE: American
@@ -643,7 +650,7 @@ void ScriptGame::Update(float dt) {
 
 ScriptOverlay ScriptGame::Overlay() {
     ScriptOverlay o;
-    o.fade = fade;
+    o.fade = std::max(fade, enex ? enex->Fade() : 0.0f);
     o.fadeRgb = ((uint32_t)m_fadeRgb[0] << 16) | ((uint32_t)m_fadeRgb[1] << 8) | (uint32_t)m_fadeRgb[2];
     o.wide = wide;
     o.subtitle = m_subtitle;
