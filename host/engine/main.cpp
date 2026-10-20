@@ -288,6 +288,7 @@ static int g_lockPed = -1;              // locked-on pedestrian (CPlayerPed::m_p
 static float g_lockPos[3] = {0, 0, 0};  // its aim point
 static D3DMATRIX g_lastView = {};
 static std::vector<RadarBlip> g_blips;  // CRadar::ms_RadarTrace
+static bool g_cutHideCj = false;   // CJ is hidden while a cutscene plays
 static ScriptGame g_sg;          // the mission script's game commands
 static int g_nextBlip = 1;       // the frame's view matrix (lock-on marker projection)      // aim camera zoom: tan(fov / 2) scale
 // CCamera::Find3rdPersonCamTargetVector: the ray from the camera through the crosshair.
@@ -1540,6 +1541,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         };
         g_sg.giveWeapon = [&](int w, int a) { if (cjReady) g_cj.GiveWeapon(w, a); Log("SCRIPT: weapon %d ammo %d", w, a); };
         g_sg.setWeapon = [&](int w) { if (cjReady) { const int i = g_cj.GunIndexOfType(w); g_cj.SelectGun(i); Log("SCRIPT: weapon in hand %d (gun %d)", w, i); } };
+        g_sg.gameDir = g_gameDir;
+        g_sg.drawCj = [&](D3DRenderer& rr, const AnimClip* c, float t, const float o[3]) { if (cjReady) g_cj.DrawCutscene(rr, c, t, o); };
+        g_sg.showPlayer = [&](bool on) { g_cutHideCj = !on; Log("SCRIPT: player %s", on ? "shown" : "hidden"); };
         g_sg.groundAt = [&](float x, float y) { return g_world.GetGroundHeight(x, y, playerZ + 50.0f); };
         s_scm.command = [](ScmMachine::Call& c) { return g_sg.Handle(c); };
     }
@@ -3958,7 +3962,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const float a = sc.shakeAmp * 0.002f * (sc.shakeT / sc.shakeDur);
                     sx = a * std::sin(scmClock * 61.0); sy = a * std::sin(scmClock * 47.0 + 1.0); sz = a * std::sin(scmClock * 53.0 + 2.0);
                 }
-                D3DMATRIX view = MatrixLookAt(sc.pos[0] + sx, sc.pos[1] + sy, sc.pos[2] + sz, sc.look[0], sc.look[1], sc.look[2], 0, 0, 1);
+                D3DMATRIX view = MatrixLookAt(sc.pos[0] + sx, sc.pos[1] + sy, sc.pos[2] + sz, sc.look[0], sc.look[1], sc.look[2],
+                                              sc.cutscene ? sc.up[0] : 0.0f, sc.cutscene ? sc.up[1] : 0.0f, sc.cutscene ? sc.up[2] : 1.0f);
                 g_renderer.SetViewMatrix(view);
                 camPosX = sc.pos[0]; camPosY = sc.pos[1]; camPosZ = sc.pos[2];
                 if (sc.nearClip > 0.0f) nearClip = sc.nearClip;
@@ -3971,6 +3976,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 s_fovKick += (tgt - s_fovKick) * std::min(1.0f, dt * 5.0f);
             }
             float wantFov = (g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f) + s_fovKick;
+            if (scmRun && g_sg.cam.active && g_sg.cam.cutscene && g_sg.cam.fov > 1.0f) wantFov = g_sg.cam.fov;   // the cutscene's own FOV
             if (g_camFovScale != 1.0f)   // the aim camera's weapon zoom
                 wantFov = 2.0f * atanf(tanf(wantFov * 3.14159265f / 360.0f) * g_camFovScale) * 360.0f / 3.14159265f;
             if (nearClip != g_nearClip || wantFov != g_fovDeg) {   // first person needs a near plane at the eyes
@@ -4028,6 +4034,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     g_dummy.Draw(g_renderer, d.x, d.y, d.z);
                 }
             }
+            if (g_cutHideCj) return;
             if (cjReady && !scripted && !flyover) { g_cj.SetHideGun(g_scoped); g_cj.Draw(g_renderer, playerX, playerY, feetZ, g_hideCjHead); return; }
             if (!thirdPerson) return;
             if (!playerMesh) return;
@@ -4054,6 +4061,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             drawPlayerBox();
             g_vehicles.Draw(g_renderer);
             g_peds.Draw(g_renderer);
+            if (scmRun) g_sg.DrawCutscene(g_renderer);
             g_proj.Draw(g_renderer, g_cj);
             { const float camPos3[3] = {camPosX, camPosY, camPosZ};
             g_enex.DrawMarkers(g_renderer, camPos3, (uint32_t)g_bulletMs, ((int)(g_gameSeconds / 3600.0f)) % 24);

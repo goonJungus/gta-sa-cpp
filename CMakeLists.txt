@@ -94,6 +94,7 @@ if(WIN32)
         host/engine/VorbisDecoder.cpp
         host/engine/Radio.cpp
         host/engine/Peds.cpp
+        host/engine/Cutscene.cpp
         host/engine/Fire.cpp
         host/engine/Explosion.cpp
         host/engine/Hud.cpp

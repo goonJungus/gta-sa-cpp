@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+#include <memory>
+
+#include "Cutscene.h"
 #include "Hud.h"
 #include "Script.h"
 
@@ -29,6 +32,9 @@ struct ScriptCamera {
     bool persistPos = false, persistTrack = false, persistFov = false;
     float nearClip = 0.0f;             // 0 = the game default
     float shakeT = 0, shakeDur = 0, shakeAmp = 0;
+    bool cutscene = false;             // the cutscene player owns the camera
+    float up[3] = {0, 0, 1};           // cutscene roll
+    float fov = 0.0f;                  // cutscene FOV in degrees, 0 = the game default
 };
 
 class ScriptGame {
@@ -55,6 +61,9 @@ public:
     std::function<float()> getPlayerHeading;
     std::function<void(int, int)> giveWeapon;                    // weapon type, ammo
     std::function<void(int)> setWeapon;                          // weapon type in hand
+    std::string gameDir;
+    Cutscene::DrawCj drawCj;                                     // CJ in a cutscene
+    std::function<void(bool)> showPlayer;                        // hide CJ while a cutscene plays
 
     ScriptCamera cam;
     float fade = 0.0f;                 // 0 clear .. 1 solid (script fade layer)
@@ -70,10 +79,18 @@ public:
 
     // Dev log of everything the script did, for the headless tests.
     int cutsceneState() const { return m_cut.state; }
+    // The cutscene objects, drawn with the world.
+    void DrawCutscene(D3DRenderer& r);
+    bool CutsceneActive() const { return m_cut.state == 2; }
+    float CutsceneMs() const { return m_cutscene.TimeMs(); }
+    const Cutscene& CutscenePlayer() const { return m_cutscene; }
 
 private:
-    struct Cutscene { std::string name; int state = 0; float t = 0; float dur = 0; bool skipped = false; };   // 0 none, 1 loaded, 2 running, 3 finished
-    Cutscene m_cut;
+    struct CutState { std::string name; int state = 0; float t = 0; float dur = 0; bool skipped = false; };   // 0 none, 1 loaded, 2 running, 3 finished
+    Cutscene m_cutscene;
+    CutState m_cut;
+    int m_cutObjects = 0, m_cutSec = -1;
+    std::string m_cutKey;
     float m_fadeFrom = 0, m_fadeTo = 0, m_fadeT = 0, m_fadeDur = 0;
     bool m_fading = false;
     float m_fadeRgb[3] = {0, 0, 0};

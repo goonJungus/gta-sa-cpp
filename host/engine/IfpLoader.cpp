@@ -2,7 +2,10 @@
 
 #include "IfpLoader.h"
 
+#include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 
@@ -10,6 +13,100 @@ const AnimSequence* AnimClip::FindBone(int boneId) const {
     for (const AnimSequence& s : sequences)
         if (s.boneId == boneId) return &s;
     return nullptr;
+}
+
+void AnimSequence::Sample(float time, float q[4], float t[3]) const {
+    q[0] = q[1] = q[2] = 0.0f; q[3] = 1.0f;
+    t[0] = t[1] = t[2] = 0.0f;
+    if (keys.empty()) return;
+    size_t k = 0;
+    while (k + 1 < keys.size() && keys[k + 1].time <= time) k++;
+    const AnimKey& ka = keys[k];
+    const AnimKey& kb = keys[std::min(k + 1, keys.size() - 1)];
+    const float span = kb.time - ka.time;
+    const float u = span > 1e-5f ? std::min(1.0f, std::max(0.0f, (time - ka.time) / span)) : 0.0f;
+    float b[4] = {kb.q[0], kb.q[1], kb.q[2], kb.q[3]};
+    float d = ka.q[0] * b[0] + ka.q[1] * b[1] + ka.q[2] * b[2] + ka.q[3] * b[3];
+    if (d < 0) { d = -d; for (float& v : b) v = -v; }
+    float wa = 1 - u, wb = u;
+    if (d < 0.9995f) {
+        const float th = std::acos(d), sn = std::sin(th);
+        wa = std::sin((1 - u) * th) / sn;
+        wb = std::sin(u * th) / sn;
+    }
+    float len = 0;
+    for (int i = 0; i < 4; i++) { q[i] = wa * ka.q[i] + wb * b[i]; len += q[i] * q[i]; }
+    len = std::sqrt(len);
+    if (len > 1e-6f) for (int i = 0; i < 4; i++) q[i] /= len;
+    if (hasTranslation) for (int i = 0; i < 3; i++) t[i] = ka.t[i] + (kb.t[i] - ka.t[i]) * u;
+}
+
+bool IfpLoader::LoadAnpk(const std::vector<uint8_t>& d, std::unordered_map<std::string, AnimClip>& out) {
+    if (d.size() < 12 || std::memcmp(d.data(), "ANPK", 4) != 0) return false;
+    auto get32 = [&](size_t at) -> uint32_t {
+        uint32_t v = 0;
+        if (at + 4 <= d.size()) std::memcpy(&v, d.data() + at, 4);
+        return v;
+    };
+    auto pad4 = [](uint32_t n) { return (n + 3u) & ~3u; };
+    const bool negate = std::getenv("GTA_CUTQPOS") == nullptr;   // the old format stores the conjugate rotation; dev: GTA_CUTQPOS keeps the file sign
+    AnimClip clip;
+    bool have = false, inClip = false;
+    auto flush = [&] {
+        if (!have) return;
+        std::string key = clip.name;
+        for (char& ch : key) ch = (char)std::tolower((unsigned char)ch);
+        out[key] = std::move(clip);
+        clip = AnimClip();
+        have = false;
+    };
+    size_t p = 8;
+    int boneId = -1;
+    std::string seqName;
+    while (p + 8 <= d.size()) {
+        const char* tag = (const char*)d.data() + p;
+        const uint32_t size = get32(p + 4);
+        const size_t body = p + 8;
+        if (!std::memcmp(tag, "DGAN", 4) || !std::memcmp(tag, "CPAN", 4)) {   // containers: step inside
+            if (!std::memcmp(tag, "DGAN", 4)) inClip = true;
+            p = body;
+            continue;
+        }
+        if (body + size > d.size()) break;
+        if (!std::memcmp(tag, "NAME", 4)) {
+            flush();
+            clip.name = std::string((const char*)d.data() + body, strnlen((const char*)d.data() + body, size));
+            have = true;
+            inClip = false;
+        } else if (!std::memcmp(tag, "ANIM", 4) && size >= 0x2C) {
+            seqName = std::string((const char*)d.data() + body, strnlen((const char*)d.data() + body, 28));
+            boneId = (int32_t)get32(body + 28 + 4 + 8);
+        } else if (!std::memcmp(tag, "KR00", 4) || !std::memcmp(tag, "KRT0", 4)) {
+            const bool trans = tag[2] == 'T';
+            const size_t stride = trans ? 32 : 20;
+            AnimSequence seq;
+            seq.name = seqName;
+            seq.boneId = boneId;
+            seq.hasTranslation = trans;
+            const uint32_t frames = size / (uint32_t)stride;
+            seq.keys.resize(frames);
+            for (uint32_t k = 0; k < frames; k++) {
+                float v[8] = {};
+                std::memcpy(v, d.data() + body + k * stride, stride);
+                AnimKey& key = seq.keys[k];
+                for (int i = 0; i < 4; i++) key.q[i] = v[i];
+                if (negate) for (int i = 0; i < 3; i++) key.q[i] = -key.q[i];
+                if (trans) { for (int i = 0; i < 3; i++) key.t[i] = v[4 + i]; key.time = v[7]; }
+                else { key.t[0] = key.t[1] = key.t[2] = 0.0f; key.time = v[4]; }
+            }
+            if (!seq.keys.empty() && seq.keys.back().time > clip.duration) clip.duration = seq.keys.back().time;
+            clip.sequences.push_back(std::move(seq));
+        }
+        (void)inClip;
+        p = body + pad4(size);
+    }
+    flush();
+    return !out.empty();
 }
 
 bool IfpLoader::Load(const std::string& path, std::unordered_map<std::string, AnimClip>& out) {
