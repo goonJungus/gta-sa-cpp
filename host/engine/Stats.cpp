@@ -145,6 +145,36 @@ void Save(const char* ini) {
     }
 }
 
+float FatMuscleMod(int mode) {
+    const float fat = Get(STAT_FAT), muscle = Get(STAT_MUSCLE), stamina = Get(STAT_STAMINA);
+    const float fatN = (fat - 200.0f) / (1000.0f - 200.0f), musN = (muscle - 50.0f) / (1000.0f - 50.0f);
+    const float fatPos = std::max(0.0f, fatN), bike = std::min(1.0f, Get(STAT_BIKE_SKILL) * 0.001f);
+    float v = 1.0f;
+    switch (mode) {
+    case 0: return fat <= 400.0f ? 0.0f : fat <= 800.0f ? 1.0f : 2.0f;
+    case 1: return std::max(0.7f, musN * 0.2f + fatPos * -0.4f + 1.0f);
+    case 2: return std::max(0.8f, musN * -0.1f + fatPos * -0.2f + 1.0f);
+    case 3: return std::max(0.8f, fatN * -0.2f + 1.0f + musN * -0.1f);
+    case 4: v = musN + fatN * 0.5f + 1.0f; return v > 2.0f ? 2.0f : v;
+    case 5:
+        v = Get(STAT_CYCLING_SKILL) * 0.001f + stamina * 0.001f * 0.5f + musN * 0.5f + fatN * -1.0f + 1.0f;
+        return v > 2.0f ? 2.0f : std::max(0.25f, v);
+    case 6:
+        v = Get(STAT_CYCLING_SKILL) * 0.001f + fatN * -0.5f + 1.0f;
+        return v > 2.0f ? 2.0f : std::max(0.5f, v);
+    case 7: return stamina * 0.001f * 3000.0f + 150.0f;
+    case 8: return (Get(STAT_LUNG_CAPACITY) + stamina) * 0.0005f * 3000.0f + 1000.0f;
+    case 9: return Get(STAT_MAX_HEALTH) * 0.001f * 176.0f;
+    case 10: return 176.0f;
+    case 11: return bike * 0.5f + 1.0f;
+    case 12: return bike * 0.3f + 1.0f;
+    case 13: return bike * 0.25f + 1.0f;
+    case 14: v = Get(STAT_DRIVING_SKILL) * 0.001f * 0.5f + 1.0f + fatN * 0.5f; return v > 1.0f ? 1.0f : v;
+    case 15: return std::max(0.5f, musN * -0.25f + fatN * -0.5f + 1.0f);
+    }
+    return 1.0f;
+}
+
 float React(int index) { return index >= 0 && index < R_COUNT ? g_react[index] : 0.0f; }
 
 int LoadReactions(const char* path) {

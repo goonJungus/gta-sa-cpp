@@ -3476,6 +3476,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             Log("STATINC: stat %d = %.0f, health %.2f/%.2f after, fat %.0f", id, Stats::Get(id), g_cj.Health(), g_cj.MaxHealth(), Stats::Get(Stats::STAT_FAT));
                         }
                     }
+                    if (getenv("GTA_MODTEST") && frame == 30) for (int m = 0; m < 16; m++) Log("STATS: modifier %d = %.4f", m, Stats::FatMuscleMod(m));   // dev
                     if (const char* ss = getenv("GTA_STATSET"); ss && frame == 80) {   // dev: "id:value" overwrites a stat
                         int id = 0; float val = 0;
                         if (sscanf(ss, "%d:%f", &id, &val) == 2) { Stats::Set(id, val); Log("STATSET: stat %d = %.0f", id, val); }
