@@ -3190,7 +3190,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         for (size_t i = 0; i < g_peds.Count(); i++) {
                             if ((int)i == skip || !g_peds.Alive(i)) continue;
                             const float dx = g_peds.X(i) - playerX, dy = g_peds.Y(i) - playerY;
-                            const float dist = sqrtf(dx * dx + dy * dy);
+                            const float dz = g_peds.Z(i) - (playerZ - EYE_HEIGHT);
+                            const float dist = side == 0 ? sqrtf(dx * dx + dy * dy + dz * dz) : sqrtf(dx * dx + dy * dy);   // EvaluateTarget measures in 3D
                             if (dist > range) continue;
                             float ang = atan2f(dy, dx) - facing;
                             while (ang > 3.14159265f) ang -= 6.2831853f;
@@ -3200,6 +3201,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                 if (fabsf(ang) < bestA && visible(i)) { bestA = fabsf(ang); best = (int)i; }
                                 continue;
                             }
+                            if (fabsf(ang) >= 140.0f * 0.008726646f) continue;   // FindWeaponLockOnTarget: inside PLAYER_MAX_TARGET_VIEW_ANGLE (140 deg) around the facing
                             // CPlayerPed::EvaluateTarget: priority 0.1 * (1 - angle / 140) / dist^(1/4)
                             float mult = 1.0f - fabsf(ang) * 57.29578f / 140.0f;
                             if (dist > 1.0f) mult /= sqrtf(sqrtf(dist));
@@ -3210,7 +3212,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     };
                     static bool s_wasLock = false, s_prevL = false, s_prevR = false;
                     if (!lockMode) g_lockPed = -1;
-                    else if (!s_wasLock) g_lockPed = pick(g_cj.Heading(), -1, 0);
+                    else if (!s_wasLock) {
+                        // the facing is the walk stick direction past 60 / 128, else the ped's heading
+                        float facing = g_cj.Heading();
+                        if (g_pad.Connected() && (fabsf(g_pad.LX()) > 60.0f / 128.0f || fabsf(g_pad.LY()) > 60.0f / 128.0f))
+                            facing = atan2f(sinf(yaw) * g_pad.LY() - cosf(yaw) * g_pad.LX(), cosf(yaw) * g_pad.LY() + sinf(yaw) * g_pad.LX());
+                        g_lockPed = pick(facing, -1, 0);
+                        Log("LOCKON pick facing %.1f deg -> ped %d", facing * 57.29578f, g_lockPed);
+                    }
                     else if (g_lockPed >= 0) {
                         const float dx = g_peds.X(g_lockPed) - playerX, dy = g_peds.Y(g_lockPed) - playerY;
                         if ((size_t)g_lockPed >= g_peds.Count() || !g_peds.Alive(g_lockPed) || sqrtf(dx * dx + dy * dy) > range) g_lockPed = -1;
