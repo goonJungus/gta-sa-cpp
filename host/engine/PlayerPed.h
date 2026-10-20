@@ -143,6 +143,7 @@ public:
     bool GunCanAim() const { return m_gun >= 0 && (m_guns[m_gun].flags & 1); }
     int GunCount() const;                 // guns carried (the wheel lists these plus the fists)
     const char* GunNameAt(int i) const;
+    int GunSlotAt(int i) const;           // weapon.dat weapon slot (the weapon wheel categories)
     IDirect3DTexture9* GunIconAt(int i) const;
     int GunClipAt(int i) const;           // rounds in the clip
     int GunTotalAt(int i) const;          // rounds left outside the clip

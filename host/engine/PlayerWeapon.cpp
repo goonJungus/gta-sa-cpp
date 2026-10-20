@@ -458,6 +458,7 @@ int PlayerPed::GunCount() const {
     while (n > 0 && m_guns[n - 1].type == 19) n--;   // the rocket model is not a weapon
     return n;
 }
+int PlayerPed::GunSlotAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].slot : 0; }
 const char* PlayerPed::GunNameAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].name.c_str() : "Fists"; }
 IDirect3DTexture9* PlayerPed::GunIconAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].icon : nullptr; }
 int PlayerPed::GunClipAt(int i) const { return i >= 0 && i < (int)m_guns.size() ? m_guns[i].ammo : 0; }

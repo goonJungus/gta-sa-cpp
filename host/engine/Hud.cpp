@@ -533,17 +533,23 @@ void Hud::DrawRadar(Fe2d& g, const HudData& d, float cx, float cy, float hw, flo
 
 // Weapon wheel: a ring of slots around the centre (fists at the top, then clockwise), the
 // highlighted slot lit white, its name and ammo in the middle.
+// GTA V style wheel: eight fixed categories round the ring (melee, handguns, SMGs, shotguns, assault
+// rifles, snipers, heavy, thrown and misc). Each shows the weapon picked in it; the highlighted
+// category lists its weapons in a strip under the wheel.
 void Hud::DrawWheel(Fe2d& g, const HudData& d, float sw, float sh) {
+    static const char* const kCatName[8] = {"MELEE", "HANDGUNS", "SMGS", "SHOTGUNS", "ASSAULT", "SNIPER", "HEAVY", "THROWN"};
     const int n = (int)d.wheelItems.size();
     if (n <= 0) return;
     const float ref = sh / 1080.0f, cx = sw * 0.5f, cy = sh * 0.5f;
     const float r0 = 150.0f * ref, r1 = 300.0f * ref;
     g.DrawRect(0, 0, sw, sh, 0x78000000);
-    const float span = 2.0f * kPi / n, gap = 0.035f;
-    for (int i = 0; i < n; i++) {
-        const bool sel = i == d.wheelSel;
+    const float span = 2.0f * kPi / 8.0f, gap = 0.035f;
+    for (int i = 0; i < 8; i++) {
+        const bool sel = i == d.wheelCat;
+        const int pick = d.wheelPick[i];
+        const bool has = pick >= 0 && pick < n;
         const float a0 = -kPi / 2 + span * (i - 0.5f) + gap, a1 = -kPi / 2 + span * (i + 0.5f) - gap;
-        const uint32_t col = sel ? 0xF0FFFFFF : 0x99000000;
+        const uint32_t col = sel ? 0xF0FFFFFF : (has ? 0x99000000 : 0x40000000);
         const int seg = 14;
         std::vector<Fe2d::Vert> v;
         const float ro = sel ? r1 + 10.0f * ref : r1;
@@ -557,21 +563,47 @@ void Hud::DrawWheel(Fe2d& g, const HudData& d, float sw, float sh) {
             v.push_back(p10); v.push_back(p01); v.push_back(p11);
         }
         g.DrawTris(nullptr, v.data(), (int)v.size());
-        const WheelItem& it = d.wheelItems[i];
         const float am = (a0 + a1) * 0.5f, rm = (r0 + r1) * 0.5f + (sel ? 5.0f * ref : 0.0f);
-        IDirect3DTexture9* icon = it.icon ? it.icon : Sprite("fist");
-        const float iw = (sel ? 118.0f : 100.0f) * ref, ih = iw * 0.66f;
         const float ix = cx + std::cos(am) * rm, iy = cy + std::sin(am) * rm;
-        if (icon) g.DrawTex(icon, ix - iw / 2, iy - ih / 2, ix + iw / 2, iy + ih / 2, sel ? 0xFF000000 : 0xFFFFFFFF);
-        else Text(g, FeFont::SUBTITLES, ix, iy - 8.0f * ref, it.name, 0.4f, 0.9f, sel ? 0xFF000000 : 0xFFFFFFFF, FeFont::CENTER, 0);
+        if (has) {
+            const WheelItem& it = d.wheelItems[pick];
+            IDirect3DTexture9* icon = it.icon ? it.icon : Sprite("fist");
+            const float iw = (sel ? 118.0f : 100.0f) * ref, ih = iw * 0.66f;
+            if (icon) g.DrawTex(icon, ix - iw / 2, iy - ih / 2, ix + iw / 2, iy + ih / 2, sel ? 0xFF000000 : 0xFFFFFFFF);
+            else Text(g, FeFont::SUBTITLES, ix, iy - 8.0f * ref, it.name, 0.4f, 0.9f, sel ? 0xFF000000 : 0xFFFFFFFF, FeFont::CENTER, 0);
+        } else {
+            Text(g, FeFont::SUBTITLES, ix, iy - 6.0f * ref, kCatName[i], 0.3f, 0.7f, sel ? 0xFF404040 : 0x70FFFFFF, FeFont::CENTER, 0);
+        }
     }
-    const WheelItem& cur = d.wheelItems[std::max(0, std::min(n - 1, d.wheelSel))];
-    Text(g, FeFont::PRICEDOWN, cx, cy - 54.0f * ref, Upper(cur.name), 0.75f, 1.5f, 0xFFFFFFFF, FeFont::CENTER, 2);
-    if (!cur.melee) {
-        char b[48];
-        if (cur.clipSize > 1) std::snprintf(b, sizeof(b), "%d / %d", cur.clip, cur.total);
-        else std::snprintf(b, sizeof(b), "%d", cur.clip + cur.total);
-        Text(g, FeFont::SUBTITLES, cx, cy + 6.0f * ref, b, 0.55f, 1.2f, 0xFFC8D4E0, FeFont::CENTER, 1);
+    // the highlighted weapon: name and ammo in the middle
+    const int cur = d.wheelSel >= 0 && d.wheelSel < n ? d.wheelSel : -1;
+    if (cur >= 0) {
+        const WheelItem& c = d.wheelItems[cur];
+        Text(g, FeFont::PRICEDOWN, cx, cy - 54.0f * ref, Upper(c.name), 0.75f, 1.5f, 0xFFFFFFFF, FeFont::CENTER, 2);
+        if (!c.melee) {
+            char b[48];
+            if (c.clipSize > 1) std::snprintf(b, sizeof(b), "%d / %d", c.clip, c.total);
+            else std::snprintf(b, sizeof(b), "%d", c.clip + c.total);
+            Text(g, FeFont::SUBTITLES, cx, cy + 6.0f * ref, b, 0.55f, 1.2f, 0xFFC8D4E0, FeFont::CENTER, 1);
+        }
+    }
+    Text(g, FeFont::SUBTITLES, cx, cy + 34.0f * ref, kCatName[std::max(0, std::min(7, d.wheelCat))], 0.35f, 0.8f, 0xFFA0A8B0, FeFont::CENTER, 1);
+    // the strip of weapons in the highlighted category (scroll to cycle)
+    std::vector<int> inCat;
+    for (int i = 0; i < n; i++) if (d.wheelItems[i].cat == d.wheelCat) inCat.push_back(i);
+    if (inCat.size() > 1) {
+        const float iw = 84.0f * ref, ih = iw * 0.66f, pad = 10.0f * ref;
+        const float total = (float)inCat.size() * (iw + pad) - pad;
+        float x = cx - total * 0.5f;
+        const float y = cy + r1 + 34.0f * ref;
+        for (int i : inCat) {
+            const bool on = i == d.wheelSel;
+            g.DrawRect(x - 4.0f * ref, y - 4.0f * ref, x + iw + 4.0f * ref, y + ih + 4.0f * ref, on ? 0xF0FFFFFF : 0x99000000);
+            const WheelItem& it = d.wheelItems[i];
+            IDirect3DTexture9* icon = it.icon ? it.icon : Sprite("fist");
+            if (icon) g.DrawTex(icon, x, y, x + iw, y + ih, on ? 0xFF000000 : 0xFFFFFFFF);
+            x += iw + pad;
+        }
     }
 }
 
