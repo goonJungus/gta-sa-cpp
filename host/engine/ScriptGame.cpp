@@ -444,6 +444,12 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0B1C: c.Out(0, (int32_t)((uint32_t)c.I(0) >> (c.I(1) & 31))); return true;
     case 0x0B1D: c.Out(0, (int32_t)((uint32_t)c.I(0) << (c.I(1) & 31))); return true;
     case 0x06D1: c.OutStr(0, c.S(1, 16), 16); return true;                                    // SET_VAR_TEXT_LABEL16
+    case 0x0844: case 0x0845: c.result = c.S(0).empty(); return true;                          // IS_(L)VAR_TEXT_LABEL_EMPTY
+    case 0x0846: case 0x0847: c.result = c.S(0, 16).empty(); return true;                     // IS_(L)VAR_TEXT_LABEL16_EMPTY
+    case 0x05AD: case 0x05AE: c.result = c.S(0) == c.S(1); return true;                       // IS_(L)VAR_TEXT_LABEL_EQUAL_TO_TEXT_LABEL
+    case 0x08F9: case 0x08FA: c.result = c.S(0, 16) == c.S(1); return true;                   // IS_(L)VAR_TEXT_LABEL16_EQUAL_TO_TEXT_LABEL
+    case 0x01C0: c.Out(1, wantedLevel ? wantedLevel() : 0); return true;                      // STORE_WANTED_LEVEL
+    case 0x07B0: c.Out(0, -1); return true;                                                   // GET_LOADED_SHOP: none
     // ---- stats ----------------------------------------------------------------------------
     case 0x0629: Stats::Set(c.I(0), (float)c.I(1)); return true;                             // SET_INT_STAT
     case 0x062A: Stats::Set(c.I(0), c.F(1)); return true;                                    // SET_FLOAT_STAT
@@ -468,10 +474,10 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     }
     case 0x09E8: c.Out(1, (c.I(0) == kPlayer && getArea) ? getArea() : 0); return true;   // GET_CHAR_AREA_VISIBLE
     case 0x077E: c.Out(0, getArea ? getArea() : 0); return true;                           // GET_AREA_VISIBLE
-    case 0x04BB: if (setArea) setArea(c.I(0)); return true;                                 // SET_AREA_VISIBLE
+    case 0x04BB: fprintf(stderr, "[SCMGAME] SET_AREA_VISIBLE %d by %s pc 0x%X\n", c.I(0), c.t.name.c_str(), c.t.pc); if (setArea) setArea(c.I(0)); return true;                                 // SET_AREA_VISIBLE
     case 0x0860: if (c.I(0) == kPlayer && setArea) setArea(c.I(1)); return true;            // SET_CHAR_AREA_VISIBLE
-    case 0x07FB: if (enex) enex->SetEnabledByName(c.S(0).c_str(), c.I(1) != 0); return true;   // SWITCH_ENTRY_EXIT
-    case 0x08E7: if (enex) enex->SetAllDisabled(c.I(0) != 0); return true;                  // DISABLE_ALL_ENTRY_EXITS
+    case 0x07FB: if (getenv("GTA_SCMGAME")) fprintf(stderr, "[SCMGAME] SWITCH_ENTRY_EXIT %s %d by %s\n", c.S(0).c_str(), c.I(1), c.t.name.c_str()); if (enex) enex->SetEnabledByName(c.S(0).c_str(), c.I(1) != 0); return true;   // SWITCH_ENTRY_EXIT
+    case 0x08E7: if (getenv("GTA_SCMGAME")) fprintf(stderr, "[SCMGAME] DISABLE_ALL_ENTRY_EXITS %d by %s\n", c.I(0), c.t.name.c_str()); if (enex) enex->SetAllDisabled(c.I(0) != 0); return true;                  // DISABLE_ALL_ENTRY_EXITS
     case 0x094B: c.OutStr(1, enex ? enex->LastName() : ""); return true;                    // GET_NAME_OF_ENTRY_EXIT_CHAR_USED
     case 0x08AD: return true;                                                                // SET_CHAR_HAS_USED_ENTRY_EXIT
     case 0x03EE: c.result = true; return true;  // CAN_PLAYER_START_MISSION
