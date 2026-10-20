@@ -448,7 +448,12 @@ void Vehicles::Draw(D3DRenderer& r) {
         const VehicleModel& vm = it->second;
         // Heading 0 faces +y like the ped; the model's nose is +y too.
         const float cs = std::cos(c.heading), sn = std::sin(c.heading);
-        const float body[16] = {cs, sn, 0, 0, -sn, cs, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
+        float body[16] = {cs, sn, 0, 0, -sn, cs, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
+        if (c.hasRot) {   // CMatrix rows: right, forward, up
+            const float* q = c.rot;
+            const float m[16] = {q[0], q[1], q[2], 0, q[3], q[4], q[5], 0, q[6], q[7], q[8], 0, c.x, c.y, c.z, 1};
+            std::memcpy(body, m, sizeof(m));
+        }
         D3DMATRIX out;
         for (const VehicleModel::PaintPart& pp : const_cast<VehicleModel&>(vm).paintParts) {   // this car's paint
             const int idx = c.paint[pp.slot];

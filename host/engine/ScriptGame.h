@@ -13,6 +13,8 @@
 #include <memory>
 
 #include "Cutscene.h"
+#include "ImgLoader.h"
+#include "Vehicle.h"
 #include "Hud.h"
 #include "Script.h"
 
@@ -80,6 +82,13 @@ public:
     bool Handle(ScmMachine::Call& c);
     bool HandleMore(ScmMachine::Call& c);       // language extensions, queries, objects, areas
     void Update(float dt);
+    // CVehicleRecording: the recorded car paths of carrec.img.
+    bool RecordingLoaded(int number);
+    bool IsPlaybackGoingOn(int car) const;
+    int PlaybackSlot(int car) const;
+    void StartPlayback(int car, int number, bool looped, bool useAi);
+    void StopPlayback(int car, bool skipToEnd);
+    void PlaybackStep(float dt);
     // The overlay for this frame; call after Update. Clears the per frame text queue.
     ScriptOverlay Overlay();
 
@@ -92,6 +101,13 @@ public:
     const Cutscene& CutscenePlayer() const { return m_cutscene; }
 
 private:
+    struct Frame { uint32_t time; int16_t vel[3]; int8_t right[3], top[3]; int8_t steer, gas, brake, handbrake; float pos[3]; };
+    struct Playback { bool on = false, looped = false, paused = false, ai = false; int car = 0, number = 0; size_t index = 0; float time = 0, speed = 1.0f; };
+    ImgLoader m_carrecImg;
+    bool m_carrecOpen = false;
+    std::map<int, std::vector<Frame>> m_recs;                    // loaded recordings by number
+    Playback m_play[16];
+    void RestoreFrame(VehicleInstance& v, const Frame& f, bool pause);
     struct CutState { std::string name; int state = 0; float t = 0; float dur = 0; bool skipped = false; };   // 0 none, 1 loaded, 2 running, 3 finished
     Cutscene m_cutscene;
     CutState m_cut;

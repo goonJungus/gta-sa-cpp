@@ -172,8 +172,10 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
         return true;
     case 0x041D: cam.nearClip = c.F(0); return true;   // SET_NEAR_CLIP
     // ---- models and streaming: everything is resident ---------------------------------
-    case 0x0247: case 0x0249: case 0x07C0: case 0x04E4: case 0x03CB: case 0x0A0B: case 0x0776: case 0x0395: return true;   // REQUEST_MODEL, MARK_..., REQUEST_CAR_RECORDING, REQUEST_COLLISION, LOAD_SCENE, LOAD_SCENE_IN_DIRECTION, REQUEST_IPL, CLEAR_AREA
-    case 0x0248: case 0x07C1: case 0x023D: c.result = true; return true;   // HAS_MODEL_LOADED, HAS_CAR_RECORDING_BEEN_LOADED, HAS_SPECIAL_CHARACTER_LOADED
+    case 0x07C0: RecordingLoaded(c.I(0)); return true;   // REQUEST_CAR_RECORDING
+    case 0x0247: case 0x0249: case 0x04E4: case 0x03CB: case 0x0A0B: case 0x0776: case 0x0395: return true;   // REQUEST_MODEL, MARK_..., REQUEST_CAR_RECORDING, REQUEST_COLLISION, LOAD_SCENE, LOAD_SCENE_IN_DIRECTION, REQUEST_IPL, CLEAR_AREA
+    case 0x07C1: c.result = RecordingLoaded(c.I(0)); return true;   // HAS_CAR_RECORDING_BEEN_LOADED
+    case 0x0248: case 0x023D: c.result = true; return true;   // HAS_MODEL_LOADED, HAS_SPECIAL_CHARACTER_LOADED
     case 0x023C: {   // LOAD_SPECIAL_CHARACTER(slot, name)
         const size_t slot = (size_t)std::max(1, c.I(0));
         if (m_special.size() < slot) m_special.resize(slot);
@@ -348,8 +350,18 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x0119: { VehicleInstance* v = car(c.I(0)); c.result = !v || v->removed || v->wrecked || v->health <= 0.0f; return true; }   // IS_CAR_DEAD
     case 0x0175: if (VehicleInstance* v = carAlive(c.I(0))) v->heading = c.F(1) * 3.14159265f / 180.0f; return true;   // SET_CAR_HEADING
     case 0x01C3: case 0x099A: case 0x067F: return true;   // MARK_CAR_AS_NO_LONGER_NEEDED, SET_CAR_COLLISION, FORCE_CAR_LIGHTS
-    case 0x060E: c.result = false; return true;           // IS_PLAYBACK_GOING_ON_FOR_CAR
-    case 0x05EB: return true;                              // START_PLAYBACK_RECORDED_CAR
+    case 0x060E: c.result = IsPlaybackGoingOn(c.I(0)); return true;           // IS_PLAYBACK_GOING_ON_FOR_CAR
+    case 0x05EB: StartPlayback(c.I(0), c.I(1), false, false); return true;   // START_PLAYBACK_RECORDED_CAR
+    case 0x085E: StartPlayback(c.I(0), c.I(1), true, false); return true;    // START_PLAYBACK_RECORDED_CAR_LOOPED
+    case 0x0705: StartPlayback(c.I(0), c.I(1), false, true); return true;    // START_PLAYBACK_RECORDED_CAR_USING_AI
+    case 0x085F: StartPlayback(c.I(0), c.I(1), true, true); return true;     // START_PLAYBACK_RECORDED_CAR_USING_AI_LOOPED
+    case 0x05EC: StopPlayback(c.I(0), false); return true;                   // STOP_PLAYBACK_RECORDED_CAR
+    case 0x06C5: StopPlayback(c.I(0), true); return true;                    // SKIP_TO_END_AND_STOP_PLAYBACK_RECORDED_CAR
+    case 0x05ED: case 0x05EE: { const int s = PlaybackSlot(c.I(0)); if (s >= 0) m_play[s].paused = c.op == 0x05ED; return true; }   // PAUSE / UNPAUSE_PLAYBACK_RECORDED_CAR
+    case 0x090A: { const int s = PlaybackSlot(c.I(0)); c.result = s >= 0 && m_play[s].paused; return true; }   // IS_PLAYBACK_FOR_CAR_PAUSED
+    case 0x06FD: { const int s = PlaybackSlot(c.I(0)); if (s >= 0) m_play[s].speed = c.F(1); return true; }   // SET_PLAYBACK_SPEED
+    case 0x099B: { const int s = PlaybackSlot(c.I(0)); if (s >= 0) m_play[s].ai = true; return true; }         // CHANGE_PLAYBACK_TO_USE_AI
+    case 0x0873: return true;                                                // REMOVE_CAR_RECORDING
     case 0x0186: {   // ADD_BLIP_FOR_CAR(car) -> blip
         VehicleInstance* v = carAlive(c.I(0));
         c.Out(1, v && scm && scm->host.addBlip ? scm->host.addBlip(v->x, v->y, v->z, 0, false) : 0);
@@ -933,8 +945,8 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x03C0: c.Out(1, c.I(0) == kPlayer && playerCar && playerCar() >= 0 ? playerCar() + 1 : -1); return true;   // STORE_CAR_CHAR_IS_IN_NO_SAVE(char) -> car
     case 0x04FC: for (int i = 1; i <= 6; i++) c.Out(i, 0); return true;   // GET_WHEELIE_STATS
     // tasks, sequences, freezes and requests with nothing to act on yet
-    case 0x0350: case 0x04EB: case 0x04ED: case 0x0555: case 0x0574: case 0x0575: case 0x05C0: case 0x05EC:
-    case 0x0615: case 0x0616: case 0x0618: case 0x061B: case 0x0647: case 0x0873:
+    case 0x0350: case 0x04EB: case 0x04ED: case 0x0555: case 0x0574: case 0x0575: case 0x05C0:
+    case 0x0615: case 0x0616: case 0x0618: case 0x061B: case 0x0647:
         return true;
     case 0x060A: c.Out(1, 1); return true;   // LOAD_CHAR_DECISION_MAKER(type) -> handle
     // flags and settings with nothing to act on yet
@@ -1064,7 +1076,109 @@ void ScriptGame::MenuDraw(const Menu& m, bool current) {
     }
 }
 
+// ---- CVehicleRecording ---------------------------------------------------------------------
+bool ScriptGame::RecordingLoaded(int number) {
+    if (m_recs.count(number)) return true;
+    if (!m_carrecOpen) { m_carrecOpen = m_carrecImg.Open(gameDir + "/data/Paths/carrec.img") || m_carrecImg.Open(gameDir + "/data/paths/carrec.img"); if (!m_carrecOpen) return false; }
+    char name[32];
+    std::snprintf(name, sizeof(name), "carrec%d.rrr", number);
+    std::vector<uint8_t> raw = m_carrecImg.Extract(name);
+    if (raw.empty()) { std::fprintf(stderr, "[CARREC] %s not in carrec.img\n", name); m_recs[number]; return true; }
+    size_t n = raw.size() / 32;
+    std::vector<Frame> fr(n);
+    std::memcpy(fr.data(), raw.data(), n * 32);
+    for (size_t i = 1; i < n; i++) if (fr[i].time == 0) { n = i; break; }   // CVehicleRecording::Load: the first zero time past frame 0 ends the data
+    fr.resize(n);
+    std::fprintf(stderr, "[CARREC] %s: %zu frames, %u ms\n", name, n, n ? fr[n - 1].time : 0u);
+    m_recs[number] = std::move(fr);
+    return true;
+}
+
+int ScriptGame::PlaybackSlot(int car) const {
+    for (int i = 0; i < 16; i++) if (m_play[i].on && m_play[i].car == car) return i;
+    return -1;
+}
+
+bool ScriptGame::IsPlaybackGoingOn(int car) const { return PlaybackSlot(car) >= 0; }
+
+// CVehicleRecording::RestoreInfoForCar / RestoreInfoForMatrix
+void ScriptGame::RestoreFrame(VehicleInstance& v, const Frame& f, bool pause) {
+    float r[3], t[3];
+    for (int k = 0; k < 3; k++) { r[k] = f.right[k] * 0.007874016f; t[k] = f.top[k] * 0.007874016f; }
+    v.rot[0] = r[0]; v.rot[1] = r[1]; v.rot[2] = r[2];
+    v.rot[3] = t[0]; v.rot[4] = t[1]; v.rot[5] = t[2];
+    v.rot[6] = r[1] * t[2] - r[2] * t[1]; v.rot[7] = r[2] * t[0] - r[0] * t[2]; v.rot[8] = r[0] * t[1] - r[1] * t[0];
+    v.hasRot = true;
+    v.x = f.pos[0]; v.y = f.pos[1]; v.z = f.pos[2];
+    v.vx = pause ? 0.0f : f.vel[0] * 6.103702e-05f * 50.0f;   // per-tick units to m/s
+    v.vy = pause ? 0.0f : f.vel[1] * 6.103702e-05f * 50.0f;
+    v.heading = std::atan2(-t[0], t[1]);
+    v.speed = pause ? 0.0f : std::sqrt(v.vx * v.vx + v.vy * v.vy);
+    v.steer = f.steer * 0.05f;
+}
+
+void ScriptGame::StartPlayback(int car, int number, bool looped, bool useAi) {
+    if (!cars || car < 1 || (size_t)car > cars->Count()) return;
+    RecordingLoaded(number);
+    int s = 0;
+    while (s < 16 && m_play[s].on) s++;
+    if (s == 16) s = 15;
+    Playback& p = m_play[s];
+    p = Playback{};
+    p.on = true; p.looped = looped; p.ai = useAi; p.car = car; p.number = number;
+    std::fprintf(stderr, "[CARREC] start car %d recording %d slot %d%s%s\n", car, number, s, looped ? " looped" : "", useAi ? " ai" : "");
+}
+
+void ScriptGame::StopPlayback(int car, bool skipToEnd) {
+    const int s = PlaybackSlot(car);
+    if (s < 0) return;
+    Playback& p = m_play[s];
+    VehicleInstance* v = cars && car >= 1 && (size_t)car <= cars->Count() ? &cars->Car((size_t)car - 1) : nullptr;
+    const std::vector<Frame>& fr = m_recs[p.number];
+    if (v && skipToEnd && !fr.empty()) RestoreFrame(*v, fr.back(), false);
+    else if (v) v->vx = v->vy = v->speed = 0.0f;
+    if (v) v->hasRot = false;
+    p.on = false;
+    std::fprintf(stderr, "[CARREC] stop car %d recording %d%s\n", car, p.number, skipToEnd ? " (skipped to end)" : "");
+}
+
+// CVehicleRecording::SaveOrRetrieveDataForThisFrame
+void ScriptGame::PlaybackStep(float dt) {
+    for (int s = 0; s < 16; s++) {
+        Playback& p = m_play[s];
+        if (!p.on) continue;
+        VehicleInstance* v = cars && p.car >= 1 && (size_t)p.car <= cars->Count() ? &cars->Car((size_t)p.car - 1) : nullptr;
+        if (!v || v->removed || v->wrecked) { p.on = false; if (v) v->hasRot = false; continue; }
+        const std::vector<Frame>& fr = m_recs[p.number];
+        if (fr.size() < 2) { StopPlayback(p.car, false); continue; }
+        if (!p.paused) p.time += dt * 1000.0f * p.speed;
+        size_t i = p.index;
+        while (i + 1 < fr.size() && (float)fr[i + 1].time < p.time) i++;
+        while (i > 0 && p.time < (float)fr[i].time) i--;
+        p.index = i;
+        if (i + 1 < fr.size()) {
+            const Frame& a = fr[i];
+            const Frame& b = fr[i + 1];
+            const float k = ((float)p.time - (float)a.time) / (float)(b.time - a.time);
+            RestoreFrame(*v, a, false);
+            // InterpolateInfoForCar: matrix and velocity blended by k
+            float r[9];
+            for (int j = 0; j < 3; j++) { r[j] = b.right[j] * 0.007874016f; r[3 + j] = b.top[j] * 0.007874016f; }
+            r[6] = r[1] * r[5] - r[2] * r[4]; r[7] = r[2] * r[3] - r[0] * r[5]; r[8] = r[0] * r[4] - r[1] * r[3];
+            for (int j = 0; j < 9; j++) v->rot[j] = v->rot[j] * (1.0f - k) + r[j] * k;
+            v->x = a.pos[0] * (1.0f - k) + b.pos[0] * k; v->y = a.pos[1] * (1.0f - k) + b.pos[1] * k; v->z = a.pos[2] * (1.0f - k) + b.pos[2] * k;
+            v->vx = (a.vel[0] * (1.0f - k) + b.vel[0] * k) * 6.103702e-05f * 50.0f;
+            v->vy = (a.vel[1] * (1.0f - k) + b.vel[1] * k) * 6.103702e-05f * 50.0f;
+            v->heading = std::atan2(-v->rot[3], v->rot[4]);
+            v->speed = std::sqrt(v->vx * v->vx + v->vy * v->vy);
+            v->wheelSpin += v->speed * dt / 0.35f;
+        } else if (p.looped) { p.time = 0; p.index = 0; }
+        else StopPlayback(p.car, false);
+    }
+}
+
 void ScriptGame::Update(float dt) {
+    PlaybackStep(dt);
     MenuUpdate();
     for (const auto& f : m_frozenCars) {   // FREEZE_CAR_POSITION: held where it was frozen
         if (!cars || f.first < 1 || (size_t)f.first > cars->Count()) continue;
