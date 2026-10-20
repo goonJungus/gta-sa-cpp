@@ -160,6 +160,7 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             h.brakeDecel = (float)std::atof(t[17].c_str());
             h.brakeBias = (float)std::atof(t[18].c_str());
             h.steeringLock = (float)std::atof(t[20].c_str());
+            if (t.size() > 31) h.low = (std::strtoul(t[31].c_str(), nullptr, 16) & 0x4u) != 0;
             m_handling[h.name] = h;
         }
     }
@@ -273,6 +274,11 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
                 vm.wheelFound[k] = true;
                 for (int c = 0; c < 3; c++) vm.wheelPos[k][c] = glob[i][12 + (size_t)c];
             }
+    for (size_t i = 0; i < w.frames.size(); i++)
+        if (w.frames[i].name == "ped_frontseat") {   // the dummy sits on the passenger side; the driver mirrors it
+            vm.seatFound = true;
+            vm.seatPos[0] = -std::fabs(glob[i][12]); vm.seatPos[1] = glob[i][13]; vm.seatPos[2] = glob[i][14];
+        }
     std::fprintf(stderr, "[VEH] %s frames:", info->dff.c_str());
     for (const DffFrame& f : w.frames) std::fprintf(stderr, " %s", f.name.c_str());
     std::fprintf(stderr, "\n");
@@ -338,6 +344,23 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
     }
     m_cars.push_back(c);
     return (int)m_cars.size() - 1;
+}
+
+bool Vehicles::SeatWorld(size_t i, float out[3], bool* low) const {
+    if (i >= m_cars.size()) return false;
+    const VehicleInstance& c = m_cars[i];
+    auto it = m_models.find(c.model);
+    if (it == m_models.end()) return false;
+    const VehicleModel& vm = it->second;
+    const float cs = std::cos(c.heading), sn = std::sin(c.heading);
+    out[0] = c.x + vm.seatPos[0] * cs - vm.seatPos[1] * sn;
+    out[1] = c.y + vm.seatPos[0] * sn + vm.seatPos[1] * cs;
+    out[2] = c.z + vm.seatPos[2];
+    if (low) {
+        const HandlingData* h = Handling(vm.info.handling);
+        *low = h && h->low;
+    }
+    return true;
 }
 
 void Vehicles::Draw(D3DRenderer& r) {

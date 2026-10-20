@@ -28,6 +28,7 @@ struct HandlingData {
     char driveType = 'R', engineType = 'P';
     float brakeDecel = 8.0f, brakeBias = 0.5f;
     float steeringLock = 30.0f;       // degrees
+    bool low = false;                 // modelFlags IS_LOW (0x4): the low sit pose
 };
 
 struct VehicleInfo {
@@ -54,6 +55,8 @@ struct VehicleModel {
     float wheelRadius = 0.35f;        // from the wheel mesh
     float rideHeight = 0.7f;          // body origin above the ground when standing on the wheels
     float wheelBase = 2.8f;           // front to rear axle
+    float seatPos[3] = {-0.45f, 0.1f, 0.35f};   // ped_frontseat dummy in car space (driver side)
+    bool seatFound = false;
 };
 
 struct VehicleInstance {
@@ -101,6 +104,8 @@ public:
     // Advance fire and smoke; calls onSmoke(pos, dark), onFire(pos) and onExplode(pos).
     void UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire, const std::function<void(const float*)>& onExplode);
     int Nearest(float x, float y, float range) const;
+    // The driver's seat (ped_frontseat) of car i in the world, and whether the car sits low.
+    bool SeatWorld(size_t i, float out[3], bool* low = nullptr) const;
 
 private:
     VehicleModel* Model(D3DRenderer& r, int id);
