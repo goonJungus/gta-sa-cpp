@@ -39,6 +39,7 @@ struct WheelItem {
     IDirect3DTexture9* icon = nullptr;
     int clip = 0, total = 0, clipSize = 0;
     bool melee = false;
+    int cat = 0;                   // wheel category 0..7 (see kWheelCats)
 };
 
 // A radar blip (CRadar::ms_RadarTrace): a sprite blip from the scripts, drawn on the radar (a
@@ -94,7 +95,9 @@ struct HudData {
     std::vector<HudLabel> labels;
     bool wheel = false;            // weapon wheel up
     std::vector<WheelItem> wheelItems;
-    int wheelSel = 0;              // highlighted slot
+    int wheelSel = 0;              // highlighted item (index into wheelItems)
+    int wheelCat = 0;              // highlighted category
+    int wheelPick[8] = {-1, -1, -1, -1, -1, -1, -1, -1};   // the weapon shown in each category (item index, -1 empty)
     std::vector<RadarBlip> blips;  // script blips
     bool hasWaypoint = false;      // map waypoint blip
     float wpX = 0, wpY = 0;

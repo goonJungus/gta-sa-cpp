@@ -149,6 +149,13 @@ static bool g_freeCam = false;     // dev free camera (` key): CJ stands still, 
 static float g_fcPos[3] = {0, 0, 0};
 static float g_wheelX = 0.0f, g_wheelY = 0.0f;   // pick vector on the wheel (screen axes, length 0..1)
 static int g_wheelSel = 0;         // highlighted slot (0 = fists)
+static int g_wheelCat = 0;         // highlighted GTA V style category 0..7
+static int g_wheelPick[8];         // the item shown in each category (-1 empty)
+// weapon.dat slot -> wheel category: melee, handguns, SMGs, shotguns, assault, sniper, heavy, thrown and misc
+static int WheelCatOfSlot(int slot) {
+    switch (slot) { case 0: case 1: case 10: return 0; case 2: return 1; case 4: return 2; case 3: return 3; case 5: return 4; case 6: return 5; case 7: return 6; default: return 7; }
+}
+static int WheelItemCat(int item) { return item <= 0 ? 0 : WheelCatOfSlot(g_cj.GunSlotAt(item - 1)); }
 // A controller drives the same virtual keys the keyboard does: A sprint, X jump, B crouch, Y exit / use,
 // RB reload, LB weapon wheel, triggers aim (left) and fire (right).
 static bool PadKey(int vk) {
@@ -3143,10 +3150,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const bool eKey = (GameKey('E') & 0x8000) != 0, qKey = (GameKey('Q') & 0x8000) != 0;
                         if (eKey && !s_prevE) g_cj.NextGun();
                         if (qKey && !s_prevQ) g_cj.PrevGun();
-                        for (; g_wheelSteps < 0; g_wheelSteps++) g_cj.NextGun();
-                        for (; g_wheelSteps > 0; g_wheelSteps--) g_cj.PrevGun();
+                        if (!g_wheelOpen) {
+                            for (; g_wheelSteps < 0; g_wheelSteps++) g_cj.NextGun();
+                            for (; g_wheelSteps > 0; g_wheelSteps--) g_cj.PrevGun();
+                        }
                         s_prevE = eKey; s_prevQ = qKey;
                     }
+                    const int s_wheelNotch = g_wheelOpen ? g_wheelSteps : 0;   // the open wheel scrolls inside a category
                     g_wheelSteps = 0;   // unused notches never pile up
                     // Q: a tap cycles the guns, holding it brings up the weapon wheel.
                     static float s_qHeld = 0.0f;
@@ -3156,10 +3166,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_wheelOpen = true;
                             g_wheelX = g_wheelY = 0.0f;
                             g_wheelSel = g_cj.WeaponIndex() + 1;
+                            const int nItems = g_cj.GunCount() + 1;
+                            for (int c = 0; c < 8; c++) g_wheelPick[c] = -1;
+                            for (int i = nItems - 1; i >= 0; i--) g_wheelPick[WheelItemCat(i)] = i;   // first weapon of each category
+                            g_wheelCat = WheelItemCat(g_wheelSel);
+                            g_wheelPick[g_wheelCat] = g_wheelSel;
                         }
                     } else {
                         if (g_wheelOpen) {
-                            g_cj.SelectGun(g_wheelSel - 1);
+                            if (g_wheelSel >= 0) g_cj.SelectGun(g_wheelSel - 1);
                             g_wheelOpen = false;
                         } else if (s_prevNext && s_qHeld <= 0.18f) {
                             g_cj.NextGun();
@@ -3169,12 +3184,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (g_wheelOpen) {
                         if (g_pad.Connected() && (g_pad.RX() != 0.0f || g_pad.RY() != 0.0f)) { g_wheelX = g_pad.RX(); g_wheelY = -g_pad.RY(); }
                         const float wl = sqrtf(g_wheelX * g_wheelX + g_wheelY * g_wheelY);
-                        if (wl > 0.3f) {
-                            const int n = g_cj.GunCount() + 1;
+                        const int n = g_cj.GunCount() + 1;
+                        if (wl > 0.3f) {   // the stick / mouse direction picks the category
                             float ang = atan2f(g_wheelY, g_wheelX) + 1.5707963f;   // 0 = up, clockwise
                             while (ang < 0.0f) ang += 6.2831853f;
-                            g_wheelSel = (int)(ang / 6.2831853f * (float)n + 0.5f) % n;
+                            g_wheelCat = (int)(ang / 6.2831853f * 8.0f + 0.5f) % 8;
                         }
+                        if (s_wheelNotch) {   // scroll cycles the weapons inside the category
+                            std::vector<int> inCat;
+                            for (int i = 0; i < n; i++) if (WheelItemCat(i) == g_wheelCat) inCat.push_back(i);
+                            if (!inCat.empty()) {
+                                int at = 0;
+                                for (size_t k = 0; k < inCat.size(); k++) if (inCat[k] == g_wheelPick[g_wheelCat]) at = (int)k;
+                                at = ((at + (s_wheelNotch < 0 ? 1 : -1)) % (int)inCat.size() + (int)inCat.size()) % (int)inCat.size();
+                                g_wheelPick[g_wheelCat] = inCat[at];
+                            }
+                        }
+                        g_wheelSel = g_wheelPick[g_wheelCat];   // -1: nothing in this category, the current weapon stays
                     }
                     s_prevFire = fireKey; s_prevReload = relKey; s_prevNext = nextKey;
                 }
@@ -4206,11 +4232,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.wheel = g_wheelOpen;
             if (g_wheelOpen) {
                 hd.wheelSel = g_wheelSel;
+                hd.wheelCat = g_wheelCat;
+                for (int c = 0; c < 8; c++) hd.wheelPick[c] = g_wheelPick[c];
                 WheelItem f; f.name = "Fists"; f.melee = true;
                 hd.wheelItems.push_back(f);
                 for (int i = 0; i < g_cj.GunCount(); i++) {
                     WheelItem w;
-                    w.name = g_cj.GunNameAt(i); w.icon = g_cj.GunIconAt(i);
+                    w.name = g_cj.GunNameAt(i); w.icon = g_cj.GunIconAt(i); w.cat = WheelItemCat(i + 1);
                     w.clip = g_cj.GunClipAt(i); w.total = g_cj.GunTotalAt(i); w.clipSize = g_cj.GunClipSizeAt(i);
                     hd.wheelItems.push_back(w);
                 }
