@@ -75,6 +75,7 @@ public:
     ScriptCamera cam;
     float fade = 0.0f;                 // 0 clear .. 1 solid (script fade layer)
     bool playerControl = true;
+    struct PlayerGoal { bool on = false; float x = 0, y = 0; int mode = 3; } playerGoal;   // TASK_GO_STRAIGHT_TO_COORD on the player; main walks CJ there
     bool hudOn = true, radarOn = true; // DISPLAY_HUD / DISPLAY_RADAR
     float wide = 0.0f;                 // 0 .. 1, eases to the target
     bool wideTarget = false;
