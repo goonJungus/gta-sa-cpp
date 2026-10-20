@@ -248,6 +248,8 @@ public:
     bool JetNozzles(float x, float y, float feetZ, float out[2][3]) const;   // world positions of both jetballs
     float JetTime() const { return m_jet.time; }        // STAT_TIME_ON_JETPACK, seconds
     bool TakeParaHelp() { const bool h = m_paraHelp; m_paraHelp = false; return h; }   // PARA_01 due
+    // A cutscene's CJ (csplay): the clip's pose at `time` seconds, root translation included, drawn at `origin`.
+    void DrawCutscene(D3DRenderer& r, const AnimClip* clip, float time, const float origin[3]);
     void SetHideGun(bool b) { m_hideGun = b; }   // the scope view never shows the weapon
     int Goggles() const { return m_goggles; }   // 0 off, 44 night vision, 45 thermal
     bool Throwing() const { return m_throw.state != 0; }

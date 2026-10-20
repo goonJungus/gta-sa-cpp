@@ -182,7 +182,7 @@ bool ScmMachine::Init(const std::string& gameDir) {
     main.pc = m_file.Header().mainOffset;
     main.name = "main";
     m_threads.clear();
-    m_threads.push_back(main);
+    if (!std::getenv("GTA_SCMNOMAIN")) m_threads.push_back(main);   // dev: run only the GTA_SCMSNIP thread
     m_ready = true;
     const ScmHeader& h = m_file.Header();
     std::fprintf(stderr, "[SCM] %zu bytes, vars %u, %zu used models, %u missions, %zu streamed scripts, main at 0x%X\n",

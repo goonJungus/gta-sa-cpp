@@ -1645,6 +1645,33 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
     if (!m_hideGun && (!m_seated || m_dbClip)) DrawGun(r, x, y, feetZ);
 }
 
+void PlayerPed::DrawCutscene(D3DRenderer& r, const AnimClip* clip, float time, const float origin[3]) {
+    if (!m_ready) return;
+    IDirect3DDevice9* dev = r.GetDevice();
+    if (!dev) return;
+    std::vector<Pose> pose(m_skeleton.size());
+    for (size_t f = 0; f < m_skeleton.size(); f++) {
+        RowsToQuat(m_skeleton[f].local, pose[f].q);
+        for (int i = 0; i < 3; i++) pose[f].t[i] = m_skeleton[f].local.m[3][i];
+        const AnimSequence* s = clip && m_skeleton[f].boneId >= 0 ? clip->FindBone(m_skeleton[f].boneId) : nullptr;
+        if (!s || s->keys.empty()) continue;
+        float q[4], t[3];
+        s->Sample(time, q, t);
+        for (int i = 0; i < 4; i++) pose[f].q[i] = q[i];
+        if (s->hasTranslation) for (int i = 0; i < 3; i++) pose[f].t[i] = t[i];
+    }
+    BuildGlobals(pose);
+    ShoulderBoneRotation();
+    Skin();
+    D3DMATRIX w = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, origin[0], origin[1], origin[2], 1};
+    dev->SetTransform(D3DTS_WORLD, &w);
+    for (Part& p : m_parts) {
+        if (!p.mesh) continue;
+        r.UpdateMeshVertices(p.mesh, p.skinned.data(), (uint32_t)p.skinned.size());
+        r.DrawMesh(p.mesh);
+    }
+}
+
 // ---- CTaskSimpleSwim @ 00688930 -------------------------------------------
 
 void PlayerPed::StartSwim() {

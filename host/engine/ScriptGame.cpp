@@ -183,11 +183,40 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     }
     case 0x0296: return true;   // UNLOAD_SPECIAL_CHARACTER
     // ---- cutscenes: loading and timing only (the player is Phase B) -----------------------
-    case 0x02E4: m_cut = Cutscene{}; m_cut.name = c.S(0); m_cut.state = 1; return true;   // LOAD_CUTSCENE
+    case 0x02E4: {   // LOAD_CUTSCENE(name): NAME.cut / .dat / .ifp
+        if (r) m_cutscene.Free(*r);
+        m_cut = CutState{};
+        m_cut.name = c.S(0);
+        m_cut.state = 1;
+        if (!r || !m_cutscene.Load(*r, gameDir, m_cut.name)) std::fprintf(stderr, "[SCMGAME] cutscene %s did not load\n", m_cut.name.c_str());
+        return true;
+    }
     case 0x06B9: c.result = m_cut.state >= 1; return true;                                  // HAS_CUTSCENE_LOADED
-    case 0x02E7: m_cut.state = 2; m_cut.t = 0; m_cut.dur = 6.0f; return true;              // START_CUTSCENE
+    case 0x0244: m_cutscene.SetOffset(c.F(0), c.F(1), c.F(2)); return true;                 // SET_CUTSCENE_OFFSET
+    case 0x02E5: c.Out(1, ++m_cutObjects); return true;                                     // CREATE_CUTSCENE_OBJECT: the .cut lists the objects
+    case 0x02E6: case 0x04BC: case 0x02F5: return true;                                     // SET_CUTSCENE_ANIM / _TO_LOOP / HEAD_ANIM
+    case 0x02F4: c.Out(1, ++m_cutObjects); return true;                                     // CREATE_CUTSCENE_HEAD
+    case 0x02E7: {                                                                           // START_CUTSCENE
+        m_cut.state = 2; m_cut.t = 0;
+        m_cut.dur = m_cutscene.Loaded() ? m_cutscene.Duration() : 6.0f;
+        m_cutscene.Start(std::getenv("GTA_CUTSEEK") ? (float)std::atof(std::getenv("GTA_CUTSEEK")) : 0.0f);   // dev: GTA_CUTSEEK=ms
+        wideTarget = true;   // CCutsceneMgr::StartCutscene turns the widescreen on
+        const float* o = m_cutscene.Offset();
+        if (m_cutscene.Loaded() && scm && scm->host.setPlayerPos) scm->host.setPlayerPos(o[0], o[1], o[2]);   // the world streams in at the scene
+        if (showPlayer) showPlayer(false);
+        std::fprintf(stderr, "[SCMGAME] cutscene %s starts: %.2f s\n", m_cut.name.c_str(), m_cut.dur);
+        return true;
+    }
+    case 0x02E8: c.Out(0, (int)m_cutscene.TimeMs()); return true;                           // GET_CUTSCENE_TIME
     case 0x02E9: c.result = m_cut.state == 3; return true;                                  // HAS_CUTSCENE_FINISHED
-    case 0x02EA: m_cut = Cutscene{}; return true;                                           // CLEAR_CUTSCENE
+    case 0x02EA: {                                                                           // CLEAR_CUTSCENE
+        if (r) m_cutscene.Free(*r);
+        m_cut = CutState{};
+        if (cam.cutscene) cam = ScriptCamera{};
+        wideTarget = false;
+        if (showPlayer) showPlayer(true);
+        return true;
+    }
     case 0x056A: c.result = m_cut.skipped; return true;                                     // WAS_CUTSCENE_SKIPPED
     case 0x0707: case 0x0701: return true;                                                  // SKIP_CUTSCENE_START_INTERNAL / SKIP_CUTSCENE_END
     // ---- characters ---------------------------------------------------------------------
@@ -708,7 +737,31 @@ void ScriptGame::Update(float dt) {
     if (cam.shakeT > 0) cam.shakeT = std::max(0.0f, cam.shakeT - dt);
     if (m_cut.state == 2) {
         m_cut.t += dt;
-        if (m_cut.t >= m_cut.dur) m_cut.state = 3;
+        m_cutscene.Update(dt);
+        if (scm && scm->host.setPlayerPos) { const float* o = m_cutscene.Offset(); scm->host.setPlayerPos(o[0], o[1], o[2]); }   // the player waits at the scene
+        if (std::getenv("GTA_CUTLOG") && (int)(m_cutscene.TimeMs() / 1000.0f) != m_cutSec) {
+            m_cutSec = (int)(m_cutscene.TimeMs() / 1000.0f);
+            CutsceneCamera lc;
+            const bool hc = m_cutscene.Camera(lc);
+            std::fprintf(stderr, "[SCMGAME] cutscene t=%d s cam %d pos %.2f %.2f %.2f look %.2f %.2f %.2f fov %.1f\n", m_cutSec, (int)hc, lc.pos[0], lc.pos[1], lc.pos[2], lc.look[0], lc.look[1], lc.look[2], lc.fov);
+        }
+        CutsceneCamera cc;
+        if (m_cutscene.Camera(cc)) {
+            cam.active = cam.cutscene = true;
+            cam.moveOn = cam.trackOn = false;
+            for (int i = 0; i < 3; i++) { cam.pos[i] = cc.pos[i]; cam.look[i] = cc.look[i]; cam.up[i] = cc.up[i]; }
+            cam.fov = cc.fov;
+            cam.nearClip = 0.0f;
+        }
+        const std::string key = m_cutscene.Loaded() ? m_cutscene.Subtitle() : std::string();
+        if (key != m_cutKey) { m_cutKey = key; std::fprintf(stderr, "[SCMGAME] cutscene %.0f ms subtitle '%s'\n", m_cutscene.TimeMs(), key.c_str()); m_subtitle = key.empty() ? std::string() : Text(key); m_subTimer = 0; }
+        if (m_cut.t >= m_cut.dur) {
+            m_cut.state = 3;
+            if (cam.cutscene) { cam = ScriptCamera{}; }
+            wideTarget = false;
+            if (showPlayer) showPlayer(true);
+            m_subtitle.clear();
+        }
     }
     // characters in cars follow them
     for (auto& [uid, carH] : m_charCar) {
@@ -729,6 +782,10 @@ void ScriptGame::Update(float dt) {
         v->y += std::sin(v->heading) * v->speed * dt;
         ++it;
     }
+}
+
+void ScriptGame::DrawCutscene(D3DRenderer& rr) {
+    if (m_cut.state == 2 && m_cutscene.Loaded()) m_cutscene.Draw(rr, drawCj);
 }
 
 ScriptOverlay ScriptGame::Overlay() {

@@ -26,6 +26,8 @@ struct AnimSequence {
     int boneId = -1;
     bool hasTranslation = false;
     std::vector<AnimKey> keys;
+    // The pose at `time` seconds: the key pair around it, quaternion slerped, translation lerped (zero without translation).
+    void Sample(float time, float q[4], float t[3]) const;
 };
 
 struct AnimClip {
@@ -43,4 +45,7 @@ public:
     // clips already in out win over same-named ones in this file.
     static bool LoadFromMemory(const std::vector<uint8_t>& data,
                                std::unordered_map<std::string, AnimClip>& out, bool keepExisting = false);
+    // The old ANPK package (cutscene animations, anim\cuts.img NAME.ifp): uncompressed KR00 / KRT0 frames,
+    // chunks padded to four bytes. Clip keys are the lowercase clip names (the cutscene model names).
+    static bool LoadAnpk(const std::vector<uint8_t>& data, std::unordered_map<std::string, AnimClip>& out);
 };
