@@ -1,7 +1,10 @@
 #include "ClimbScan.h"
 #include "World.h"
+#include "Stats.h"
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 namespace {
 
@@ -83,7 +86,13 @@ bool ClimbScan(const GameWorld& w, int mode, const float ped[3], float rot, floa
     // Pieces 0-3, 4 and 10 are walls in the way (no grab); 16 and the
     // 2.4 m row (5, 11, 17) only count on a launch.
     if (piece <= 4 || piece == 10 || piece == 16) return false;
-    if (!launch && (piece == 5 || piece == 11 || piece == 17)) return false;
+    // CStats::GetFatAndMuscleModifier(0) is the climb level (fat <= 400: 0, <= 800: 1, else 2): the heavier CJ
+    // gets, the lower the ledges he can still reach (2.4 m row from level 1, 1.9 m row from level 1 / 2 on a launch).
+    const int level = (int)Stats::FatMuscleMod(0);
+    const int row = (piece - 4) % 6;
+    if (std::getenv("GTA_CLIMBDBG")) std::fprintf(stderr, "[CLIMBPIECE] mode %d piece %d row %d level %d\n", mode, piece, row, level);
+    if (row == 1 && (!launch || level > 0)) return false;
+    if (row == 2 && level > 0 && (!launch || level > 1)) return false;
     float pos[3], r = rot;
     if (!Accept(f, h, rot, pos, &r)) return false;
 

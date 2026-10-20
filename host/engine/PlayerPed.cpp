@@ -861,6 +861,8 @@ bool PlayerPed::TakeClimbRelease(float v[3]) {
 void PlayerPed::ClimbStartAnim() {
     auto go = [&](const char* name, bool loop, float rate) { m_cClip = Clip(name); if (m_cClip) { Assoc* b = Blend(m_cClip, loop, false, rate); if (b) {
             b->keepRoot = true;
+            if (loop) b->speed = m_climbMod;   // StartAnim: a looping climb clip runs at GetFatAndMuscleModifier(1)
+            if (getenv("GTA_STATDBG")) std::fprintf(stderr, "[CLIMB] %s loop %d speed %.3f\n", name, (int)loop, b->speed);
             if (rate >= 1000.0f) {   // instant switch: the hold position snaps on this same frame, not a frame after the clip starts
                 b->blend = 1.0f;
                 for (Assoc& o : m_assocs) if (&o != b && !o.dead) o.blend = 0.0f;
