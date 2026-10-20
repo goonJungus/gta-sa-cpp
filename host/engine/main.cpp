@@ -3452,7 +3452,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         static int s_lastCar = -1;   // the car CJ last drove (DAT_00b79530)
                         if (g_driveCar >= 0) s_lastCar = g_driveCar;
                         const int rd = Stats::UpdateRespect(g_money, 0.0f, 0, false);
-                        if (rd > 0 && g_hudReady) g_hud.StatUpdate(Stats::Get(Stats::STAT_TOTAL_RESPECT) / 10.0f);
+                        if (rd != 0 && g_hudReady) g_hud.StatUpdate(Stats::Get(Stats::STAT_TOTAL_RESPECT) / 10.0f, rd > 0);
                         if (rd != 0) Log("STATS: respect %s to %.1f", rd > 0 ? "rose" : "fell", Stats::Get(Stats::STAT_TOTAL_RESPECT));
                         bool have = false; float dist = 0.0f, hp = 0.0f; int cls = 0;
                         if (s_lastCar >= 0 && (size_t)s_lastCar < g_vehicles.Count()) {
