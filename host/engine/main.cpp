@@ -114,6 +114,8 @@ static bool g_devLighting  = true;
 static int  g_devShotIdx   = 0;
 static bool g_autoWalk     = false;    // --walk: force-walk forward + log pos (headless collision probe)
 static float g_stamina     = 1.0f;     // sprint stamina 0..1
+static float g_timeCanRun  = 0.0f;     // CPlayerData::m_fTimeCanRun
+static bool  g_runInit     = false;
 static int  g_autoGait     = 0;        // --gait: 0 run, 1 walk, 2 sprint, 3 run + keep jumping (with --walk)
 static bool g_probeCollision = false;  // --probe-collision: dump a solidity report at --pos after streaming
 static bool g_keyState[256] = { false };
@@ -3078,8 +3080,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 {   // CPlayerPed::ControlButtonSprint / HandleSprintEnergy (type 0, on foot): tapping charges m_fMoveSpeed,
                     // sprinting drains m_fTimeCanRun (capped by FatMuscleMod(7)) until it hits -150.
                     static bool s_prevSprintKey = false;
-                    static float s_charge = 0.0f, s_timeCanRun = 0.0f;
-                    static bool s_runInit = false;
+                    static float s_charge = 0.0f;
+                    float& s_timeCanRun = g_timeCanRun;
+                    bool& s_runInit = g_runInit;
                     const bool auto2 = g_autoWalk && g_autoGait == 2;
                     const bool sprintKey = ((GameKey(VK_SPACE) & 0x8000) != 0) || auto2;
                     const float step = dt * 50.0f;
@@ -3098,7 +3101,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (s_timeCanRun <= -150.0f) s_charge = 0.0f;
                         else sprint = true;
                     } else {
-                        s_timeCanRun = std::min(cap, s_timeCanRun + step * (moving ? 0.15f : 0.5f));
+                        // CPlayerPed::ProcessControl: running adds 0.15 per step, walking 0.5 (HandleSprintEnergy(false, 1) / 2), standing nothing
+                        if (moving) s_timeCanRun = std::min(cap, s_timeCanRun + step * (pin.walk ? 0.5f : 0.15f));
                     }
                     pin.sprint = sprint;
                     g_stamina = std::clamp(s_timeCanRun / cap, 0.0f, 1.0f);
@@ -3501,6 +3505,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const VehicleInfo* dvi = g_vehicles.Info(g_vehicles.Car((size_t)g_driveCar).model);
                         const std::string dt2 = dvi ? dvi->type : "car";
                         vehKind = dt2 == "bike" ? 2 : dt2 == "plane" || dt2 == "heli" ? 3 : dt2 == "boat" || dt2 == "bmx" ? 4 : 1;
+                    }
+                    if (g_driveCar >= 0 && g_runInit) {   // CPlayerPed::ProcessControl: in a vehicle (not a BMX) HandleSprintEnergy(false, 1)
+                        const VehicleInfo* bvi = g_vehicles.Info(g_vehicles.Car((size_t)g_driveCar).model);
+                        if (!bvi || bvi->type != "bmx") {
+                            const float cap7 = Stats::FatMuscleMod(7);
+                            if (g_timeCanRun < cap7) g_timeCanRun = std::min(cap7, g_timeCanRun + dt * 50.0f * 0.5f);
+                            g_stamina = std::clamp(g_timeCanRun / cap7, 0.0f, 1.0f);
+                            if (getenv("GTA_STATDBG") && (frame % 50) == 0) Log("SPRINT car timeCanRun %.1f cap %.1f", g_timeCanRun, cap7);
+                        }
                     }
                     const int up = Stats::UpdateActivity(dt * s_statTime, rate, g_cj.Swimming(), g_cj.Underwater(), vehKind, carSpd, true);
                     if (up == Stats::STAT_MAX_HEALTH) g_cj.SetMaxHealth(Stats::FatMuscleMod(9));
