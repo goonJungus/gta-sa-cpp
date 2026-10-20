@@ -3071,24 +3071,34 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.stickX = mx;
                 pin.stickY = my;
                 pin.walk = (GameKey(VK_MENU) & 0x8000) || (g_autoWalk && g_autoGait == 1);
-                {   // Sprint: tap the sprint key repeatedly; each tap charges a burst, sprinting drains stamina.
+                {   // CPlayerPed::ControlButtonSprint / HandleSprintEnergy (type 0, on foot): tapping charges m_fMoveSpeed,
+                    // sprinting drains m_fTimeCanRun (capped by FatMuscleMod(7)) until it hits -150.
                     static bool s_prevSprintKey = false;
-                    static float s_sprintCharge = 0.0f, s_tired = 0.0f;
-                    const bool sprintKey = (GameKey(VK_SPACE) & 0x8000) != 0;
+                    static float s_charge = 0.0f, s_timeCanRun = 0.0f;
+                    static bool s_runInit = false;
                     const bool auto2 = g_autoWalk && g_autoGait == 2;
-                    if (sprintKey && !s_prevSprintKey) s_sprintCharge = std::min(1.2f, s_sprintCharge + 0.55f);
-                    s_prevSprintKey = sprintKey;
+                    const bool sprintKey = ((GameKey(VK_SPACE) & 0x8000) != 0) || auto2;
+                    const float step = dt * 50.0f;
+                    const float cap = Stats::FatMuscleMod(7);
+                    if (!s_runInit) { s_runInit = true; s_timeCanRun = cap; }   // SetInitialState
+                    s_timeCanRun = std::min(s_timeCanRun, cap);
                     const bool moving = mlen > 0.001f;
-                    const bool wantSprint = (s_sprintCharge > 0.0f && moving && onGround) || auto2;
-                    if (wantSprint && s_tired <= 0.0f) {
-                        g_stamina = std::max(0.0f, g_stamina - dt / 22.0f);
-                        if (g_stamina <= 0.0f) s_tired = 1.0f;   // out of breath: a jog until it comes back
+                    if (sprintKey && !s_prevSprintKey) s_charge = std::min(10.0f, s_charge + 4.0f);
+                    else if (sprintKey) s_charge = std::max(1.0f, s_charge - 0.7f * step);
+                    else s_charge = std::max(0.0f, s_charge - 0.2f * step);
+                    s_prevSprintKey = sprintKey;
+                    bool sprint = false;
+                    if (moving && onGround && (s_charge > 0.0f || s_timeCanRun > 0.0f) && (sprintKey || s_charge > 0.0f)) {
+                        const float rate = s_charge <= 5.0f ? 1.0f : 0.5f;
+                        s_timeCanRun = std::max(-150.0f, s_timeCanRun - step * rate);
+                        if (s_timeCanRun <= -150.0f) s_charge = 0.0f;
+                        else sprint = true;
                     } else {
-                        g_stamina = std::min(1.0f, g_stamina + dt / 10.0f);
-                        if (s_tired > 0.0f && g_stamina > 0.3f) s_tired = 0.0f;
+                        s_timeCanRun = std::min(cap, s_timeCanRun + step * (moving ? 0.15f : 0.5f));
                     }
-                    s_sprintCharge = std::max(0.0f, s_sprintCharge - dt);
-                    pin.sprint = wantSprint && s_tired <= 0.0f;
+                    pin.sprint = sprint;
+                    g_stamina = std::clamp(s_timeCanRun / cap, 0.0f, 1.0f);
+                    if (getenv("GTA_STATDBG") && (frame % 50) == 0) Log("SPRINT charge %.2f timeCanRun %.1f cap %.1f sprint %d", s_charge, s_timeCanRun, cap, (int)sprint);
                 }
                 pin.onGround = onGround;
                 pin.jumped = jumped;
