@@ -4991,8 +4991,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     hd.wheelItems.push_back(w);
                 }
             }
-            hd.showHud = hs.showHud;
-            hd.radarOn = hs.radarMode == 0;
+            hd.showHud = hs.showHud && g_sg.hudOn;
+            hd.radarOn = hs.radarMode == 0 && g_sg.radarOn;
             hd.crosshairDot = hs.crosshairDot; hd.hitMarker = hs.hitMarker; hd.damageFlash = hs.damageFlash;
             hd.health = g_cj.Health(); hd.maxHealth = g_cj.MaxHealth(); hd.armor = g_cj.Armor();
             hd.breath = g_cj.Breath(); hd.showBreath = g_cj.ShowBreath();

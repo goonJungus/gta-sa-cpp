@@ -70,6 +70,7 @@ public:
     ScriptCamera cam;
     float fade = 0.0f;                 // 0 clear .. 1 solid (script fade layer)
     bool playerControl = true;
+    bool hudOn = true, radarOn = true; // DISPLAY_HUD / DISPLAY_RADAR
     float wide = 0.0f;                 // 0 .. 1, eases to the target
     bool wideTarget = false;
 
