@@ -3540,6 +3540,28 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const std::string dt2 = dvi ? dvi->type : "car";
                         vehKind = dt2 == "bike" ? 2 : dt2 == "plane" || dt2 == "heli" ? 3 : dt2 == "boat" || dt2 == "bmx" ? 4 : 1;
                     }
+                    {   // CPlayerInfo::Process: the distance stats grow by the mover's speed every step (here metres per second x dt)
+                        const float step = dt * 50.0f;
+                        if (g_driveCar < 0) {
+                            const float v = std::sqrt(g_cj.VelX() * g_cj.VelX() + g_cj.VelY() * g_cj.VelY()) * dt;
+                            if (g_cj.Jetpacking()) Stats::Increment(Stats::STAT_TIME_ON_JETPACK, step * 16.0f);
+                            else if (v > 0.0f && g_cj.Swimming()) { if (mlen > 0.001f) Stats::Increment(Stats::STAT_DISTANCE_TRAVELLED_BY_SWIMMING, v); }
+                            else if (v > 0.0f) Stats::Increment(Stats::STAT_DISTANCE_TRAVELLED_ON_FOOT, v);
+                        } else {
+                            const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar);
+                            const VehicleInfo* dvi = g_vehicles.Info(dc.model);
+                            std::string ty = dvi ? dvi->type : "car";
+                            if (const char* ft = getenv("GTA_STATVEHTYPE")) ty = ft;   // dev: boats do not float yet, count this car as another type
+                            const float v = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy) * dt;
+                            if (dc.model == 457) Stats::Increment(Stats::STAT_DISTANCE_TRAVELLED_BY_GOLF_CART, v);
+                            else if (ty == "heli") Stats::Increment(Stats::STAT_DISTANCE_TRAVELLED_BY_HELICOPTER, v);
+                            else if (ty == "plane") { if (v / dt / 50.0f > 0.2f) Stats::Increment(Stats::STAT_DISTANCE_TRAVELLED_BY_PLANE, v); }
+                            else if (ty == "bike") Stats::Increment(Stats::STAT_DISTANCE_TRAVELLED_BY_MOTORBIKE, v);
+                            else if (ty == "boat") Stats::Increment(Stats::STAT_DISTANCE_TRAVELLED_BY_BOAT, v);
+                            else if (ty == "car") Stats::Increment(Stats::STAT_DISTANCE_TRAVELLED_BY_CAR, v);
+                        }
+                        if (getenv("GTA_STATDBG") && (frame % 60) == 0) Log("DIST foot %.1f swim %.1f car %.1f golf %.1f bike %.1f boat %.1f heli %.1f plane %.1f jet %.0f", Stats::Get(Stats::STAT_DISTANCE_TRAVELLED_ON_FOOT), Stats::Get(Stats::STAT_DISTANCE_TRAVELLED_BY_SWIMMING), Stats::Get(Stats::STAT_DISTANCE_TRAVELLED_BY_CAR), Stats::Get(Stats::STAT_DISTANCE_TRAVELLED_BY_GOLF_CART), Stats::Get(Stats::STAT_DISTANCE_TRAVELLED_BY_MOTORBIKE), Stats::Get(Stats::STAT_DISTANCE_TRAVELLED_BY_BOAT), Stats::Get(Stats::STAT_DISTANCE_TRAVELLED_BY_HELICOPTER), Stats::Get(Stats::STAT_DISTANCE_TRAVELLED_BY_PLANE), Stats::Get(Stats::STAT_TIME_ON_JETPACK));
+                    }
                     if (g_driveCar >= 0 && g_runInit) {   // CPlayerPed::ProcessControl: in a vehicle (not a BMX) HandleSprintEnergy(false, 1)
                         const VehicleInfo* bvi = g_vehicles.Info(g_vehicles.Car((size_t)g_driveCar).model);
                         if (!bvi || bvi->type != "bmx") {
