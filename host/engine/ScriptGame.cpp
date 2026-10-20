@@ -97,7 +97,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x0345: case 0x0346: case 0x0347: case 0x0348: return true;                  // background, proportional
     case 0x0349: m_style.font = c.I(0); return true;                                  // SET_TEXT_FONT
     case 0x03E0: m_style.beforeFade = c.I(0) != 0; return true;                       // SET_TEXT_DRAW_BEFORE_FADE
-    case 0x03E3: return true;                                                          // SET_SPRITES_DRAW_BEFORE_FADE
+    case 0x03E3: m_spritesBefore = c.I(0) != 0; return true;                                                          // SET_SPRITES_DRAW_BEFORE_FADE
     case 0x03E4: m_style.right = c.I(0) != 0; return true;                            // SET_TEXT_RIGHT_JUSTIFY
     case 0x060D:                                                                       // SET_TEXT_DROPSHADOW(size, r, g, b, a)
         m_style.shadow = c.I(0);
@@ -608,6 +608,10 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x03D9: c.result = true; return true;                                                   // HAS_SAVE_GAME_FINISHED
     case 0x0494: c.Out(1, 0); c.Out(2, 0); c.Out(3, 0); c.Out(4, 0); return true;                 // GET_POSITION_OF_ANALOGUE_STICKS
     case 0x07B1: c.OutF(0, 0.0f); return true;                                                   // GET_BEAT_PROXIMITY
+    // Script menus: handles and the active row are tracked; the menu is not drawn and no accept input reaches it.
+    case 0x08D4: c.Out(8, m_nextMenu++); return true;                                            // CREATE_MENU
+    case 0x08D7: c.Out(1, -1); return true;                                                      // GET_MENU_ITEM_SELECTED (nothing accepted)
+    case 0x08DA: case 0x08DB: case 0x08EE: case 0x090E: return true;                             // DELETE_MENU, SET_MENU_COLUMN, SET_MENU_ITEM_WITH_NUMBER, SET_ACTIVE_MENU_ITEM
     case 0x08E2: c.Out(1, 0); return true;                                                       // GET_TERRITORY_UNDER_CONTROL_PERCENTAGE
     case 0x0956: c.Out(1, 0); return true;                                                       // FIND_MAX_NUMBER_OF_GROUP_MEMBERS
     case 0x0981: case 0x0596: case 0x051A: case 0x0611: case 0x02D8: c.result = false; return true;   // HAS_TRAIN_DERAILED, IS_PLAYER_IN_SHORTCUT_TAXI, HAS_CHAR_BEEN_DAMAGED_BY_CHAR, IS_CHAR_PLAYING_ANIM, IS_CURRENT_CHAR_WEAPON
@@ -621,6 +625,61 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         return true;
     }
     case 0x0762: { const int i = CharIndex(c.I(0)); if (i >= 0) peds->Damage(i, 1000.0f, false); return true; }   // TASK_DEAD
+    // ---- 2D drawing: rectangles and sprites (CTheScripts::IntroRectangles) -------------------------
+    case 0x0390: if (hud) hud->LoadScriptTxd(c.S(0)); return true;                               // LOAD_TEXTURE_DICTIONARY
+    case 0x0391: if (hud) hud->FreeScriptTxd(); m_spriteTex.clear(); return true;                // REMOVE_TEXTURE_DICTIONARY
+    case 0x038F: {   // LOAD_SPRITE(slot, name): names are looked up lower case
+        std::string n = c.S(1);
+        for (char& ch : n) ch = (char)std::tolower((unsigned char)ch);
+        m_spriteTex[c.I(0)] = n;
+        return true;
+    }
+    case 0x038E: case 0x038D: case 0x074B: {   // DRAW_RECT(x, y, w, h, r, g, b, a) / DRAW_SPRITE(slot, x, y, w, h, r, g, b, a) / _WITH_ROTATION(slot, x, y, w, h, angle, r, g, b, a)
+        const bool tex = c.op != 0x038E;
+        const int o = tex ? 1 : 0;
+        ScriptSprite sp;
+        const float w = c.F(o + 2), h = c.F(o + 3);
+        sp.x0 = c.F(o) - w * 0.5f; sp.x1 = c.F(o) + w * 0.5f;
+        sp.y0 = c.F(o + 1) - h * 0.5f; sp.y1 = c.F(o + 1) + h * 0.5f;
+        int k = o + 4;
+        if (c.op == 0x074B) sp.angle = c.F(k++) * 0.017453292f;
+        auto ch = [&](int v) { return (uint32_t)std::clamp(v, 0, 255); };
+        sp.colour = (ch(c.I(k + 3)) << 24) | (ch(c.I(k)) << 16) | (ch(c.I(k + 1)) << 8) | ch(c.I(k + 2));
+        if (tex) { const auto it = m_spriteTex.find(c.I(0)); if (it == m_spriteTex.end()) return true; sp.tex = it->second; }
+        sp.beforeFade = m_spritesBefore;
+        m_spriteQueue.push_back(sp);
+        return true;
+    }
+    case 0x0937: {   // DRAW_WINDOW(x1, y1, x2, y2, label, style): a dark box with its caption; the retail text-box styles are not reproduced
+        ScriptSprite sp;
+        sp.x0 = c.F(0); sp.y0 = c.F(1); sp.x1 = c.F(2); sp.y1 = c.F(3);
+        sp.colour = 0xB4000000;
+        const std::string lab = c.S(4);
+        if (lab != "DUMMY") sp.label = Text(lab);
+        sp.beforeFade = m_spritesBefore;
+        m_spriteQueue.push_back(sp);
+        return true;
+    }
+    case 0x08A9: return true;   // STREAM_SCRIPT: the script data is all resident
+    case 0x0656: { float a = c.F(0); while (a < 0.0f) a += 360.0f; while (a > 360.0f) a -= 360.0f; c.OutF(0, a); return true; }   // LIMIT_ANGLE(var): wraps the variable into 0..360
+    // ---- cars, pickups and models: remaining queries ---------------------------------------------------
+    case 0x0704: if (carAlive(c.I(0))) m_drives[-c.I(0)] = Drive{c.I(0), c.F(1), c.F(2), 14.0f}; return true;   // CAR_GOTO_COORDINATES_RACING(car, x, y, z): drives straight there
+    case 0x073E: {   // GET_RANDOM_CAR_IN_SPHERE_NO_SAVE(x, y, z, radius, model) -> car, the closest match or -1
+        int best = -1; float bestD = c.F(3);
+        for (size_t i = 0; cars && i < cars->Count(); i++) {
+            const VehicleInstance& v = cars->Car(i);
+            if (v.removed || (c.I(4) >= 0 && v.model != c.I(4))) continue;
+            const float d = std::sqrt((v.x - c.F(0)) * (v.x - c.F(0)) + (v.y - c.F(1)) * (v.y - c.F(1)) + (v.z - c.F(2)) * (v.z - c.F(2)));
+            if (d < bestD) { bestD = d; best = (int)i + 1; }
+        }
+        c.Out(5, best);
+        return true;
+    }
+    case 0x04A6: c.Out(5, AddPickup(-1, 0, 0, c.F(0), c.F(1), c.F(2))); return true;   // CREATE_PROTECTION_PICKUP(x, y, z, rate, rate2) -> pickup
+    case 0x08EC: { const VehicleInfo* vi = cars ? cars->Info(c.I(0) >= 1 && (size_t)c.I(0) <= cars->Count() ? cars->Car((size_t)c.I(0) - 1).model : -1) : nullptr; c.Out(1, vi ? vi->vclass : 0); return true; }   // GET_VEHICLE_CLASS(car) -> vehicles.ide class
+    case 0x09E1: c.Out(1, 0); return true;      // GET_CAR_MODEL_VALUE(model): handling.cfg monetary values are not parsed yet
+    case 0x07E4: for (int i = 1; i <= 6; i++) c.OutF(i, 0.0f); return true;   // GET_MODEL_DIMENSIONS(model): collision bounds of a model are not exposed yet
+    case 0x080A: return true;                   // GET_LEVEL_DESIGN_COORDS_FOR_OBJECT
     // ---- language: comparisons with constants, bit tests, bitwise operators --------------
     case 0x04A3: case 0x04A4: c.result = c.I(0) == c.I(1); return true;                      // IS_INT_(L)VAR_EQUAL_TO_CONSTANT
     case 0x04B0: case 0x04B1: c.result = c.I(0) > c.I(1); return true;                      // IS_INT_(L)VAR_GREATER_THAN_CONSTANT
@@ -969,5 +1028,7 @@ ScriptOverlay ScriptGame::Overlay() {
     o.subtitle = m_subtitle;
     o.text = m_queue;
     m_queue.clear();
+    o.sprites = m_spriteQueue;
+    m_spriteQueue.clear();
     return o;
 }

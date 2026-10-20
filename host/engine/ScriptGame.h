@@ -99,6 +99,9 @@ private:
     float m_fadeRgb[3] = {0, 0, 0};
     ScriptTextItem m_style;             // SET_TEXT_* waiting for the next DISPLAY_TEXT
     std::vector<ScriptTextItem> m_queue;
+    std::vector<ScriptSprite> m_spriteQueue;                     // DRAW_RECT / DRAW_SPRITE this frame
+    std::map<int, std::string> m_spriteTex;                      // LOAD_SPRITE slot -> texture name
+    bool m_spritesBefore = false;                                // SET_SPRITES_DRAW_BEFORE_FADE
     std::string m_subtitle;
     float m_subTimer = 0;
     std::vector<std::string> m_special;                          // LOAD_SPECIAL_CHARACTER slots
@@ -116,6 +119,7 @@ private:
     struct ScriptPickup { int slot = -1; float x = 0, y = 0, z = 0; bool removed = false, collected = false, locked = false; };
     std::vector<ScriptPickup> m_pickups;
     int m_markers = 0;
+    int m_nextMenu = 0;                                                                 // CREATE_MENU handles
     int AddPickup(int model, int type, int ammo, float x, float y, float z);
     struct Drive { int car; float x, y, speed; };
     std::map<int, Drive> m_drives;

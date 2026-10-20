@@ -62,6 +62,7 @@ IDirect3DTexture9* Upload(D3DRenderer& r, const TxdTexture& t) {
 
 bool Hud::Init(D3DRenderer& r, const std::string& gameDir) {
     m_r = &r;
+    m_gameDir = gameDir;
     m_text.Load(gameDir, "american.gxt");
     m_font.Init(r, gameDir);
     for (const TxdTexture& t : TxdLoader::Load(gameDir + "\\models\\hud.txd"))
@@ -102,6 +103,7 @@ void Hud::Shutdown() {
     m_font.Shutdown();
     if (!m_r) return;
     for (auto& kv : m_sprites) if (kv.second) m_r->DestroyTexture(kv.second);
+    FreeScriptTxd();
     if (m_grain) { m_r->DestroyTexture(m_grain); m_grain = nullptr; }
     m_sprites.clear();
     for (IDirect3DTexture9*& t : m_tiles) if (t) { m_r->DestroyTexture(t); t = nullptr; }
@@ -111,6 +113,30 @@ void Hud::Shutdown() {
 IDirect3DTexture9* Hud::Sprite(const char* name) const {
     auto it = m_sprites.find(TxdLoader::KeyOf(name));
     return it == m_sprites.end() ? nullptr : it->second;
+}
+
+bool Hud::LoadScriptTxd(const std::string& name) {
+    if (!m_r) return false;
+    FreeScriptTxd();
+    std::vector<TxdTexture> txd = TxdLoader::Load(m_gameDir + "\\models\\txd\\" + name + ".txd");
+    if (txd.empty() && m_haveImg) {
+        const std::vector<uint8_t> data = m_gta3.Extract((name + ".txd").c_str());
+        if (!data.empty()) txd = TxdLoader::LoadFromMemory(data.data(), data.size());
+    }
+    for (const TxdTexture& t : txd)
+        if (IDirect3DTexture9* tex = Upload(*m_r, t)) m_scriptTex[TxdLoader::KeyOf(t.name)] = tex;
+    std::fprintf(stderr, "[HUD] script txd %s: %zu textures\n", name.c_str(), m_scriptTex.size());
+    return !m_scriptTex.empty();
+}
+
+void Hud::FreeScriptTxd() {
+    if (m_r) for (auto& kv : m_scriptTex) if (kv.second) m_r->DestroyTexture(kv.second);
+    m_scriptTex.clear();
+}
+
+IDirect3DTexture9* Hud::ScriptTexture(const std::string& name) const {
+    auto it = m_scriptTex.find(TxdLoader::KeyOf(name.c_str()));
+    return it == m_scriptTex.end() ? nullptr : it->second;
 }
 
 // radarNN.txd in gta3.img, NN = ty * 12 + tx, north row first.
@@ -382,6 +408,25 @@ void Hud::DrawScript(D3DRenderer& r, const ScriptOverlay& o) {
             m_font.SetWrapWidth(0);
         }
     };
+    auto sprites = [&](bool before) {
+        for (const ScriptSprite& sp : o.sprites) {
+            if (sp.beforeFade != before) continue;
+            const float x0 = xo + sp.x0 * u, y0 = sp.y0 * u, x1 = xo + sp.x1 * u, y1 = sp.y1 * u;
+            IDirect3DTexture9* tex = sp.tex.empty() ? nullptr : ScriptTexture(sp.tex);
+            if (sp.tex.empty()) g.DrawRect(x0, y0, x1, y1, sp.colour);
+            else if (tex && sp.angle != 0.0f) RotatedSprite(g, tex, (x0 + x1) * 0.5f, (y0 + y1) * 0.5f, x1 - x0, y1 - y0, sp.angle, sp.colour);
+            else if (tex) g.DrawTex(tex, x0, y0, x1, y1, sp.colour);
+            if (!sp.label.empty()) {   // DRAW_WINDOW caption
+                m_font.SetStyle(FeFont::Style(1));
+                m_font.SetScale(m_font.Sx(0.48f), m_font.Sy(1.12f));
+                m_font.SetAlign(FeFont::LEFT);
+                m_font.SetWrapWidth(0);
+                m_font.SetColor(0xFFE1E1E1);
+                m_font.Print(g, x0 + 6.0f * u, y0 + 4.0f * u, sp.label);
+            }
+        }
+    };
+    sprites(true);
     items(true);
     if (o.fade > 0.001f) {
         const uint32_t col = Alpha(0xFF000000 | (o.fadeRgb & 0xFFFFFF), o.fade);
@@ -394,6 +439,7 @@ void Hud::DrawScript(D3DRenderer& r, const ScriptOverlay& o) {
         g.DrawRect(0, 0, sw, std::max(0.0f, top), 0xFF000000);
         g.DrawRect(0, std::min(sh, bottom), sw, sh, 0xFF000000);
     }
+    sprites(false);
     items(false);
     if (!o.subtitle.empty()) {
         const float y = o.wide > 0.5f ? sh - 62.0f * u : sh - 88.0f * u;

@@ -116,12 +116,22 @@ struct ScriptTextItem {
     bool beforeFade = false;           // SET_TEXT_DRAW_BEFORE_FADE
     std::string text;
 };
+// DRAW_RECT / DRAW_SPRITE (CTheScripts::IntroRectangles): a corner box in 640 x 448 design units.
+struct ScriptSprite {
+    float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    uint32_t colour = 0xFFFFFFFF;      // ARGB
+    float angle = 0;                   // radians
+    std::string tex;                   // texture name in the script TXD, empty = a plain rectangle
+    bool beforeFade = false;
+    std::string label;                 // DRAW_WINDOW caption
+};
 struct ScriptOverlay {
     float fade = 0.0f;                 // 0 none .. 1 solid
     uint32_t fadeRgb = 0;
     float wide = 0.0f;                 // cinematic bars, 0 off .. 1 fully in
     std::string subtitle;              // PRINT_NOW / cutscene text
     std::vector<ScriptTextItem> text;
+    std::vector<ScriptSprite> sprites;
 };
 
 class Hud {
@@ -148,6 +158,10 @@ public:
     void Hit(bool kill) { m_hitTimer = 0.25f; m_hitKill = kill; }
     // A line of text above the radar (zone / street names, pick-ups, help).
     void ShowMessage(const std::string& text, float seconds);
+    // LOAD_TEXTURE_DICTIONARY / REMOVE_TEXTURE_DICTIONARY: the script TXD (models/txd/<name>.txd).
+    bool LoadScriptTxd(const std::string& name);
+    void FreeScriptTxd();
+    IDirect3DTexture9* ScriptTexture(const std::string& name) const;
     bool MessageShown() const { return m_msgTimer > 0.0f && !m_msg.empty(); }
     const std::string& Message() const { return m_msg; }
     // CHud::SetHelpMessageStatUpdate: the "+" skill box with a stat bar (pct 0..100), shown for 5 s.
@@ -197,6 +211,8 @@ private:
     ImgLoader m_gta3;
     bool m_haveImg = false;
     std::unordered_map<std::string, IDirect3DTexture9*> m_sprites;
+    std::unordered_map<std::string, IDirect3DTexture9*> m_scriptTex;
+    std::string m_gameDir;
     std::vector<IDirect3DTexture9*> m_tiles = std::vector<IDirect3DTexture9*>(144, nullptr);
     std::vector<bool> m_tileTried = std::vector<bool>(144, false);
     std::vector<Zone> m_zones;
