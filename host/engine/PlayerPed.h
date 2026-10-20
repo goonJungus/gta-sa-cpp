@@ -253,6 +253,9 @@ public:
     // Vitals (HUD). Damage sources arrive with combat; drowning works already.
     float Health() const { return m_health; }
     float MaxHealth() const { return m_maxHealth; }
+    // STAT_MAX_HEALTH 569 = 100 hit points; a raised max also raises the health by the same amount
+    void SetMaxHealth(float hp) { m_health += hp - m_maxHealth; m_maxHealth = hp; }
+    void AddHealth(float hp) { m_health = std::min(m_maxHealth, m_health + hp); }
     float Armor() const { return m_armor; }
     float Breath() const { return m_breath / kBreathMax; }   // 0..1
     bool ShowBreath() const { return m_swimming && m_swimState == SwimState::Under || m_breath < kBreathMax * 0.999f; }
