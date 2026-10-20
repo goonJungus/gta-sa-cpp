@@ -4368,6 +4368,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 // Each shot is a hitscan down the camera ray: a tracer from the muzzle,
                 // dust and sparks and a hit sound where it lands.
+                static float s_trX = 0, s_trY = 0, s_trZ = 0;   // CBulletTraces::AddTrace: speed of the player in the first-person / scope modes
+                const float trSpeed = std::sqrt((playerX - s_trX) * (playerX - s_trX) + (playerY - s_trY) * (playerY - s_trY) + (playerZ - s_trZ) * (playerZ - s_trZ)) / std::max(dt * 50.0f, 1e-4f);
+                s_trX = playerX; s_trY = playerY; s_trZ = playerZ;
                 for (int n = 0; n < evShots && worldReady; n++) {
                     const int heavy = g_cj.GunIndex() >= 0 ? g_cj.GunType(g_cj.GunIndex()) : 0;
                     float hm[3];
@@ -4546,7 +4549,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             dummyHit = 0;
                         }
                     }
-                    if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, mz)) g_fx.Tracer(mz, hit);
+                    if (g_cj.MuzzleWorld(playerX, playerY, playerZ - EYE_HEIGHT, mz)) { g_fx.Tracer(mz, hit, g_scoped && trSpeed < 0.05f); if (getenv("GTA_TRACEDBG")) Log("TRACE active %d suppressed %d", g_fx.ActiveTraces(), (int)(g_scoped && trSpeed < 0.05f)); }
                     if (dummyHit < 0 && worldReady && t < 1.0f) g_world.DynShoot(g_aimEye, g_aimDirV, range * t + 0.1f, 40.0f, 0);
                     if (dummyHit >= 0) continue;
                     if (t < 1.0f) {
