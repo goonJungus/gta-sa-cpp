@@ -1471,10 +1471,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             Log("SCM: clothes %s / %s on part %d", tex, model, part);
         };
         s_scm.host.wearing = [&](int part, const char* tex) {
-            return cjReady && part >= 0 && part < CLOTHES_TEXTURE_TOTAL && g_cj.Outfit().textureKeys[part] == Clothes::Key(tex);
+            const bool w = cjReady && part >= 0 && part < CLOTHES_TEXTURE_TOTAL && g_cj.Outfit().textureKeys[part] == Clothes::Key(tex);
+            Log("SCM: IS_PLAYER_WEARING part %d %s -> %d", part, tex, (int)w);
+            return w;
         };
-        s_scm.host.storeClothes = [&] { if (cjReady) g_storedOutfit = g_cj.Outfit(); };
-        s_scm.host.restoreClothes = [&] { if (cjReady) g_cj.SetOutfit(g_storedOutfit); };
+        s_scm.host.storeClothes = [&] { if (cjReady) g_storedOutfit = g_cj.Outfit(); Log("SCM: clothes stored"); };
+        s_scm.host.restoreClothes = [&] { if (cjReady) g_cj.SetOutfit(g_storedOutfit); Log("SCM: clothes restored"); };
+        if (const char* hex = getenv("GTA_SCMSNIP")) {   // dev: hex bytes run as a script thread, e.g. the clothes opcodes
+            std::vector<uint8_t> code;
+            for (const char* q = hex; q[0] && q[1]; q += 2) { char b[3] = {q[0], q[1], 0}; code.push_back((uint8_t)strtoul(b, nullptr, 16)); }
+            s_scm.LaunchSnippet(code);
+        }
         s_scm.host.removeBlip = [](int h) { g_blips.erase(std::remove_if(g_blips.begin(), g_blips.end(), [h](const RadarBlip& b) { return b.handle == h; }), g_blips.end()); };
         s_scm.host.blipDisplay = [](int h, int mode) { for (RadarBlip& b : g_blips) if (b.handle == h) b.display = mode; };
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };

@@ -81,6 +81,8 @@ public:
     const ScmThread& Thread(size_t i) const { return m_threads[i]; }
     // Start mission script number `index` (the mission table of the header) as a new thread.
     bool LaunchMission(int index);
+    // Dev: run raw script bytes as a new thread (appended after the script image).
+    bool LaunchSnippet(const std::vector<uint8_t>& code);
     int32_t Global(uint32_t offset) const;
     float GlobalFloat(uint32_t offset) const;
 
