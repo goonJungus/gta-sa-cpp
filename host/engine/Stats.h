@@ -343,6 +343,7 @@ void ResetRespectMessage();                // CStats::UpdateRespectStat(true): f
 // CStats::UpdateSexAppealStat: STAT_SEX_APPEAL from the appearance stat and the nearest player car (within 35 m).
 void UpdateSexAppeal(bool haveCar, float carDist, float carHealth, int carClass, bool cheat);
 // CStats::UpdateStatsWhen*: returns the stat that rose this call, or -1.
-int UpdateActivity(float dt, int exerciseRate, bool swimming, bool underwater, bool driving, float carSpeed, bool hasDriver);
+// vehicle: 0 none, 1 car (driving skill), 2 motorbike, 3 plane or helicopter (flying skill), 4 boat or bicycle (nothing here)
+int UpdateActivity(float dt, int exerciseRate, bool swimming, bool underwater, int vehicle, float carSpeed, bool hasDriver);
 
 }  // namespace Stats
