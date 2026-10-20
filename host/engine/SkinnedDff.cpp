@@ -163,6 +163,12 @@ bool ParseGeometry(const Cursor& c, size_t at, size_t end, SkinnedClump& out) {
                             }
                             k += 12 + kl;
                         }
+                        {   // material struct: flags, RGBA, ...
+                            uint32_t st2, sl2;
+                            uint8_t rgba[4] = {255, 255, 255, 255};
+                            if (c.Header(m + 12, st2, sl2) && st2 == kStruct && sl2 >= 8) for (int b = 0; b < 4; b++) rgba[b] = c.d[m + 12 + 12 + 4 + b];
+                            out.materialColor.push_back(((uint32_t)rgba[0] << 16) | ((uint32_t)rgba[1] << 8) | rgba[2]);
+                        }
                         out.materialTexture.push_back(name);
                     }
                     m += 12 + ml;

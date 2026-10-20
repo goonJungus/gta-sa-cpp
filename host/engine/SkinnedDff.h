@@ -47,6 +47,7 @@ struct SkinnedClump {
     std::vector<SkinVertex> vertices;
     std::vector<uint16_t> indices;        // triangle list, D3D winding
     std::vector<uint16_t> triMaterial;    // material index per triangle
+    std::vector<uint32_t> materialColor;        // 0x00RRGGBB per material
     std::vector<std::string> materialTexture;   // texture name per material, empty when untextured
     bool valid = false;
 };
