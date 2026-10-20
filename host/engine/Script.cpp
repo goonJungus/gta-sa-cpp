@@ -517,6 +517,20 @@ void ScmMachine::Call::OutStr(size_t i, const std::string& s, size_t cap) const 
     std::memcpy(p, s.data(), std::min(s.size(), cap));
 }
 
+std::vector<std::string> ScmMachine::Census() {
+    std::vector<std::string> missing;
+    ScmThread t;
+    t.name = "CENSUS";
+    for (const CmdInfo& ci : kCmds) {
+        if (ci.op <= 0x00D7) continue;
+        std::vector<Arg> args(ci.args);
+        for (Arg& x : args) { x.type = 1; x.i = 1; }
+        bool result = false;
+        if (!Command(t, ci.op, args, result)) { char b[8]; std::snprintf(b, sizeof b, "%04X ", ci.op); missing.push_back(std::string(b) + CmdName(ci.op)); }
+    }
+    return missing;
+}
+
 bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool& result) {
     auto num = [&](size_t i) -> float {
         if (i >= args.size()) return 0.0f;

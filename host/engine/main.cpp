@@ -1554,6 +1554,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_sg.showPlayer = [&](bool on) { g_cutHideCj = !on; Log("SCRIPT: player %s", on ? "shown" : "hidden"); };
         g_sg.groundAt = [&](float x, float y) { return g_world.GetGroundHeight(x, y, playerZ + 50.0f); };
         s_scm.command = [](ScmMachine::Call& c) { return g_sg.Handle(c); };
+        if (getenv("GTA_SCMCENSUS")) {   // dev: which commands of the compiled script nothing handles
+            const std::vector<std::string> miss = s_scm.Census();
+            fprintf(stderr, "[CENSUS] %zu commands unhandled\n", miss.size());
+            for (const std::string& m : miss) fprintf(stderr, "[CENSUS] %s\n", m.c_str());
+        }
     }
     bool prevV = false;       // edge-detect for V key
     const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters

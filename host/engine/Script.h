@@ -110,6 +110,8 @@ public:
     bool LaunchMission(int index);
     // Dev: run raw script bytes as a new thread (appended after the script image).
     bool LaunchSnippet(const std::vector<uint8_t>& code);
+    // Dev: call every command of the compiled script once with zero arguments and list the ones nothing handles.
+    std::vector<std::string> Census();
     int32_t Global(uint32_t offset) const;
     // Start mission script number `index` as a new thread named `name`; returns its thread index.
     int LaunchMissionThread(int index, const char* name = "mission");
