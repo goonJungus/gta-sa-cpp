@@ -41,7 +41,8 @@ struct ScmThread {
     uint32_t base = 0;                   // 0 for the main script; relative jumps count from here
     std::string name = "noname";
     int32_t wakeTime = 0;                // ms; the thread sleeps until the clock reaches it
-    int32_t locals[64] = {};
+    static constexpr int kLocals = 1088;   // mission scripts use hundreds of locals; 32 and 33 are the timers
+    int32_t locals[kLocals] = {};
     uint32_t stack[8] = {};
     int sp = 0;
     bool cond = false;
@@ -102,4 +103,5 @@ private:
     std::vector<ScmThread> m_threads;
     std::vector<ScmThread> m_pending;    // threads started during a step
     std::set<uint16_t> m_logged;         // opcodes already reported as not implemented
+    int32_t m_lastMs = 0;                // the clock at the previous update, for the thread timers
 };
