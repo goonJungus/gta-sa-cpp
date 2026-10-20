@@ -677,7 +677,11 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     }
     case 0x04A6: c.Out(5, AddPickup(-1, 0, 0, c.F(0), c.F(1), c.F(2))); return true;   // CREATE_PROTECTION_PICKUP(x, y, z, rate, rate2) -> pickup
     case 0x08EC: { const VehicleInfo* vi = cars ? cars->Info(c.I(0) >= 1 && (size_t)c.I(0) <= cars->Count() ? cars->Car((size_t)c.I(0) - 1).model : -1) : nullptr; c.Out(1, vi ? vi->vclass : 0); return true; }   // GET_VEHICLE_CLASS(car) -> vehicles.ide class
-    case 0x09E1: c.Out(1, 0); return true;      // GET_CAR_MODEL_VALUE(model): handling.cfg monetary values are not parsed yet
+    case 0x09E1: {                                                                              // GET_CAR_MODEL_VALUE(model): handling.cfg nMonetaryValue
+        const VehicleInfo* vi = cars ? cars->Info(c.I(0)) : nullptr;
+        const HandlingData* hd = vi ? cars->Handling(vi->handling) : nullptr;
+        c.Out(1, hd ? hd->monetaryValue : 0); return true;
+    }
     case 0x07E4: for (int i = 1; i <= 6; i++) c.OutF(i, 0.0f); return true;   // GET_MODEL_DIMENSIONS(model): collision bounds of a model are not exposed yet
     case 0x080A: return true;                   // GET_LEVEL_DESIGN_COORDS_FOR_OBJECT
     // ---- language: comparisons with constants, bit tests, bitwise operators --------------

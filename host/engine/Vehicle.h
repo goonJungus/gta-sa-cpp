@@ -28,6 +28,7 @@ struct HandlingData {
     char driveType = 'R', engineType = 'P';
     float brakeDecel = 8.0f, brakeBias = 0.5f;
     float steeringLock = 30.0f;       // degrees
+    int monetaryValue = 0;            // handling.cfg nMonetaryValue (GET_CAR_MODEL_VALUE)
     bool low = false;                 // modelFlags IS_LOW (0x4): the low sit pose
 };
 
