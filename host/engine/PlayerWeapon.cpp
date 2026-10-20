@@ -16,6 +16,7 @@
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include "WeaponStats.h"
 
 // The clip names of each weapon's anim group (AnimAssocAnimations): fire,
 // crouch fire, reload, crouch reload. Missing ones are null.
@@ -186,6 +187,46 @@ std::vector<GeomXf> GeometryFrames(const std::vector<uint8_t>& b) {
 
 // weapon.dat rows (the standard skill row), default.ide models, then the
 // models and textures out of gta3.img.
+// Fill the weapon.dat numbers of a gun from its poor (0), standard (1) or pro (2) row.
+void PlayerPed::ApplyGunRow(Gun& g, int skill) {
+    skill = std::clamp(skill, 0, 2);
+    const std::vector<std::string>& row = g.skillRows[skill];
+    if (row.size() < 26) return;
+    g.skill = skill;
+    g.fireClip = skill == 0 && g.spec->firePoor ? g.spec->firePoor : g.spec->fire;
+    g.slot = std::atoi(row[7].c_str());
+    g.clipSize = std::atoi(row[9].c_str());
+    g.loopStart = (float)std::atof(row[18].c_str()) * kFrame;
+    g.loopEnd = (float)std::atof(row[19].c_str()) * kFrame;
+    g.fireTime = (float)std::atof(row[20].c_str()) * kFrame;
+    g.loop2Start = (float)std::atof(row[21].c_str()) * kFrame;
+    g.loop2End = (float)std::atof(row[22].c_str()) * kFrame;
+    g.fire2Time = (float)std::atof(row[23].c_str()) * kFrame;
+    g.moveSpeed = (float)std::atof(row[17].c_str());
+    g.damage = (float)std::atof(row[10].c_str());
+    g.range = (float)std::atof(row[4].c_str());
+    g.accuracy = (float)std::atof(row[16].c_str());
+    g.targetRange = (float)std::atof(row[3].c_str());
+    // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
+    const unsigned fl = (unsigned)std::strtoul(row[25].c_str(), nullptr, 16);
+    g.flags = fl;
+    g.aimWithArm = (fl & 0x2) != 0;
+    g.twin = (fl & 0x800) != 0;
+    g.fireOffset[0] = (float)std::atof(row[11].c_str());
+    g.fireOffset[1] = (float)std::atof(row[12].c_str());
+    g.fireOffset[2] = (float)std::atof(row[13].c_str());
+    if (g.ammo > g.clipSize) g.ammo = g.clipSize;
+}
+
+// Re-pick every gun's weapon.dat row after a skill stat changed (CPed::GetWeaponSkill).
+void PlayerPed::RefreshWeaponSkills() {
+    for (Gun& g : m_guns) {
+        if (g.skillRows[0].empty()) continue;
+        const int sk = WeaponStats::Skill(g.spec->name);
+        if (sk != g.skill) { std::fprintf(stderr, "[GUN] %s skill %d -> %d\n", g.name.c_str(), g.skill, sk); ApplyGunRow(g, sk); }
+    }
+}
+
 void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
     std::ifstream wf(gameDir + "\\data\\weapon.dat");
     std::ifstream idef(gameDir + "\\data\\default.ide");
@@ -286,38 +327,17 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
     };
 
     for (const GunSpec& sp : kSpecs) {
-        const std::vector<std::string>* row = nullptr;
-        for (const auto& t : rows) {
-            if (t[1] != sp.name) continue;
-            if (!row || t[14] == std::to_string(s_weaponSkill)) row = &t;   // the player's skill row (0 poor, 1 std), else the first
-        }
-        if (!row) continue;
+        std::vector<const std::vector<std::string>*> byName;   // poor, standard, pro rows in file order
+        for (const auto& t : rows) if (t[1] == sp.name) byName.push_back(&t);
+        if (byName.empty()) continue;
         Gun g;
+        for (int k = 0; k < 3; k++) g.skillRows[k] = *byName[std::min<size_t>(k, byName.size() - 1)];
+        const std::vector<std::string>* row = &g.skillRows[0];
         g.spec = &sp;
         g.thrown = sp.thrown; g.type = sp.type; g.detonator = std::strcmp(sp.name, "DETONATOR") == 0;
-        g.fireClip = s_weaponSkill == 0 && sp.firePoor ? sp.firePoor : sp.fire;
-        g.slot = std::atoi((*row)[7].c_str());
         g.name = sp.label;
-        g.clipSize = std::atoi((*row)[9].c_str());
-        g.loopStart = (float)std::atof((*row)[18].c_str()) * kFrame;
-        g.loopEnd = (float)std::atof((*row)[19].c_str()) * kFrame;
-        g.fireTime = (float)std::atof((*row)[20].c_str()) * kFrame;
-        g.loop2Start = (float)std::atof((*row)[21].c_str()) * kFrame;
-        g.loop2End = (float)std::atof((*row)[22].c_str()) * kFrame;
-        g.fire2Time = (float)std::atof((*row)[23].c_str()) * kFrame;
-        g.moveSpeed = (float)std::atof((*row)[17].c_str());
-        g.damage = (float)std::atof((*row)[10].c_str());
-        g.range = (float)std::atof((*row)[4].c_str());
-        g.accuracy = (float)std::atof((*row)[16].c_str());
-        g.targetRange = (float)std::atof((*row)[3].c_str());
-        // flags are hex, the first digit (CANAIM 1, AIMWITHARM 2, 1STPERSON 4, ONLYFREEAIM 8) is the last character
-        g.flags = (unsigned)std::strtoul((*row)[25].c_str(), nullptr, 16);
-        g.aimWithArm = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x2) != 0;
-        g.twin = (std::strtoul((*row)[25].c_str(), nullptr, 16) & 0x800) != 0;
+        ApplyGunRow(g, WeaponStats::Skill(sp.name));
         g.reloadTime = 1.0f;
-        g.fireOffset[0] = (float)std::atof((*row)[11].c_str());
-        g.fireOffset[1] = (float)std::atof((*row)[12].c_str());
-        g.fireOffset[2] = (float)std::atof((*row)[13].c_str());
         loadModel(g, std::atoi((*row)[5].c_str()));
         g.ammo = g.clipSize;
         g.total = g.clipSize * 6;

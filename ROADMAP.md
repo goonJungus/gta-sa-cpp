@@ -56,7 +56,7 @@ the sections from "Gap list" down are systems not yet started or only started.
 ## Gap list: player, stats and combat
 Source: the retail decomp (CPlayerPed, CStats, CTask*, CWeapon, CClothes, CPlayerInfo) and the retail feature set.
 - [ ] Weapon polish against retail captures: pistol, silenced pistol, Desert Eagle, micro SMG, Tec-9, sawn-off, MP5 aim pose and hold (w 2)
-- [ ] Weapon skill progression per weapon (poor, gangster, hitman) with the retail stat thresholds and the pro twin-pistol swap (w 1)
+- [x] Weapon skill progression per weapon (poor, gangster, hitman): WeaponStats stat 0..1000 per firearm, ar_stats.dat inc and timelimit, weapon.dat reqStat thresholds (CPed::GetWeaponSkill), rows re-picked live (clip, damage, range, twin pistols), "+" help box with stat bar, saved in ini [Stats] (w 1)
 - [ ] Ammu-Nation shooting range: four weapon challenges (pistol, micro SMG, shotgun, AK-47) (w 1)
 - [ ] Lock-on auto target (CWeapon lock-on pick, target switching, free aim versus auto aim) (w 2)
 - [ ] Spray paint and the 100 gang tags (CTagManager: tag alpha, spray progress, tag counts per zone) (w 2)
