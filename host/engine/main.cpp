@@ -1570,6 +1570,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             std::fprintf(stderr, "[CUTAUDIO] %s has no track\n", name.c_str());
         };
+        g_sg.beatPlay = [](int id) { const bool ok = g_radio.PlayCutsceneTrack((uint32_t)id); std::fprintf(stderr, "[CUTAUDIO] beat track %d %s\n", id, ok ? "playing" : "failed"); return ok; };
         g_sg.cutsceneAudioStop = [] { if (g_radio.CutsceneTrackActive()) { g_radio.StopCutsceneTrack(); std::fprintf(stderr, "[CUTAUDIO] stopped\n"); } };
         g_sg.skipPressed = [] {   // Enter, Space or the left mouse button, on the press
             static bool was = false;

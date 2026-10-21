@@ -375,9 +375,16 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     // ---- world switches and stats that have no game effect yet ------------------------
     case 0x01E8: case 0x022B: case 0x091E: case 0x06D7: case 0x06D8: case 0x06D9: case 0x06DC: case 0x06DD:   // roads and trains
     case 0x02B9: case 0x076C:                                                                                 // garages, gang strength
-    case 0x0955: case 0x0952: case 0x0954: case 0x040D: case 0x01EB: case 0x03DE: case 0x09BA: // beat track, mission audio, densities, zone names, stats
+    case 0x040D: case 0x01EB: case 0x03DE: case 0x09BA: // beat track, mission audio, densities, zone names, stats
     case 0x01B7: case 0x01B6: case 0x0662: case 0x0459: case 0x0A2D:
         return true;
+    case 0x0952: m_beatTrack = c.I(0); std::fprintf(stderr, "[SCMGAME] PRELOAD_BEAT_TRACK %d\n", m_beatTrack); return true;                 // PRELOAD_BEAT_TRACK: the track id is a TrakLkup index
+    case 0x0954: {                                                                                                                       // PLAY_BEAT_TRACK
+        const bool ok = beatPlay && m_beatTrack >= 0 && beatPlay(m_beatTrack);
+        std::fprintf(stderr, "[SCMGAME] PLAY_BEAT_TRACK %d %s\n", m_beatTrack, ok ? "playing" : "failed");
+        return true;
+    }
+    case 0x0955: if (cutsceneAudioStop) cutsceneAudioStop(); std::fprintf(stderr, "[SCMGAME] STOP_BEAT_TRACK\n"); return true;      // STOP_BEAT_TRACK
     case 0x0953: c.Out(0, 2); return true;   // GET_BEAT_TRACK_STATUS: 2 = ready to play
     case 0x0112: c.result = false; return true;  // HAS_DEATHARREST_BEEN_EXECUTED
     case 0x09B2: c.Out(1, 496); c.Out(2, 1); c.result = true; return true;   // GET_RANDOM_CAR_MODEL_IN_MEMORY: a common sedan is always resident

@@ -68,6 +68,7 @@ public:
     Cutscene::DrawCj drawCj;                                     // CJ in a cutscene
     std::function<void(bool)> showPlayer;                        // hide CJ while a cutscene plays
     std::function<void(const std::string&)> cutsceneAudio;       // START_CUTSCENE: play the scene's audio track (CAudioEngine::PlayPreloadedCutsceneTrack)
+    std::function<bool(int)> beatPlay;                           // PLAY_BEAT_TRACK: TrakLkup track id (CAECutsceneTrackManager::PreloadBeatTrack)
     std::function<void()> cutsceneAudioStop;                     // the scene ended, was skipped or cleared
     std::function<int()> menuInput;                              // edges this frame: 1 up, 2 down, 4 accept
     std::function<int(int, int)> playSound;                      // bank, sound -> voice (0 = nothing played)
@@ -117,6 +118,7 @@ private:
     Cutscene m_cutscene;
     CutState m_cut;
     int m_cutObjects = 0, m_cutSec = -1;
+    int m_beatTrack = -1;               // PRELOAD_BEAT_TRACK
     std::string m_cutKey;
     float m_fadeFrom = 0, m_fadeTo = 0, m_fadeT = 0, m_fadeDur = 0;
     bool m_fading = false;
