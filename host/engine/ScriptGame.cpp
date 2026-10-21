@@ -215,7 +215,9 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x02EA: {                                                                           // CLEAR_CUTSCENE
         if (cutsceneAudioStop) cutsceneAudioStop();
         if (r) m_cutscene.Free(*r);
+        const bool wasSkipped = m_cut.skipped;   // CCutsceneMgr::ms_wasCutsceneSkipped survives DeleteCutsceneData; only LoadCutsceneData clears it
         m_cut = CutState{};
+        m_cut.skipped = wasSkipped;
         if (cam.cutscene) cam = ScriptCamera{};
         wideTarget = false;
         if (showPlayer) showPlayer(true);
