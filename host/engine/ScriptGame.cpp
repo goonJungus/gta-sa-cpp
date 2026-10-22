@@ -29,8 +29,31 @@ ScriptTextItem ScriptGame::DefaultStyle() const {
     return s;
 }
 
+// CMessages: "~k~~ACTION~" shows the key bound to a control action (CControllerConfigManager::GetControllerSettingTextWithOrderNumber).
+// The keys here are the ones the engine reads.
+static std::string WithKeyNames(std::string s) {
+    static const struct { const char* action; const char* key; } kKeys[] = {
+        {"GO_FORWARD", "W"}, {"GO_BACK", "S"}, {"GO_LEFT", "A"}, {"GO_RIGHT", "D"},
+        {"PED_SPRINT", "SPACE"}, {"PED_JUMPING", "SHIFT"}, {"PED_ANSWER_PHONE", "F"}, {"VEHICLE_ENTER_EXIT", "F"},
+        {"PED_FIREWEAPON", "LEFT MOUSE"}, {"PED_LOCK_TARGET", "RIGHT MOUSE"}, {"PED_DUCK", "C"},
+        {"VEHICLE_ACCELERATE", "W"}, {"VEHICLE_BRAKE", "S"}, {"VEHICLE_STEERLEFT", "A"}, {"VEHICLE_STEERRIGHT", "D"},
+        {"VEHICLE_HANDBRAKE", "SPACE"}, {"CAMERA_CHANGE_VIEW_ALL_SITUATIONS", "V"}, {"PED_CYCLE_WEAPON_RIGHT", "E"},
+        {"PED_CYCLE_WEAPON_LEFT", "Q"}, {"TOGGLE_SUBMISSIONS", "CAPS LOCK"}, {"NETWORK_TALK", "T"},
+    };
+    for (size_t at; (at = s.find("~k~~")) != std::string::npos;) {
+        const size_t end = s.find('~', at + 4);
+        if (end == std::string::npos) break;
+        const std::string action = s.substr(at + 4, end - at - 4);
+        std::string key;
+        for (const auto& k : kKeys) if (action == k.action) key = k.key;
+        if (key.empty()) std::fprintf(stderr, "[SCMGAME] no key name for ~k~~%s~\n", action.c_str());
+        s.replace(at, end - at + 1, key);
+    }
+    return s;
+}
+
 std::string ScriptGame::Text(const std::string& key) {
-    return hud ? hud->Text().Get(key.c_str()) : key;
+    return hud ? WithKeyNames(hud->Text().Get(key.c_str())) : key;
 }
 
 int ScriptGame::CharIndex(int uid) const { return peds && uid != kPlayer ? peds->FindUid(uid) : -1; }
