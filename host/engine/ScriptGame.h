@@ -15,6 +15,7 @@
 #include "Cutscene.h"
 #include "ImgLoader.h"
 #include "Vehicle.h"
+#include "Train.h"
 #include "Hud.h"
 #include "Script.h"
 
@@ -108,6 +109,7 @@ public:
 private:
     struct Frame { uint32_t time; int16_t vel[3]; int8_t right[3], top[3]; int8_t steer, gas, brake, handbrake; float pos[3]; };
     struct Playback { bool on = false, looped = false, paused = false, ai = false; int car = 0, number = 0; size_t index = 0; float time = 0, speed = 1.0f; };
+    Trains m_trains;                    // mission trains on the track nodes
     ImgLoader m_carrecImg;
     bool m_carrecOpen = false;
     std::map<int, std::vector<Frame>> m_recs;                    // loaded recordings by number

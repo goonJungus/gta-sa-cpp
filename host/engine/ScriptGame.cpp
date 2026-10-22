@@ -371,9 +371,35 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
         c.Out(1, v && scm && scm->host.addBlip ? scm->host.addBlip(v->x, v->y, v->z, 0, false) : 0);
         return true;
     }
+    // ---- mission trains -------------------------------------------------------------
+    case 0x06D8: {   // CREATE_MISSION_TRAIN(type, x, y, z, clockwise) -> train
+        if (!cars || !r) { c.Out(5, 0); return true; }
+        if (!m_trains.Loaded()) m_trains.Load(gameDir);
+        const float p[3] = {c.F(1), c.F(2), c.F(3)};
+        const int t = m_trains.CreateMissionTrain(*cars, *r, p, c.I(4) != 0, c.I(0));
+        c.Out(5, t >= 0 ? m_trains.Cars()[(size_t)t].car + 1 : 0);
+        return true;
+    }
+    case 0x06D9: if (cars) m_trains.RemoveMissionTrains(*cars); return true;           // DELETE_MISSION_TRAINS
+    case 0x06DA: m_trains.ReleaseMissionTrains(); return true;                         // MARK_MISSION_TRAINS_AS_NO_LONGER_NEEDED
+    case 0x06DB: if (cars) for (size_t i = 0; i < m_trains.Cars().size(); i++) if (!m_trains.Cars()[i].removed) m_trains.RemoveTrain(*cars, (int)i); return true;   // DELETE_ALL_TRAINS
+    case 0x06DC: m_trains.SetTrainSpeed(m_trains.CarriageOfCar(c.I(0) - 1), c.F(1)); return true;         // SET_TRAIN_SPEED
+    case 0x06DD: m_trains.SetTrainCruiseSpeed(m_trains.CarriageOfCar(c.I(0) - 1), c.F(1)); return true;   // SET_TRAIN_CRUISE_SPEED
+    case 0x06DE: {   // GET_TRAIN_CABOOSE(train) -> car
+        const int t = m_trains.FindCaboose(m_trains.CarriageOfCar(c.I(0) - 1));
+        c.Out(1, t >= 0 ? m_trains.Cars()[(size_t)t].car + 1 : 0);
+        return true;
+    }
+    case 0x078A: {   // GET_TRAIN_CARRIAGE(train, n) -> car, -1 when there is none
+        const int t = m_trains.FindCarriage(m_trains.CarriageOfCar(c.I(0) - 1), c.I(1));
+        c.Out(2, t >= 0 ? m_trains.Cars()[(size_t)t].car + 1 : -1);
+        return true;
+    }
+    case 0x07BD: if (cars) m_trains.RemoveTrain(*cars, m_trains.CarriageOfCar(c.I(0) - 1)); return true;   // DELETE_MISSION_TRAIN
+    case 0x07BE: m_trains.ReleaseTrain(m_trains.CarriageOfCar(c.I(0) - 1)); return true;                   // MARK_MISSION_TRAIN_AS_NO_LONGER_NEEDED
     case 0x07E0: return true;   // SET_BLIP_AS_FRIENDLY
     // ---- world switches and stats that have no game effect yet ------------------------
-    case 0x01E8: case 0x022B: case 0x091E: case 0x06D7: case 0x06D8: case 0x06D9: case 0x06DC: case 0x06DD:   // roads and trains
+    case 0x01E8: case 0x022B: case 0x091E: case 0x06D7:   // roads and random trains
     case 0x02B9: case 0x076C:                                                                                 // garages, gang strength
     case 0x040D: case 0x01EB: case 0x03DE: case 0x09BA: // beat track, mission audio, densities, zone names, stats
     case 0x01B7: case 0x01B6: case 0x0662: case 0x0459: case 0x0A2D:
@@ -1217,6 +1243,7 @@ void ScriptGame::PlaybackStep(float dt) {
 
 void ScriptGame::Update(float dt) {
     PlaybackStep(dt);
+    if (cars) m_trains.Update(*cars, dt);
     MenuUpdate();
     for (const auto& f : m_frozenCars) {   // FREEZE_CAR_POSITION: held where it was frozen
         if (!cars || f.first < 1 || (size_t)f.first > cars->Count()) continue;
