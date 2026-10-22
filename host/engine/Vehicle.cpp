@@ -390,6 +390,12 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         }
         VehiclePart p;
         p.mesh = mesh;
+        {
+            const float oy = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][13] : 0.0f, oz = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][14] : 0.0f;
+            for (const DffVertex& v : dm.vertices) {
+                vm.bbMinY = std::min(vm.bbMinY, v.y + oy); vm.bbMaxY = std::max(vm.bbMaxY, v.y + oy); vm.bbMinZ = std::min(vm.bbMinZ, v.z + oz);
+            }
+        }
         if (fr >= 0 && (size_t)fr < glob.size()) std::memcpy(p.m, glob[(size_t)fr].data(), sizeof(p.m));
         else { std::memset(p.m, 0, sizeof(p.m)); p.m[0] = p.m[5] = p.m[10] = p.m[15] = 1.0f; }
         for (int k = 0; k < 3; k++) if (vm.nodes[k].found && name == (k == 0 ? "misc_a" : k == 1 ? "misc_b" : "misc_c")) p.node = k;
@@ -402,6 +408,13 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         if (vm.wheelFound[0] && vm.wheelFound[2]) vm.wheelBase = std::max(1.5f, std::fabs(vm.wheelPos[0][1] - vm.wheelPos[2][1]));
     }
     return vm.parts.empty() && !vm.wheelMesh ? nullptr : &vm;
+}
+
+bool Vehicles::ModelBounds(int id, float* minY, float* maxY, float* minZ) const {
+    auto it = m_models.find(id);
+    if (it == m_models.end()) return false;
+    *minY = it->second.bbMinY; *maxY = it->second.bbMaxY; *minZ = it->second.bbMinZ;
+    return true;
 }
 
 int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading) {
