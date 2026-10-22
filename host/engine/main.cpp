@@ -600,6 +600,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // ResolveGameDir; nothing machine-specific is compiled in.
 static std::string g_gameDir;
 static Vehicles g_vehicles;
+// 0 car, 1 bicycle (bmx.ifp rider), 2 moped or motorbike (bikes.ifp rider); eVehicleClass 7, 8, 11
+static int BikeKind(int n) {
+    const VehicleInfo* vi = g_vehicles.Info(g_vehicles.Car((size_t)n).model);
+    return !vi ? 0 : vi->vclass == 11 ? 1 : (vi->vclass == 7 || vi->vclass == 8) ? 2 : 0;
+}
 static Peds g_peds;
 static Delirium g_delirium;   // optional active-ragdoll plugin (runtime-loaded DLL)
 static Speech g_speech;   // CAEPedSpeechAudioEntity
@@ -1541,7 +1546,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (n < 0 || (size_t)n >= g_vehicles.Count() || g_driveCar == n) return;
             g_driveCar = n; Log("SCRIPT: player into car %d", n); g_radio.Tune(g_radioStation);
             float sp[3]; bool low = false;
-            if (cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low)) g_cj.EnterVehicle(low);
+            if (cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low)) g_cj.EnterVehicle(low, BikeKind(n));
         };
         g_sg.playerLeaveCar = [&] {
             if (g_driveCar < 0) return;
@@ -3463,6 +3468,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar);
                     pin.carSteer = -dc.steer;   // retail: positive = left
                     pin.carSpeed = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy);
+                    pin.carGas = (RawGameKey('W') & 0x8000) != 0;
                     pin.carReverse = dc.speed < -0.3f || (RawGameKey('S') & 0x8000) != 0;
                     g_cj.SetDrivingSkill(Stats::Get(Stats::STAT_DRIVING_SKILL) / 10.0f);
                 }
@@ -3797,7 +3803,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (n >= 0 && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) {
                         g_driveCar = n; Log("DRIVE: got in car %d", n); g_radio.Tune(g_radioStation);
                         float sp[3]; bool low = false;
-                        if (cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low)) g_cj.EnterVehicle(low);
+                        if (cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low)) g_cj.EnterVehicle(low, BikeKind(n));
                     }
                 } else if (fJust && g_driveCar >= 0) {
                     VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);

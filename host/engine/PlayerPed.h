@@ -88,6 +88,7 @@ public:
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
         float carSteer = 0.0f;                // seated: CVehicle::m_fSteerAngle, radians, positive = left
         float carSpeed = 0.0f;                // seated: the car's speed, m/s
+        bool carGas = false;                  // seated on a bike: the gas pedal is held
         bool carReverse = false;              // seated: gas pedal below zero (CVehicle::m_GasPedal)
         bool jetStop = false;                 // jetpack: look behind held (CTaskSimpleJetPack stop mode)
         bool jetBrake = false;                // jetpack: brake held (negative thrust)
@@ -153,7 +154,7 @@ public:
     // CTaskSimpleCarDrive + CTaskSimpleGangDriveBy (PlayerDriveby.cpp). The host seats CJ at the car's
     // seat dummy; the ped origin is the pelvis. EnterVehicle is CPed::ReplaceWeaponForVehicle: the
     // SMG (Micro Uzi, Tec-9, MP5) in hand with the old weapon saved, LeaveVehicle gives it back.
-    void EnterVehicle(bool lowCar);
+    void EnterVehicle(bool lowCar, int bike = 0);   // bike: 0 car, 1 bicycle (BMX group), 2 motorbike (bikes group)
     void LeaveVehicle();
     bool InVehicle() const { return m_seated; }
     void SetSeat(const float pos[3], float noseYaw) { m_seatPos[0] = pos[0]; m_seatPos[1] = pos[1]; m_seatPos[2] = pos[2]; m_seatYaw = noseYaw; }
@@ -520,6 +521,7 @@ private:
     bool m_hideGun = false;
     // seated in a car (PlayerDriveby.cpp)
     bool m_seated = false, m_seatLow = false;
+    int m_bike = 0;
     float m_seatPos[3] = {0, 0, 0}, m_seatYaw = 0.0f, m_drivingSkill = 0.0f;
     int m_savedWeapon = -2;                // -2 none; else the WeaponIndex() to give back
     const AnimClip* m_dbClip = nullptr;    // the Driveby_x clip in use

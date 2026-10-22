@@ -244,6 +244,8 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
             for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw", "grenade", "rocket", "flame", "spraycan", "goggles", "camera"})   // melee groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
+            for (const char* g : {"bmx", "bikes"})   // CBmx / CBike rider groups
+                IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
             for (const char* g : {"fat", "muscular"})   // CClothes::GetPlayerMotionGroupToLoad
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
             for (const char* g : {"colt45", "silenced", "python", "shotgun", "buddy", "uzi", "rifle", "sniper"})   // weapon groups
