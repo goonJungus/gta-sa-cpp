@@ -41,7 +41,7 @@ bool PlayerPed::CanDriveby() const {
 }
 
 // CPed::ReplaceWeaponForVehicle: an SMG with ammo goes in the hand, the old weapon is put by.
-void PlayerPed::EnterVehicle(bool lowCar) {
+void PlayerPed::EnterVehicle(bool lowCar, int bike) {
     if (m_seated) return;
     const int cur = WeaponIndex();
     int smg = -1;
@@ -58,6 +58,7 @@ void PlayerPed::EnterVehicle(bool lowCar) {
     }
     m_seated = true;
     m_seatLow = lowCar;
+    m_bike = bike;
     m_busy = m_aiming = m_ducking = m_inAir = m_jumping = false;
     m_firing = m_reloading = false;
     m_gunFireClip = m_gunRelClip = nullptr;
@@ -93,6 +94,43 @@ void PlayerPed::UpdateSeated(const Input& in) {
     m_heading = m_aimHeading = m_seatYaw;
     m_velX = m_velY = 0.0f;
     m_flash = std::max(0.0f, m_flash - dt);
+
+    if (m_bike) {   // CBmx::ProcessDrivingAnims / CBike::ProcessRiderAnims
+        const char* grp = m_bike == 1 ? "bmx_" : "bikes_";
+        auto nm = [&](const char* n) { return std::string(grp) + n; };
+        const float spd = in.carSpeed;
+        const bool pedal = m_bike == 1 && in.carGas && spd > 0.02f;
+        const bool sprint = pedal && spd * 3.0f >= 2.5f;
+        std::string want = spd < 0.02f && !in.carGas ? nm("still") : sprint ? nm("sprint") : pedal ? nm("pedal") : m_bike == 1 ? nm("still") : nm("ride");
+        for (const char* n : {"still", "pedal", "sprint", "ride", "pushes"}) {
+            const AnimClip* c = Clip(nm(n).c_str());
+            if (!c) continue;
+            Assoc* a = Get(c);
+            const bool mine = want == nm(n);
+            if (mine) {
+                if (!a) { a = Add(c, true, false); a->blend = 0.0f; }
+                a->delta = 4.0f;
+                if (!std::strcmp(n, "pedal") || !std::strcmp(n, "sprint")) a->speed = std::max(spd * 3.0f, 0.5f);
+            } else if (a) a->delta = -4.0f;
+        }
+        const Assoc* base = Get(Clip(want.c_str()));
+        const bool ok = base && base->blend >= 1.0f;
+        const AnimClip *cl = Clip(nm("left").c_str()), *cr = Clip(nm("right").c_str());
+        const float lean = std::clamp(in.carSteer / kSteerRange, -1.0f, 1.0f);   // positive = left
+        for (int side = 0; side < 2; side++) {
+            const AnimClip* c = side ? cr : cl;
+            if (!c) continue;
+            const float amt = ok ? std::max(side ? -lean : lean, 0.0f) : 0.0f;
+            Assoc* a = Get(c);
+            if (amt <= 0.0f) { if (a) a->delta = -4.0f; continue; }
+            if (!a) { a = Add(c, true, false); a->partial = true; }
+            a->blend = amt;
+            a->delta = 0.0f;
+            a->speed = 0.0f;
+            a->time = c->duration * amt;
+        }
+        return;
+    }
 
     // ---- CVehicle::ProcessDrivingAnims: the tiered sit pose, steering and look-back overlays ----
     const RideSet* use;
