@@ -984,18 +984,19 @@ void Hud::DrawRewrite(Fe2d& g, const HudData& d, float sw, float sh) {
     if (d.armed && !d.hideAmmo && (m_ammoTimer > 0.0f || d.reloading)) {
         const float a = std::min(1.0f, m_ammoTimer * 2.0f);
         const float sx = 0.86f * fk, sy = 1.8f * fk, ey = hy(54.0f) + shift;
-        char big[16], small[16];
+        // NB: not named `small` -- that is a Windows macro (rpcndr.h: #define small char).
+        char totalStr[16], clipStr[16];
         if (d.clipSize > 1) {
-            std::snprintf(big, sizeof(big), "%d", d.ammoTotal);
-            std::snprintf(small, sizeof(small), "%d", d.ammoClip);
+            std::snprintf(totalStr, sizeof(totalStr), "%d", d.ammoTotal);
+            std::snprintf(clipStr, sizeof(clipStr), "%d", d.ammoClip);
             m_font.SetStyle(FeFont::PRICEDOWN);
             m_font.SetScale(m_font.Sx(sx), m_font.Sy(sy));
-            const float cw = m_font.StringWidth(small);
-            Text(g, FeFont::PRICEDOWN, hr(96.0f), ey, small, sx, sy, Alpha(d.ammoClip == 0 ? 0xFFE05050 : 0xFF9AA4AE, a), FeFont::RIGHT, 2);
-            Text(g, FeFont::PRICEDOWN, hr(96.0f + 12.0f) - cw, ey, big, sx, sy, Alpha(0xFFFFFFFF, a), FeFont::RIGHT, 2);
+            const float cw = m_font.StringWidth(clipStr);
+            Text(g, FeFont::PRICEDOWN, hr(96.0f), ey, clipStr, sx, sy, Alpha(d.ammoClip == 0 ? 0xFFE05050 : 0xFF9AA4AE, a), FeFont::RIGHT, 2);
+            Text(g, FeFont::PRICEDOWN, hr(96.0f + 12.0f) - cw, ey, totalStr, sx, sy, Alpha(0xFFFFFFFF, a), FeFont::RIGHT, 2);
         } else {
-            std::snprintf(big, sizeof(big), "%d", d.ammoClip + d.ammoTotal);
-            Text(g, FeFont::PRICEDOWN, hr(96.0f), ey, big, sx, sy, Alpha(0xFFFFFFFF, a), FeFont::RIGHT, 2);
+            std::snprintf(totalStr, sizeof(totalStr), "%d", d.ammoClip + d.ammoTotal);
+            Text(g, FeFont::PRICEDOWN, hr(96.0f), ey, totalStr, sx, sy, Alpha(0xFFFFFFFF, a), FeFont::RIGHT, 2);
         }
         if (d.reloading)
             Text(g, FeFont::SUBTITLES, hr(96.0f), ey + 34.0f * ref, "RELOADING", 0.34f * 0.77f * d.scale, 0.8f * 0.77f * d.scale, Alpha(0xFFF2C94C, a), FeFont::RIGHT, 0);

@@ -115,6 +115,10 @@ if(WIN32)
     target_include_directories(gta_standalone PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/host/engine)
     target_link_libraries(gta_standalone PRIVATE gta_sa_module d3d9 shell32 ole32 winmm)
+    # Suppress the windows.h min/max macros target-wide so std::min/std::max work
+    # in every TU (main.cpp and headers like PlayerPed.h/Peds.h). Defined empty so
+    # it matches the per-file `#define NOMINMAX` many TUs already carry (no C4005).
+    target_compile_definitions(gta_standalone PRIVATE NOMINMAX=)
     if(MSVC)
         target_compile_definitions(gta_standalone PRIVATE
             UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)

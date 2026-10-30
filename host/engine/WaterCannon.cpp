@@ -1,3 +1,4 @@
+#define NOMINMAX   // keep std::min/std::max usable; windows.h arrives via the renderer header
 #include "WaterCannon.h"
 
 #include <algorithm>

@@ -4,7 +4,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#ifdef _MSC_VER   // POSIX strcasecmp/strncasecmp live in <string.h> under other names on MSVC
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#else
 #include <strings.h>
+#endif
 #include <fstream>
 #include <sstream>
 

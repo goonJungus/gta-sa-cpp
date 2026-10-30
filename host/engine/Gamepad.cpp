@@ -32,17 +32,12 @@ GetStateFn Load() {
     return fn;
 }
 
-float Dead(float v, float dead) {   // radial dead zone is applied by the caller on the pair
-    return std::fabs(v) < dead ? 0.0f : v;
-}
-
 void Stick(SHORT x, SHORT y, float dead, float& ox, float& oy) {
     float fx = (float)x / 32767.0f, fy = (float)y / 32767.0f;
     const float m = std::sqrt(fx * fx + fy * fy);
     if (m < dead) { ox = oy = 0.0f; return; }
     const float s = std::min(1.0f, (m - dead) / (1.0f - dead)) / m;
     ox = fx * s; oy = fy * s;
-    (void)Dead;
 }
 
 }  // namespace

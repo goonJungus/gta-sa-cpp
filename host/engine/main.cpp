@@ -4031,7 +4031,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 float sx = 0, sy = 0, sz = 0;
                 if (sc.shakeT > 0.0f && sc.shakeDur > 0.0f) {
                     const float a = sc.shakeAmp * 0.002f * (sc.shakeT / sc.shakeDur);
-                    sx = a * std::sin(scmClock * 61.0); sy = a * std::sin(scmClock * 47.0 + 1.0); sz = a * std::sin(scmClock * 53.0 + 2.0);
+                    sx = a * (float)std::sin(scmClock * 61.0); sy = a * (float)std::sin(scmClock * 47.0 + 1.0); sz = a * (float)std::sin(scmClock * 53.0 + 2.0);
                 }
                 D3DMATRIX view = MatrixLookAt(sc.pos[0] + sx, sc.pos[1] + sy, sc.pos[2] + sz, sc.look[0], sc.look[1], sc.look[2],
                                               sc.cutscene ? sc.up[0] : 0.0f, sc.cutscene ? sc.up[1] : 0.0f, sc.cutscene ? sc.up[2] : 1.0f);
