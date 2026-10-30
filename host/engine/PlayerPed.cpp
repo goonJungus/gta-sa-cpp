@@ -1436,6 +1436,15 @@ void PlayerPed::Update(const Input& inRaw) {
     m_stickX = in.stickX;
     m_stickY = in.stickY;
 
+    if (m_vehTrans != VehTrans::None) {   // CTaskComplexEnterCar / LeaveCar: open-door / get-in / get-out
+        UpdateVehTransition(in);
+        Advance(dt);
+        m_rootDX = m_rootDY = 0.0f;
+        BuildPose(); BuildGlobals(m_pose); ShoulderBoneRotation();
+        if (in.rewrite) ApplyRewritePose();
+        Skin();
+        return;
+    }
     if (m_seated) {
         UpdateSeated(in);
         Advance(dt);
@@ -1644,7 +1653,7 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
         }
     }
     if (m_jet.on) DrawJetpack(r, w);
-    if (!m_hideGun && (!m_seated || m_dbClip)) DrawGun(r, x, y, feetZ);
+    if (!m_hideGun && m_vehTrans == VehTrans::None && (!m_seated || m_dbClip)) DrawGun(r, x, y, feetZ);
 }
 
 void PlayerPed::DrawCutscene(D3DRenderer& r, const AnimClip* clip, float time, const float origin[3]) {

@@ -157,6 +157,20 @@ public:
     void EnterVehicle(bool lowCar, int bike = 0);   // bike: 0 car, 1 bicycle (BMX group), 2 motorbike (bikes group)
     void LeaveVehicle();
     bool InVehicle() const { return m_seated; }
+    // CTaskComplexEnterCar / CTaskComplexLeaveCar: the open-door / get-in / get-out animation
+    // (cars only; bikes still mount instantly). CJ faces the car's nose throughout and his origin
+    // blends between a door-open point and the seat by the clip's progress (CTaskUtilityLineUpPedWithCar).
+    // The host drives the world position from VehTransFrac() and VehDoorOffset(); EnterVehicle() /
+    // LeaveVehicle() fire automatically at the end of get-in / get-out.
+    void StartEnterCar(bool lowCar);
+    void StartExitCar(bool lowCar);
+    void CancelVehTransition();            // car gone / aborted: back to the on-foot idle
+    bool VehTransitioning() const { return m_vehTrans != VehTrans::None; }
+    bool VehEntering() const { return m_vehTrans == VehTrans::EnterOpen || m_vehTrans == VehTrans::EnterGetIn; }
+    bool VehOpening() const { return m_vehTrans == VehTrans::EnterOpen; }   // sliding up to the door
+    float VehApproachFrac() const { return m_vehApproach; }  // 0 at CJ's start spot, 1 at the door
+    float VehTransFrac() const { return m_vehFrac; }         // 0 at the door, 1 at the seat
+    void VehDoorOffset(float out[2]) const { out[0] = m_vehDoor[0]; out[1] = m_vehDoor[1]; }   // seat->door, car space (x right, y fwd)
     void SetSeat(const float pos[3], float noseYaw) { m_seatPos[0] = pos[0]; m_seatPos[1] = pos[1]; m_seatPos[2] = pos[2]; m_seatYaw = noseYaw; }
     void SeatPlacement(float out[3]) const { for (int i = 0; i < 3; i++) out[i] = m_seatPos[i]; }
     bool Driveby() const { return m_seated && m_dbClip != nullptr; }
@@ -529,6 +543,15 @@ private:
     float m_dbTime = 0.0f;                 // the task's own clock for the hold / shot / loop
     int m_dbSide = 0;                      // +1 left window, -1 right
     void UpdateSeated(const Input& in);
+    // CTaskComplexEnterCar / CTaskComplexLeaveCar sequence state.
+    enum class VehTrans { None, EnterOpen, EnterGetIn, ExitGetOut };
+    VehTrans m_vehTrans = VehTrans::None;
+    const AnimClip* m_vehClip = nullptr;   // the phase clip in play
+    float m_vehFrac = 0.0f;                // 0 at the door, 1 at the seat
+    float m_vehApproach = 0.0f;            // open phase: 0 at CJ's start spot, 1 at the door
+    float m_vehDoor[2] = {0.0f, 0.0f};     // seat->door offset, car space (x right, y forward)
+    const AnimClip* VehGetInClip() const;  // the get-in clip for this car (low vs high)
+    void UpdateVehTransition(const Input& in);
     int m_goggles = 0, m_drawIdx = -1;
     int m_para = 0;
     int m_sky = 0;                       // player_parachute.scm skydive state

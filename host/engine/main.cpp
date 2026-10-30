@@ -211,9 +211,12 @@ static SHORT RawGameKey(int vk) {
     return g_hasFocus ? GetAsyncKeyState(vk) : 0;
 }
 static int g_driveCar = -1;   // index of the car CJ is driving, -1 on foot
+static int g_vehTransCar = -1;   // car being entered/exited by the get-in / get-out animation, -1 none
+static bool g_vehTransEnter = false;   // the active transition is an entry (else an exit)
+static float g_vehEnterStart[3] = {0, 0, 0};   // CJ's feet where the entry began (he slides to the door)
 static SHORT GameKey(int vk) {
-    // While driving the pedestrian controls are muted; the car reads the raw keys.
-    if (g_driveCar >= 0 && (vk == 'W' || vk == 'A' || vk == 'S' || vk == 'D' || vk == VK_SPACE || vk == VK_SHIFT ||
+    // While driving, or mid get-in / get-out, the pedestrian controls are muted; the car reads raw keys.
+    if ((g_driveCar >= 0 || g_vehTransCar >= 0) && (vk == 'W' || vk == 'A' || vk == 'S' || vk == 'D' || vk == VK_SPACE || vk == VK_SHIFT ||
                             vk == 'C' || vk == 'F' || vk == 'Q' || vk == 'E' || vk == VK_RETURN)) return 0;
     return RawGameKey(vk);
 }
@@ -3798,23 +3801,88 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const bool fDown = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen();
                 const bool fJust = fDown && !s_prevF;
                 s_prevF = fDown;
-                if (fJust && g_driveCar < 0) {
+                if (fJust && g_driveCar < 0 && g_vehTransCar < 0) {
                     const int n = g_vehicles.Nearest(playerX, playerY, 6.5f);
                     if (n >= 0 && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) {
-                        g_driveCar = n; Log("DRIVE: got in car %d", n); g_radio.Tune(g_radioStation);
                         float sp[3]; bool low = false;
-                        if (cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low)) g_cj.EnterVehicle(low, BikeKind(n));
+                        const bool ok = cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low);
+                        if (cjReady && ok && BikeKind(n) == 0) {   // cars: play the open-door / get-in sequence
+                            g_vehTransCar = n; g_vehTransEnter = true;
+                            g_vehEnterStart[0] = playerX; g_vehEnterStart[1] = playerY; g_vehEnterStart[2] = playerZ - EYE_HEIGHT;
+                            g_cj.StartEnterCar(low);
+                            Log("DRIVE: entering car %d", n);
+                        } else {   // bikes mount instantly; so does a car whose model is not loaded yet
+                            g_driveCar = n; g_radio.Tune(g_radioStation);
+                            if (ok) g_cj.EnterVehicle(low, BikeKind(n));
+                            Log("DRIVE: got in %d", n);
+                        }
                     }
-                } else if (fJust && g_driveCar >= 0) {
-                    VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
-                    playerX = c.x + std::cos(c.heading) * 2.4f; playerY = c.y + std::sin(c.heading) * 2.4f;
-                    playerZ = c.z + EYE_HEIGHT; velZ = 0.0f; onGround = true;
-                    c.speed = 0.0f;
-                    g_driveCar = -1;
-                    if (cjReady) g_cj.LeaveVehicle();
-                    g_audio.EngineStop();
-                    g_radio.Tune(-1);
-                    Log("DRIVE: got out");
+                } else if (fJust && g_driveCar >= 0 && g_vehTransCar < 0) {
+                    const int n = g_driveCar;
+                    VehicleInstance& c = g_vehicles.Car((size_t)n);
+                    if (BikeKind(n) != 0) {   // bikes hop off instantly
+                        playerX = c.x + std::cos(c.heading) * 2.4f; playerY = c.y + std::sin(c.heading) * 2.4f;
+                        playerZ = c.z + EYE_HEIGHT; velZ = 0.0f; onGround = true; c.speed = 0.0f;
+                        g_driveCar = -1;
+                        if (cjReady) g_cj.LeaveVehicle();
+                        g_audio.EngineStop(); g_radio.Tune(-1);
+                        Log("DRIVE: got off bike");
+                    } else {   // cars: play the get-out sequence
+                        float sp[3]; bool low = false;
+                        g_vehicles.SeatWorld((size_t)n, sp, &low);
+                        c.speed = 0.0f;
+                        g_vehTransCar = n; g_vehTransEnter = false; g_driveCar = -1;
+                        if (cjReady) g_cj.StartExitCar(low);
+                        g_audio.EngineStop();
+                        Log("DRIVE: exiting car %d", n);
+                    }
+                }
+                // ---- Get-in / get-out: blend CJ's world position between the door and the seat ----
+                if (g_vehTransCar >= 0 && cjReady) {
+                    if ((size_t)g_vehTransCar >= g_vehicles.Count()) { g_cj.CancelVehTransition(); g_vehTransCar = -1; }
+                    else {
+                        VehicleInstance& c = g_vehicles.Car((size_t)g_vehTransCar);
+                        float sp[3]; bool low = false;
+                        const bool ok = g_vehicles.SeatWorld((size_t)g_vehTransCar, sp, &low);
+                        if (!ok || c.wrecked || c.removed || c.health <= 0.0f) {   // car gone: bail out on foot
+                            g_cj.CancelVehTransition(); g_vehTransCar = -1;
+                            velZ = 0.0f; onGround = true; g_audio.EngineStop(); g_radio.Tune(-1);
+                        } else {
+                            g_cj.SetSeat(sp, c.heading + 1.5707963f);
+                            float door[2]; g_cj.VehDoorOffset(door);
+                            const float ch = std::cos(c.heading), sh = std::sin(c.heading);
+                            const float doorX = sp[0] + door[0] * ch - door[1] * sh;   // seat + offset in car space
+                            const float doorY = sp[1] + door[0] * sh + door[1] * ch;
+                            const float dg = worldReady ? g_world.GetGroundHeight(doorX, doorY, sp[2]) : sp[2] - 1.0f;
+                            const float doorFeet = dg > -500.0f ? dg : sp[2] - 1.0f;
+                            const float seatFeet = sp[2] - 1.0f;
+                            float px, py, feet;
+                            if (g_cj.VehOpening()) {   // slide from CJ's start spot up to the door while the door opens
+                                const float a = g_cj.VehApproachFrac();
+                                px = g_vehEnterStart[0] + (doorX - g_vehEnterStart[0]) * a;
+                                py = g_vehEnterStart[1] + (doorY - g_vehEnterStart[1]) * a;
+                                feet = g_vehEnterStart[2] + (doorFeet - g_vehEnterStart[2]) * a;
+                            } else {                   // get-in / get-out: blend door <-> seat
+                                const float f = g_cj.VehTransFrac();   // 0 at the door, 1 at the seat
+                                px = doorX + (sp[0] - doorX) * f;
+                                py = doorY + (sp[1] - doorY) * f;
+                                feet = doorFeet + (seatFeet - doorFeet) * f;
+                            }
+                            playerX = px; playerY = py; playerZ = feet + EYE_HEIGHT;
+                            velZ = 0.0f; onGround = true;
+                            if (!g_cj.VehTransitioning()) {   // the sequence finished this frame
+                                if (g_vehTransEnter) {
+                                    g_driveCar = g_vehTransCar; g_radio.Tune(g_radioStation);
+                                    Log("DRIVE: got in car %d", g_vehTransCar);
+                                } else {
+                                    playerX = doorX; playerY = doorY; playerZ = doorFeet + EYE_HEIGHT;
+                                    g_audio.EngineStop(); g_radio.Tune(-1);
+                                    Log("DRIVE: got out");
+                                }
+                                g_vehTransCar = -1;
+                            }
+                        }
+                    }
                 }
                 if (g_driveCar >= 0 && !g_menu.IsOpen()) {
                     static bool s_prevQ = false, s_prevE = false;   // Q and E change the radio station
