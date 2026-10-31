@@ -146,7 +146,7 @@ static bool g_keyState[256] = { false };
 static volatile bool g_hasFocus = true;
 // Dev (headless tests): GTA_KEYS="from-to:KEYS;..." holds keys over frame
 // ranges, e.g. "0-120:W;120-200:WA;200-260:W+;260:_" (+ = Shift, ^ = Alt,
-// _ = Space, # = F4, other letters = their key).
+// _ = Space, # = F4, % = Ctrl, other letters = their key).
 static int g_scriptFrame = 0;
 static const bool g_scriptedRun = getenv("GTA_KEYS") != nullptr;   // GTA_KEYS drives the run alone
 static bool ScriptedKey(int vk) {
@@ -161,7 +161,7 @@ static bool ScriptedKey(int vk) {
         while (*p && *p != ';') p++;
         if (g_scriptFrame >= a && g_scriptFrame <= b)
             for (const char* k = keys; k < p; k++) {
-                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '`' ? VK_OEM_3 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON
+                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '`' ? VK_OEM_3 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON : *k == '%' ? VK_CONTROL
                                : toupper((unsigned char)*k);
                 if (want == vk) return true;
             }
@@ -218,6 +218,8 @@ static SHORT RawGameKey(int vk) {
 }
 static int g_driveCar = -1;   // index of the car CJ is driving, -1 on foot
 static float g_throwV[2] = {0, 0};   // CJ's horizontal speed from being thrown (m/s)
+static float g_bmxMoveSpeed = 0.0f;   // CPlayerPedData::m_fMoveSpeed on a BMX (accelerate taps)
+static float g_bmxCtrlPedal = 0.0f;   // CBmx::m_fControlPedaling
 static int g_vehTransCar = -1;   // car being entered/exited by the get-in / get-out animation, -1 none
 static bool g_vehTransEnter = false;   // the active transition is an entry (else an exit)
 static float g_vehEnterStart[3] = {0, 0, 0};   // CJ's feet where the entry began (he slides to the door)
@@ -3522,6 +3524,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         pin.bikeLeanLeft = ride.leanLeft; pin.bikeLeanFwd = ride.leanFwd;
                         pin.bikeLeftWeight = ride.leftWeight; pin.bikeFwdWeight = ride.fwdWeight;
                         pin.bikeBase = ride.base;
+                        pin.bikeLeanAngle = ride.leanAngle; pin.bikeRiderFwd = ride.riderLeanFwd;
+                        pin.bmxFwdSpeed = ride.fwdSpeed; pin.bmxGas = ride.gas;
+                        pin.bmxPedalRate = ride.pedalRate; pin.bmxSprintBelow = ride.sprintBelow;
+                        pin.bmxCtrlPedal = g_bmxCtrlPedal;
+                        pin.bmxHopKey = (RawGameKey(VK_CONTROL) & 0x8000) != 0;   // VEHICLE_FIREWEAPON_ALT (L shoulder 1)
                     }
                     g_cj.SetDrivingSkill(Stats::Get(Stats::STAT_DRIVING_SKILL) / 10.0f);
                 }
@@ -3792,6 +3799,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     }
                     if (g_driveCar >= 0 && g_runInit) {   // CPlayerPed::ProcessControl: in a vehicle (not a BMX) HandleSprintEnergy(false, 1)
                         const VehicleInfo* bvi = g_vehicles.Info(g_vehicles.Car((size_t)g_driveCar).model);
+                        if (bvi && bvi->type == "bmx") g_stamina = std::clamp(g_timeCanRun / Stats::FatMuscleMod(7), 0.0f, 1.0f);
                         if (!bvi || bvi->type != "bmx") {
                             const float cap7 = Stats::FatMuscleMod(7);
                             if (g_timeCanRun < cap7) g_timeCanRun = std::min(cap7, g_timeCanRun + dt * 50.0f * 0.5f);
@@ -4080,6 +4088,48 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     // a bike rider's weight: the pad's steer up / down (num 8 / num 5, or the arrows)
                     const float leanFwd = ((RawGameKey(VK_NUMPAD8) & 0x8000) || (RawGameKey(VK_UP) & 0x8000) ? 1.0f : 0.0f) -
                                           ((RawGameKey(VK_NUMPAD5) & 0x8000) || (RawGameKey(VK_DOWN) & 0x8000) ? 1.0f : 0.0f);
+                    if (BikeKind(g_driveCar) == 1 && cjReady) {   // CBmx::ProcessAI: accelerate taps are a BMX's sprint (SPRINT_BMX)
+                        static bool s_prevW = false;
+                        const bool wJust = th > 0.0f && !s_prevW;
+                        s_prevW = th > 0.0f;
+                        const float step = dt * 50.0f, cap = Stats::FatMuscleMod(7);
+                        float& ms = g_bmxMoveSpeed;
+                        auto energy = [&](bool sprinting, float rate) {   // CPlayerPed::HandleSprintEnergy
+                            if (!sprinting) { g_timeCanRun = std::min(cap, g_timeCanRun + step * rate * 0.5f); return true; }
+                            if (g_timeCanRun <= -150.0f) return false;
+                            if (!Cheat::AdrenalineOn()) g_timeCanRun = std::max(-150.0f, g_timeCanRun - step * rate);
+                            return true;
+                        };
+                        // CPlayerPed::ControlButtonSprint: a tap adds 4 (to 10), holding drains to 1, letting go to 0
+                        const bool canSprint = ms > 0.0f || g_timeCanRun > 0.0f;
+                        if (wJust && canSprint) ms = std::min(10.0f, ms + 4.0f);
+                        else if (th > 0.0f && canSprint) ms = std::max(1.0f, ms - 0.7f * step);
+                        else if (ms > 0.0f) ms = std::max(0.0f, ms - 0.2f * step);
+                        float sprint = 0.0f;
+                        if (ms > 5.0f) { if (energy(true, 0.4f)) sprint = ms / 5.0f; else ms = 0.0f; }
+                        else if (ms > 0.0f && canSprint) { if (energy(true, 0.0f)) sprint = 1.0f; else ms = 0.0f; }
+                        auto results = [&]() { return ms > 5.0f ? ms / 5.0f : ms > 0.0f ? 1.0f : 0.0f; };   // GetButtonSprintResults
+                        Vehicles::BmxRider rider;
+                        float hopBlend = 0.0f;
+                        g_cj.BmxClips(rider.pedalPhase, rider.pedalBlend, rider.sprintPhase, rider.sprintBlend, hopBlend);
+                        if (sprint > 1.2f || (results() > 1.0f && rider.sprintBlend > 0.5f)) g_bmxCtrlPedal = ms;
+                        else {
+                            energy(false, std::max(0.5f, 1.0f - th * 0.5f));
+                            if (results() <= 0.0f) {
+                                if (g_timeCanRun >= 0.0f) g_bmxCtrlPedal = 0.0f;
+                                else g_bmxCtrlPedal = wJust ? 4.9f : std::max(0.0f, g_bmxCtrlPedal - 0.4f);
+                            } else { g_bmxCtrlPedal = 4.9f; rider.pedalOn = true; }
+                        }
+                        if (hopBlend > 0.5f) ms = 0.0f;   // CBmx::ProcessBunnyHop: crouching spends the taps
+                        rider.hopBlend = hopBlend;
+                        rider.crank = g_cj.BmxCrank();
+                        float jump = 0.0f;
+                        if (g_cj.TakeBmxHop(jump)) rider.hopLaunch = std::max(jump, 0.001f);
+                        g_vehicles.SetBmxRider((size_t)g_driveCar, rider);
+                        if (getenv("GTA_CARDBG") && frame % 10 == 0)
+                            Log("BMX f%d move %.2f pedal %.2f canRun %.1f clips p%.2f s%.2f hop %.2f crank %.2f%s", frame, ms, g_bmxCtrlPedal, g_timeCanRun,
+                                rider.pedalBlend, rider.sprintBlend, hopBlend, rider.crank, rider.hopLaunch > 0.0f ? " LAUNCH" : "");
+                    }
                     if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
                                         [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },

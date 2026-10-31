@@ -125,7 +125,7 @@ struct VehicleModel {
     // eBikeNodes that move: 0 forks_front, 1 forks_rear, 2 handlebars, 3 wheel_front, 4 wheel_rear. parent is the
     // node above (wheel_front hangs on the front forks), else base is the fixed frame's matrix in bike space.
     struct BikeNode { bool found = false; int frame = -1, parent = -1; float local[16] = {}; float base[16] = {}; };
-    BikeNode bikeNodes[5];
+    BikeNode bikeNodes[8];
     bool isBike = false;
     float swingArmLength = 0.0f;      // CBike::m_fSwingArmLength: forks_rear to the rear wheel
     // The DFF's own collision model (CColModel): body spheres and boxes, and its bounding box.
@@ -189,6 +189,13 @@ struct CarPhys {
     bool knockOff = false;            // CEventKnockOffBike raised for the rider this frame
     float knockOffVel[3] = {0, 0, 0}; // the rider's speed as he leaves (m/s)
     int knockOffDir = 0;              // the fall: 0 front, 1 left, 2 back, 3 right (CPed::GetLocalDirection)
+    // CBmx: what the rider's clips tell the bicycle (Vehicles::SetBmxRider), and its crank and sprint sway
+    bool bmxPedalOn = false;          // sprint energy left: the pedals keep turning with no key held (gas 1)
+    float bmxHopBlend = 0.0f;         // BIKE_BUNNYHOP's blend: over a half, no gas
+    float bmxHopLaunch = 0.0f;        // the hop's crouch (m_fControlJump, 0..25) to launch on next step, 0 none
+    float bmxPedalPhase = 0.0f, bmxPedalBlend = 0.0f, bmxSprintPhase = 0.0f, bmxSprintBlend = 0.0f;
+    float crankAngle = 0.0f;          // m_fCrankAngle (the pedals stay level: m_fPedalAngleL/R = -crank)
+    float sprintLean = 0.0f;          // m_fSprintLeanAngle: the frame rocks under a sprinting rider
 };
 
 // The world as the car physics sees it: CWorld::ProcessLineOfSight for the suspension lines and
@@ -281,15 +288,24 @@ public:
     // pedal buttons 0..1, steer -1 (left) .. 1 (right). An empty world falls back to Step. Cars, quads and
     // monster trucks only; returns false (and does nothing) for other kinds.
     // The drawn matrix (D3D rows: right, forward, up, position), a bike's lean included, and a seat in car space.
-    void BodyMatrix(size_t i, float out[16]) const;
+    void BodyMatrix(size_t i, float out[16], bool drawn = false) const;   // drawn: a BMX frame's sprint sway too
     bool SeatLocal(size_t i, float out[3], bool passenger = false) const;
     // CBike::ProcessRiderAnims for the player: the smoothed lean left / right and forward / back (-1 .. 1) the
     // rider's lean clips are posed at, the share left for them, and which base pose: 0 ride, 1 still, 2 pushing back.
-    struct BikeRide { float leanLeft = 0, leanFwd = 0; float leftWeight = 0, fwdWeight = 0; int base = 0; };
+    struct BikeRide {
+        float leanLeft = 0, leanFwd = 0; float leftWeight = 0, fwdWeight = 0; int base = 0;
+        // for CBmx::ProcessDrivingAnims: the bike's lean and the rider's weight, forward speed (per 1/50 s), gas,
+        // and the pedal clip's rate (sprinting is for rates under sprintBelow)
+        float leanAngle = 0, riderLeanFwd = 0, fwdSpeed = 0, gas = 0, pedalRate = 0, sprintBelow = 2.5f;
+    };
     bool BikeRiderAnims(size_t i, float dt, float stillBlend, BikeRide& out);
     // The rider knocked off this bike (CBike::DamageKnockOffRider, or ProcessRiderAnims on a spin / fast reverse):
     // true once, with the speed he is thrown at and the side he falls to.
     bool TakeKnockOff(size_t i, float vel[3], int* dir);
+    // The BMX rider's state for this frame (CBmx::ProcessAI / ProcessBunnyHop / ProcessControl): phases are the
+    // clip time over its length; hopLaunch is the hop's crouch when BIKE_BUNNYHOP has just finished, else 0.
+    struct BmxRider { bool pedalOn = false; float hopBlend = 0, hopLaunch = 0, pedalPhase = 0, pedalBlend = 0, sprintPhase = 0, sprintBlend = 0, crank = 0; };
+    void SetBmxRider(size_t i, const BmxRider& r);
     // leanFwd: a bike rider's weight, -1 back .. 1 forward (the pad's steer up / down).
     bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd = 0.0f);
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
@@ -356,8 +372,10 @@ private:
     // CBike::SetupSuspensionLines and one CBike::ProcessControl (BikePhysics.cpp).
     void SetupBikeSuspension(VehicleModel& vm, const HandlingData& h);
     void BikeStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
-    void BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[5][16]) const;
-    void BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, float body[16]) const;
+    void BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[8][16]) const;
+    void BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, float body[16], float sway = 0.0f) const;
+    float RiderSkill(int model) const;
+    void BmxSway(VehicleInstance& c);
     void SyncFromPhys(VehicleInstance& c, const VehicleModel& vm);
     void Activate(VehicleInstance& c);
     // A component (0..5 eDoors, 6..12 6 + ePanels, 13 a wheel) of car ci comes off as a flying object (collision type

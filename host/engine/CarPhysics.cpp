@@ -591,6 +591,7 @@ bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float st
         if (bike) BikeStep(c, vm, *h, total / (float)steps, true, world);
         else CarStep(c, vm, *h, total / (float)steps, true, world);
     }
+    if (bike && (vm.info.type == "bmx" || vm.info.type == "BMX")) BmxSway(c);
     SyncFromPhys(c, vm);
     c.wheelSpin += c.speed * dt / std::max(0.2f, vm.wheelSize[0] / 2.0f);
     return true;

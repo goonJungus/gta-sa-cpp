@@ -90,6 +90,11 @@ public:
         bool bikeRide = false;                // seated on a bike: the CBike::ProcessRiderAnims pose below is valid
         float bikeLeanLeft = 0.0f, bikeLeanFwd = 0.0f, bikeLeftWeight = 0.0f, bikeFwdWeight = 0.0f;
         int bikeBase = 0;                     // 0 ride, 1 still (a foot down), 2 pushing it back
+        // on a BMX (CBmx::ProcessDrivingAnims): the bike's lean, the rider's weight, forward speed per 1/50 s,
+        // gas, the pedal clip's rate and the rate under which a sprint shows, m_fControlPedaling, the hop key
+        float bikeLeanAngle = 0.0f, bikeRiderFwd = 0.0f, bmxFwdSpeed = 0.0f, bmxGas = 0.0f;
+        float bmxPedalRate = 0.0f, bmxSprintBelow = 2.5f, bmxCtrlPedal = 0.0f;
+        bool bmxHopKey = false;
         float carSpeed = 0.0f;                // seated: the car's speed, m/s
         bool carGas = false;                  // seated on a bike: the gas pedal is held
         bool carReverse = false;              // seated: gas pedal below zero (CVehicle::m_GasPedal)
@@ -188,6 +193,11 @@ public:
     // CPed::SetPedPositionInCar: seated on the vehicle's drawn matrix (a bike's lean included) at seat (car space).
     void SetSeatFrame(const float body[16], const float seat[3]);
     float BikeStillBlend() const;   // the BIKE_STILL clip's blend (a foot on the ground)
+    // CBmx: the crank angle, the pedal and sprint clips' phase (time / length) and blend, the hop's blend, and
+    // (once, when BIKE_BUNNYHOP finishes) the crouch it launches with (m_fControlJump).
+    float BmxCrank() const { return m_bmxCrank; }
+    void BmxClips(float& pedalPhase, float& pedalBlend, float& sprintPhase, float& sprintBlend, float& hopBlend) const;
+    bool TakeBmxHop(float& jump) { if (!m_bmxHopPending) return false; jump = m_bmxHopJump; m_bmxHopPending = false; return true; }
     void SeatPlacement(float out[3]) const { for (int i = 0; i < 3; i++) out[i] = m_seatPos[i]; }
     bool Driveby() const { return m_seated && m_dbClip != nullptr; }
     bool CanDriveby() const;               // an SMG with ammo is in hand
@@ -555,6 +565,9 @@ private:
     int m_bike = 0;
     float m_seatPos[3] = {0, 0, 0}, m_seatYaw = 0.0f, m_drivingSkill = 0.0f;
     bool m_seatFrameOn = false;
+    float m_bmxCrank = 0.0f, m_bmxJump = 0.0f, m_bmxHopJump = 0.0f;   // m_fCrankAngle, m_fControlJump
+    bool m_bmxHopPrev = false, m_bmxHopArmed = false, m_bmxHopPending = false;
+    bool UpdateBmx(const Input& in);
     float m_seatFrame[16] = {};       // the seated ped's world matrix (SetSeatFrame)
     int m_savedWeapon = -2;                // -2 none; else the WeaponIndex() to give back
     const AnimClip* m_dbClip = nullptr;    // the Driveby_x clip in use

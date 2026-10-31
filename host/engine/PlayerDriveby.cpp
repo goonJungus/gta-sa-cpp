@@ -89,6 +89,108 @@ float PlayerPed::BikeStillBlend() const {
 
 // CPed::ReplaceWeaponWhenExitingVehicle. Safe to call whether or not m_seated is set:
 // the animated get-out clears m_seated before this runs.
+void PlayerPed::BmxClips(float& pedalPhase, float& pedalBlend, float& sprintPhase, float& sprintBlend, float& hopBlend) const {
+    PlayerPed* me = const_cast<PlayerPed*>(this);
+    auto read = [&](const char* n, float& phase, float& blend) {
+        phase = blend = 0.0f;
+        const Assoc* a = m_seated && m_bike == 1 ? me->Get(Clip(n)) : nullptr;
+        if (!a || a->dead) return;
+        blend = a->blend;
+        phase = a->clip->duration > 0.0f ? a->time / a->clip->duration : 0.0f;
+    };
+    float hp;
+    read("bmx_pedal", pedalPhase, pedalBlend);
+    read("bmx_sprint", sprintPhase, sprintBlend);
+    read("bmx_bunnyhop", hp, hopBlend);
+}
+
+// CBmx::ProcessBunnyHop then CBmx::ProcessDrivingAnims for the player. True when the pedal / sprint clips or the
+// hop own the rider this frame; false when he leans or stands, and CBike::ProcessRiderAnims poses him.
+bool PlayerPed::UpdateBmx(const Input& in) {
+    const float ts = in.dt * 50.0f, twoPi = 2.0f * kPi;
+    const AnimClip *cPedal = Clip("bmx_pedal"), *cSprint = Clip("bmx_sprint"), *cHop = Clip("bmx_bunnyhop");
+    auto live = [&](const AnimClip* c) -> Assoc* { Assoc* a = c ? Get(c) : nullptr; return a && !a->dead ? a : nullptr; };
+    // ---- the bunny hop: crouch while the key is held (the clip's first 0.2 s), spring when it is let go ----
+    Assoc* hop = live(cHop);
+    const bool hopJust = in.bmxHopKey && !m_bmxHopPrev;
+    m_bmxHopPrev = in.bmxHopKey;
+    if (hopJust && m_bmxJump == 0.0f && cHop) {
+        m_bmxJump += ts;
+        hop = Blend(cHop, false, false, 8.0f);
+        hop->time = 0.0f;
+        hop->playing = false;
+        hop->finished = false;
+        m_bmxHopArmed = false;
+    }
+    if (m_bmxJump > 0.0f) {
+        if (!hop) m_bmxJump = 0.0f;
+        else if (!in.bmxHopKey) {
+            if (!hop->playing) {
+                if (hop->time < 0.2f) hop->time = (hop->clip->duration - 0.2f) * ((0.2f - hop->time) / 0.2f) + 0.2f;
+                hop->playing = true;
+                hop->speed = 1.5f;
+                m_bmxHopArmed = true;   // LaunchBunnyHopCB when it finishes
+            }
+        } else if (!hop->playing) {
+            m_bmxJump = std::min(25.0f, m_bmxJump + ts);
+            hop->time = m_bmxJump / 25.0f * 0.2f;
+        }
+    } else if (hop) hop->delta = -8.0f;
+    if (hop && m_bmxHopArmed && hop->finished) {
+        m_bmxHopArmed = false;
+        m_bmxHopPending = true;
+        m_bmxHopJump = m_bmxJump;
+        hop->delta = -8.0f;
+    }
+    if (hop) {
+        m_bmxCrank = hop->blend * kPi * 0.5f + (1.0f - hop->blend) * m_bmxCrank;
+        return true;
+    }
+    // ---- pedalling: ProcessDrivingAnims ----
+    Assoc *aP = live(cPedal), *aS = live(cSprint);
+    const AnimClip *cL = Clip("bmx_left"), *cR = Clip("bmx_right"), *cF = Clip("bmx_fwd"), *cB = Clip("bmx_back");
+    const float thr = in.bmxCtrlPedal <= 5.0f ? 0.4f : 0.7f;
+    auto crankFrom = [&](const Assoc* a) { return a ? -(a->time / a->clip->duration) * twoPi : 0.0f; };
+    auto decayLean = [&]() {
+        for (const AnimClip* c : {cL, cR, cF, cB}) if (Assoc* a = live(c)) a->blend *= 0.95f;
+    };
+    if (std::fabs(in.bikeLeanAngle) >= thr || in.bikeRiderFwd >= thr || in.bmxFwdSpeed <= 0.01f) {
+        const bool cycling = (aP && aP->delta >= 0.0f && aP->blend > 0.0f) || (aS && aS->delta >= 0.0f && aS->blend > 0.0f);
+        m_bmxCrank = crankFrom(aP ? aP : aS);
+        const Assoc *l = live(cL), *r = live(cR), *f = live(cF);
+        if (l && l->blend > 0.1f) m_bmxCrank = kPi * l->blend + (1.0f - l->blend) * m_bmxCrank;   // freewheeling, a pedal down
+        else if (r && r->blend > 0.1f) m_bmxCrank = (1.0f - r->blend) * m_bmxCrank;
+        else if (f && f->blend > 0.1f) m_bmxCrank = 0.5f * kPi * f->blend + (1.0f - f->blend) * m_bmxCrank;
+        else m_bmxCrank *= std::pow(0.97f, ts);
+        if (!cycling) return false;   // CBike::ProcessRiderAnims
+        if (aP) { aP->loop = false; aP->delta = -8.0f; }
+        if (aS) { aS->loop = false; aS->delta = -8.0f; }
+        decayLean();
+        return true;
+    }
+    const float rate = in.bmxPedalRate;
+    for (const char* n : {"bmx_still", "bmx_pushes", "bmx_ride"})
+        if (Assoc* a = live(Clip(n))) a->delta = -4.0f;
+    if (in.bmxCtrlPedal <= 5.0f || in.bmxSprintBelow <= rate) {
+        if (in.bmxGas != 0.0f || in.bmxCtrlPedal > 0.0f) {
+            if (cPedal && (!aP || (aP->blend < 1.0f && aP->delta <= 0.0f))) aP = Blend(cPedal, true, false, 4.0f);
+            if (aP) aP->loop = true;
+        } else if (aP) {   // coasting: the cranks come round to the end of the stroke and stop
+            if (aP->blend < 1.0f && aP->delta <= 0.0f) aP = Blend(cPedal, false, false, 4.0f);
+            aP->loop = false;
+        }
+        if (aS) aS->delta = -4.0f;
+        if (aP) { aP->speed = rate; aP->playing = true; }
+    } else {
+        if (cSprint && (!aS || (aS->blend < 1.0f && aS->delta <= 0.0f))) aS = Blend(cSprint, true, false, 4.0f);
+        if (aS) { aS->loop = true; aS->speed = rate; aS->playing = true; }
+        if (aP) aP->speed = rate;
+    }
+    m_bmxCrank = crankFrom(aP && aP->blend >= (aS ? aS->blend : 0.0f) ? aP : aS);
+    decayLean();
+    return true;
+}
+
 void PlayerPed::LeaveVehicle() {
     m_seated = false;
     m_seatFrameOn = false;
@@ -278,7 +380,8 @@ void PlayerPed::UpdateSeated(const Input& in) {
         const bool pedal = m_bike == 1 && in.carGas && spd > 0.02f;
         const bool sprint = pedal && spd * 3.0f >= 2.5f;
         std::string want = spd < 0.02f && !in.carGas ? nm("still") : sprint ? nm("sprint") : pedal ? nm("pedal") : m_bike == 1 ? nm("still") : nm("ride");
-        if (in.bikeRide && m_bike == 2) want = in.bikeBase == 1 ? nm("still") : in.bikeBase == 2 ? nm("pushes") : nm("ride");
+        if (m_bike == 1 && in.bikeRide && UpdateBmx(in)) return;   // pedalling, or the hop
+        if (in.bikeRide) want = in.bikeBase == 1 ? nm("still") : in.bikeBase == 2 ? nm("pushes") : nm("ride");
         for (const char* n : {"still", "pedal", "sprint", "ride", "pushes"}) {
             const AnimClip* c = Clip(nm(n).c_str());
             if (!c) continue;

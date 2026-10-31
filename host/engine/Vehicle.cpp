@@ -522,17 +522,17 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             for (int c = 0; c < 3; c++) bm.pos[c] = glob[i][12 + (size_t)c];
         }
     {   // CBike::SetupModelNodes: the frames that steer, spring and spin
-        static const char* kBikeNode[5] = {"forks_front", "forks_rear", "handlebars", "wheel_front", "wheel_rear"};
+        static const char* kBikeNode[8] = {"forks_front", "forks_rear", "handlebars", "wheel_front", "wheel_rear", "chainset", "pedal_r", "pedal_l"};
         for (size_t i = 0; i < w.frames.size(); i++)
-            for (int k = 0; k < 5; k++)
+            for (int k = 0; k < 8; k++)
                 if (w.frames[i].name == kBikeNode[k]) { vm.bikeNodes[k].found = true; vm.bikeNodes[k].frame = (int)i; }
         vm.isBike = vm.bikeNodes[3].found && vm.bikeNodes[4].found;
-        for (int k = 0; k < 5 && vm.isBike; k++) {
+        for (int k = 0; k < 8 && vm.isBike; k++) {
             VehicleModel::BikeNode& bn = vm.bikeNodes[k];
             if (!bn.found) continue;
             FrameMatrix(w.frames[(size_t)bn.frame].m, bn.local);
             const int p = w.frames[(size_t)bn.frame].parent;
-            for (int j = 0; j < 5; j++) if (j != k && vm.bikeNodes[j].found && vm.bikeNodes[j].frame == p) bn.parent = j;
+            for (int j = 0; j < 8; j++) if (j != k && vm.bikeNodes[j].found && vm.bikeNodes[j].frame == p) bn.parent = j;
             if (bn.parent < 0 && p >= 0 && (size_t)p < glob.size()) std::memcpy(bn.base, glob[(size_t)p].data(), sizeof(bn.base));
             else { std::memset(bn.base, 0, sizeof(bn.base)); bn.base[0] = bn.base[5] = bn.base[10] = bn.base[15] = 1.0f; }
         }
@@ -637,7 +637,7 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             int f = fr;
             bool hit = false;
             for (int guard = 0; f >= 0 && (size_t)f < w.frames.size() && guard < 64 && !hit; guard++) {
-                for (int j = 0; j < 5; j++) if (vm.bikeNodes[j].found && vm.bikeNodes[j].frame == f) { p.bikeNode = j; hit = true; }
+                for (int j = 0; j < 8; j++) if (vm.bikeNodes[j].found && vm.bikeNodes[j].frame == f) { p.bikeNode = j; hit = true; }
                 if (hit) break;
                 float local[16];
                 FrameMatrix(w.frames[(size_t)f].m, local);
@@ -708,7 +708,7 @@ bool Vehicles::Footprint(size_t i, float* halfX, float* minY, float* maxY) const
     return true;
 }
 
-void Vehicles::BodyMatrix(size_t i, float out[16]) const {
+void Vehicles::BodyMatrix(size_t i, float out[16], bool drawn) const {
     const VehicleInstance& c = m_cars[i];
     const float cs = std::cos(c.heading), sn = std::sin(c.heading);
     const float m0[16] = {cs, sn, 0, 0, -sn, cs, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
@@ -719,7 +719,7 @@ void Vehicles::BodyMatrix(size_t i, float out[16]) const {
         std::memcpy(out, m, sizeof(m));
     }
     auto it = m_models.find(c.model);
-    if (it != m_models.end() && it->second.isBike) BikeLeanBody(c, it->second, out);
+    if (it != m_models.end() && it->second.isBike) BikeLeanBody(c, it->second, out, drawn ? c.phys.sprintLean : 0.0f);
 }
 
 bool Vehicles::SeatLocal(size_t i, float out[3], bool passenger) const {
@@ -763,8 +763,8 @@ void Vehicles::Draw(D3DRenderer& r) {
         const VehicleModel& vm = it->second;
         // Heading 0 faces +y like the ped; the model's nose is +y too. A bike leans (CBike::CalculateLeanMatrix).
         float body[16];
-        BodyMatrix((size_t)(&c - m_cars.data()), body);
-        float bikeNodes[5][16];
+        BodyMatrix((size_t)(&c - m_cars.data()), body, true);
+        float bikeNodes[8][16];
         if (vm.isBike) BikeFrameMatrices(c, vm, bikeNodes);   // CBike::PreRender
         D3DMATRIX out;
         for (const VehicleModel::PaintPart& pp : const_cast<VehicleModel&>(vm).paintParts) {   // this car's paint

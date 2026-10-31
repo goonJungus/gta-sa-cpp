@@ -162,6 +162,10 @@ void Vehicles::BikeStep(VehicleInstance& c, const VehicleModel& vm, const Handli
         } else if (p.inAccel > 150.0f / 255.0f && p.inBrake > 150.0f / 255.0f && !bmx) {   // a burnout
             gas = p.inAccel; brake = p.inBrake; p.brakesOn = true;
         } else gas = g;
+        if (bmx) {   // CBmx::ProcessAI: sprint energy keeps the pedals going; a crouched hop cuts them
+            if (p.bmxPedalOn && gas == 0.0f && brake == 0.0f) gas = 1.0f;
+            if (p.bmxHopBlend > 0.5f) gas = 0.0f;
+        }
         p.gas = gas; p.brake = brake;
         p.steerAngle = h.steeringLock * 0.0174532925f * std::copysign(p.rawSteer * p.rawSteer, p.rawSteer);
         // ---- CBike::ProcessAI, STATUS_PLAYER: the rider's weight forward or back ----
@@ -180,6 +184,21 @@ void Vehicles::BikeStep(VehicleInstance& c, const VehicleModel& vm, const Handli
                 const float t = Stats::FatMuscleMod(11) * (bh.leanBakForce * b.turnMass * p.leanFwd * sp * (std::max(sp / 0.1f, p.gas) + p.gas) * 0.5f);
                 b.com = com;
                 b.ApplyTurnForce(b.up * -(ts * t), com + b.fwd);
+            }
+        }
+        if (bmx) {
+            const bool airborne = p.comp[0] >= 1.0f && p.comp[1] >= 1.0f && p.comp[2] >= 1.0f && p.comp[3] >= 1.0f;
+            const float spinUp = Dot(b.tv, b.up);
+            if (airborne && ((spinUp < 0.04f && p.inSteer < 0.0f) || (spinUp > -0.04f && p.inSteer > 0.0f)))   // turning in the air
+                b.ApplyTurnForce(b.up * (p.inSteer * b.turnMass * ts * 0.002f), b.fwd);
+            if (p.bmxHopLaunch > 0.0f) {   // CBmx::LaunchBunnyHopCB, both wheels on the ground
+                const bool front = p.wheelCounts[0] > 0.0f || p.wheelCounts[1] > 0.0f, rear = p.wheelCounts[2] > 0.0f || p.wheelCounts[3] > 0.0f;
+                if (front && rear) {
+                    const float power = (std::min(p.bmxHopLaunch / 25.0f, 1.0f) + 1.0f) * Stats::FatMuscleMod(6);
+                    b.mv += b.up * (0.06f * power);
+                    b.ApplyTurnForce(b.up * (b.turnMass * 0.01f * power), b.fwd);
+                }
+                p.bmxHopLaunch = 0.0f;
             }
         }
     } else {   // STATUS_ABANDONED: the brake on while it stands
@@ -475,9 +494,9 @@ bool Vehicles::BikeRiderAnims(size_t i, float dt, float stillBlend, BikeRide& ou
     }
     const float kf = std::pow(0.89f, ts);
     p.animLeanFwd = kf * p.animLeanFwd + (1.0f - kf) * fwdTarget;
-    // spun too hard for the rider's skill (STAT_BIKE_SKILL, nil on a new game), or reversing too fast on the wheels
-    // or upside down after a knock: CEventKnockOffBike(KNOCK_OFF_TYPE_FALL), falling forward
-    const float skill = 0.0f;
+    // spun too hard for the rider's skill, or reversing too fast on the wheels or upside down after a knock:
+    // CEventKnockOffBike(KNOCK_OFF_TYPE_FALL), falling forward
+    const float skill = RiderSkill(c.model);
     const float spin = (skill + 1.0f) * 0.3f;
     const bool spun = Len2(V3(p.tv)) > spin * spin;
     const bool onWheels = p.wheelCounts[0] > 0.0f || p.wheelCounts[1] > 0.0f || p.wheelCounts[2] > 0.0f || p.wheelCounts[3] > 0.0f;
@@ -488,6 +507,14 @@ bool Vehicles::BikeRiderAnims(size_t i, float dt, float stillBlend, BikeRide& ou
         const float rise = RandRange(3.0f, 5.0f) / 70.0f;   // ApplyMoveForce(0, 0, 3..5) on a 70 kg ped
         for (int k = 0; k < 3; k++) p.knockOffVel[k] = (p.mv[k] + (k == 2 ? rise : 0.0f)) * 50.0f;
     }
+    out.leanAngle = p.leanAngle;
+    out.riderLeanFwd = p.leanFwd;
+    out.fwdSpeed = v;
+    out.gas = p.gas;
+    if (c.model == 510) {   // the mountain bike: by its gear
+        out.sprintBelow = 2.0f;
+        out.pedalRate = p.gear == 0 ? 0.0f : v * 5.0f / ((float)p.gear * h.trans.maxFlatVelocity - 0.25f);
+    } else { out.sprintBelow = 2.5f; out.pedalRate = v * 3.0f; }
     out.leanLeft = p.animLeanLeft;
     out.leanFwd = p.animLeanFwd;
     if (std::fabs(p.animLeanLeft) > 0.56f) { out.fwdWeight = 0.0f; out.leftWeight = 1.0f; }
@@ -499,6 +526,36 @@ bool Vehicles::BikeRiderAnims(size_t i, float dt, float stillBlend, BikeRide& ou
     }
     (void)r; (void)u;
     return true;
+}
+
+// CPed::GetBikeRidingSkill for the player: cycling skill on a bicycle, bike skill on a motorbike (0..1).
+float Vehicles::RiderSkill(int model) const {
+    const VehicleInfo* info = Info(model);
+    const bool bmx = info && (info->type == "bmx" || info->type == "BMX");
+    return std::min(1.0f, Stats::Get(bmx ? Stats::STAT_CYCLING_SKILL : Stats::STAT_BIKE_SKILL) * 0.001f);
+}
+
+void Vehicles::SetBmxRider(size_t i, const BmxRider& r) {
+    if (i >= m_cars.size()) return;
+    CarPhys& p = m_cars[i].phys;
+    p.bmxPedalOn = r.pedalOn;
+    p.bmxHopBlend = r.hopBlend;
+    if (r.hopLaunch > 0.0f) p.bmxHopLaunch = r.hopLaunch;
+    p.bmxPedalPhase = r.pedalPhase; p.bmxPedalBlend = r.pedalBlend;
+    p.bmxSprintPhase = r.sprintPhase; p.bmxSprintBlend = r.sprintBlend;
+    p.crankAngle = r.crank;
+}
+
+// CBmx::ProcessControl after CBike's: the frame sways with the sprint clip, the lean with the pedal clip.
+void Vehicles::BmxSway(VehicleInstance& c) {
+    CarPhys& p = c.phys;
+    const bool mtb = c.model == 510;
+    const float twoPi = 6.2831855f;
+    if (p.bmxSprintBlend > 0.01f) p.sprintLean = std::sin(p.bmxSprintPhase * twoPi + 1.5707964f) * p.bmxSprintBlend * (mtb ? 0.087f : 0.3f);
+    else {
+        if (p.bmxPedalBlend > 0.01f) p.leanAngle += std::sin(p.bmxPedalPhase * twoPi) * p.bmxPedalBlend * (mtb ? 0.02f : 0.07f);
+        p.sprintLean *= 0.95f;
+    }
 }
 
 bool Vehicles::TakeKnockOff(size_t i, float vel[3], int* dir) {
@@ -516,8 +573,9 @@ bool Vehicles::TakeKnockOff(size_t i, float vel[3], int* dir) {
 void Vehicles::BikeDamage(VehicleInstance& c, const HandlingData& h, float di, bool player) {
     CarPhys& p = c.phys;
     const V3 r(&c.rot[0]), f(&c.rot[3]), u(&c.rot[6]), n(p.impactNormal);
-    if (player && !p.knockOff) {   // DamageKnockOffRider, for the player (skill 0)
-        float force = di / h.mass * 800.0f * 0.75f;
+    if (player && !p.knockOff) {   // DamageKnockOffRider, for the player
+        const float skill = RiderSkill(c.model);
+        float force = di / h.mass * 800.0f * 0.75f * (1.0f - skill * 0.5f);
         if (force > 10.0f) {
             const float fwd = Dot(f, n), up = Dot(u, n), right = Dot(r, n);
             float fwdW = 0.6f;
@@ -526,6 +584,7 @@ void Vehicles::BikeDamage(VehicleInstance& c, const HandlingData& h, float di, b
             float backW = 1.5f, upW = 0.05f;
             if (c.model == 468) { fwdW *= 0.65f; upW *= 0.75f; }   // the Sanchez
             else if (c.model == 471) { backW = 3.0f; fwdW *= 0.65f; upW *= 0.75f; }   // the Quad
+            if (fwd > 0.0f) fwdW *= 1.0f - skill * 0.6f;
             force *= std::fabs(fwd) * fwdW + std::max(up, 0.0f) * upW + std::fabs(right) * 0.45f - std::min(up, 0.0f) * backW;
             if (force > 75.0f) {   // KNOCK_OFF_TYPE_SKIDBACKFRONT, from the side the knock came from
                 const float ang = std::atan2(n.x, -n.y) - c.heading;   // GetLocalDirection(-impact)
@@ -549,12 +608,12 @@ void Vehicles::BikeDamage(VehicleInstance& c, const HandlingData& h, float di, b
 
 // CBike::CalculateLeanMatrix: the drawn body tips about its nose by the lean (and a little back), dropped so the
 // tyres stay on the ground.
-void Vehicles::BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, float body[16]) const {
+void Vehicles::BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, float body[16], float sway) const {
     const float lean = c.phys.leanAngle;
-    if (lean == 0.0f) return;
+    if (lean == 0.0f && sway == 0.0f) return;
     float rx[16], ry[16], l[16];
     RotX(std::fabs(lean) * -0.05f, rx);
-    RotY(lean, ry);
+    RotY(lean + sway, ry);
     Mul4(rx, ry, l);
     const float up[3] = {body[8], body[9], body[10]};
     const float drop = vm.colMin[2] * (1.0f - std::cos(lean));
@@ -566,7 +625,7 @@ void Vehicles::BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, fl
 
 // CBike::PreRender: the front forks and the bars turn with the steering, the front wheel rides up its fork and
 // the rear swing arm swings with its spring, and both wheels roll.
-void Vehicles::BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[5][16]) const {
+void Vehicles::BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[8][16]) const {
     const CarPhys& p = c.phys;
     const HandlingData* h = Handling(vm.info.handling);
     const float lower = h ? h->suspLower : -0.1f, upper = h ? h->suspUpper : 0.1f;
@@ -575,7 +634,7 @@ void Vehicles::BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& v
         const float z = std::max(p.wheelZ[wheel * 2], p.wheelZ[wheel * 2 + 1]);
         return std::clamp(z - vm.wheelPos[wheel * 2][2], lower, upper);
     };
-    for (int k = 0; k < 5; k++) {
+    for (int k = 0; k < 8; k++) {
         const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
         float m[16];
         std::memcpy(m, bn.local, sizeof(m));
@@ -588,6 +647,8 @@ void Vehicles::BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& v
             RotX(-p.wheelPitch[k - 3], r);
             Mul4(r, m, m);
         }
+        else if (k == 5) { RotX(p.crankAngle, r); Mul4(r, m, m); }   // CBmx::PreRender: the chainset turns with the crank
+        else if (k == 6 || k == 7) { RotX(-p.crankAngle, r); Mul4(r, m, m); }   // and the pedals stay level
         Mul4(m, bn.parent >= 0 ? nodes[bn.parent] : bn.base, nodes[k]);
     }
 }
