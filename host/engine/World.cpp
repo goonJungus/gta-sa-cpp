@@ -2143,7 +2143,7 @@ float RayTri(const float o[3], const float d[3], const float a[3], const float b
 }
 }  // namespace
 
-float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind, float* hitNz) const {
+float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind, float* hitNz, float* hitN) const {
     const float o[3] = {ax, ay, az}, d[3] = {bx - ax, by - ay, bz - az};
     float best = 1.0f;
     int curKind = 0;
@@ -2152,11 +2152,16 @@ float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float
         if (t >= 0.0f && t < best) {
             best = t;
             if (kind) *kind = curKind;
-            if (hitNz) {
+            if (hitNz || hitN) {
                 const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, v[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
-                const float n[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+                float n[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
                 const float l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-                *hitNz = l > 1e-9f ? std::fabs(n[2]) / l : 1.0f;
+                if (hitNz) *hitNz = l > 1e-9f ? std::fabs(n[2]) / l : 1.0f;
+                if (hitN) {   // unit, facing back along the ray
+                    if (l > 1e-9f) for (float& x : n) x /= l; else { n[0] = n[1] = 0; n[2] = 1; }
+                    if (n[0] * d[0] + n[1] * d[1] + n[2] * d[2] > 0.0f) for (float& x : n) x = -x;
+                    hitN[0] = n[0]; hitN[1] = n[1]; hitN[2] = n[2];
+                }
             }
         }
     };
@@ -2203,7 +2208,13 @@ float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float
             const float disc = bq * bq - dd * cq;
             if (disc < 0.0f) continue;
             const float t = (-bq - std::sqrt(disc)) / dd;
-            if (t >= 0.0f && t < best) { best = t; if (kind) *kind = 2; if (hitNz) *hitNz = 0.0f; }
+            if (t >= 0.0f && t < best) {
+                best = t; if (kind) *kind = 2;
+                const float q[3] = {ax + d[0] * t - s.x, ay + d[1] * t - s.y, az + d[2] * t - s.z};   // out from the centre
+                const float ql = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+                if (hitNz) *hitNz = ql > 1e-9f ? std::fabs(q[2]) / ql : 0.0f;
+                if (hitN) { for (int k = 0; k < 3; k++) hitN[k] = ql > 1e-9f ? q[k] / ql : (k == 2 ? 1.0f : 0.0f); }
+            }
         }
     return best;
 }

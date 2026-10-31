@@ -146,7 +146,8 @@ public:
     // Segment a -> b against the streamed collision (COL triangles, boxes and
     // spheres). Returns the fraction of the way to the first hit, 1 if clear
     // (the camera's CWorld::ProcessLineOfSight).
-    float RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind = nullptr, float* hitNz = nullptr) const;
+    // hitN (optional) receives the unit surface normal at the hit, facing back along the segment.
+    float RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind = nullptr, float* hitNz = nullptr, float* hitN = nullptr) const;
 
     // Sphere vs the world's COL (boxes, spheres, triangles): the deepest-free
     // way to ask CCollision::ProcessColModels about one probe sphere. Returns

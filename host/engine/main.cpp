@@ -608,6 +608,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // ResolveGameDir; nothing machine-specific is compiled in.
 static std::string g_gameDir;
 static Vehicles g_vehicles;
+// The world as the car physics sees it (CWorld::ProcessLineOfSight / CCollision::ProcessColModels).
+static VehicleWorld CarWorld() {
+    VehicleWorld w;
+    w.line = [](const float* a, const float* b, float* n) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2], nullptr, nullptr, n); };
+    w.sphere = [](const float* c, float r, float* p, float* n) {
+        GameWorld::ProbeHit hit;
+        if (!g_world.SphereProbe(c[0], c[1], c[2], r, hit)) return false;
+        for (int k = 0; k < 3; k++) { p[k] = hit.p[k]; n[k] = hit.n[k]; }
+        return true;
+    };
+    return w;
+}
 // 0 car, 1 bicycle (bmx.ifp rider), 2 moped or motorbike (bikes.ifp rider); eVehicleClass 7, 8, 11
 static int BikeKind(int n) {
     const VehicleInfo* vi = g_vehicles.Info(g_vehicles.Car((size_t)n).model);
@@ -3792,6 +3804,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (hitPed >= 0 && hitPed != s_lastTarget) g_speech.SayPlayer(CTX_PULL_GUN);
                 s_lastTarget = hitPed;
             }
+            if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
             g_vehicles.UpdateDamage(dt, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p) { g_carBooms.push_back({p[0], p[1], p[2]}); });
             if (g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).wrecked) {   // thrown out of a car that blew up
@@ -3956,10 +3969,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const float br = (RawGameKey('S') & 0x8000) ? 1.0f : 0.0f;
                     const float st = ((RawGameKey('D') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('A') & 0x8000) ? 1.0f : 0.0f);
                     const bool hb = (RawGameKey(VK_SPACE) & 0x8000) != 0;
-                    g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,
-                                    [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
-                                    [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });
+                    if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld())))
+                        g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
+                                        [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
+                                        [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });
                     const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
+                    if (getenv("GTA_CARDBG") && frame % 10 == 0)
+                        Log("CARDBG f%d pos %.2f %.2f %.2f hdg %.1f spd %.2f km/h %.1f gear %d gas %.2f brk %.2f comp %.2f %.2f %.2f %.2f up %.2f %.2f %.2f wheels %d",
+                            frame, c.x, c.y, c.z, c.heading * 57.29578f, c.speed, c.speed * 3.6f, c.phys.gear, c.phys.gas, c.phys.brake,
+                            c.phys.compPrev[0], c.phys.compPrev[1], c.phys.compPrev[2], c.phys.compPrev[3], c.rot[6], c.rot[7], c.rot[8], c.phys.numContactWheels);
                     if (worldReady) g_world.DynVehicle(c.x, c.y, c.z, c.vx, c.vy, 1.3f, 1500.0f);
                     if (const VehicleInfo* vi = g_vehicles.Info(c.model)) {
                         const HandlingData* hd = g_vehicles.Handling(vi->handling);

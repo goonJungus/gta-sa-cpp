@@ -100,6 +100,38 @@ void FrameMatrix(const float* m12, float* o) {
     }
 }
 
+// The clump's collision plugin (0x253F2FA, CCollisionPlugin): a COL2/COL3 model with the body spheres and boxes
+// (CFileLoader::LoadCollisionModelVer2/3). Offsets inside it count from just after the magic.
+void ParseVehicleCol(const std::vector<uint8_t>& b, size_t o, size_t end, VehicleModel& vm) {
+    auto u32 = [&](size_t p) { uint32_t v = 0; if (p + 4 <= b.size()) std::memcpy(&v, &b[p], 4); return v; };
+    auto u16 = [&](size_t p) { uint16_t v = 0; if (p + 2 <= b.size()) std::memcpy(&v, &b[p], 2); return v; };
+    auto f32 = [&](size_t p) { float v = 0; if (p + 4 <= b.size()) std::memcpy(&v, &b[p], 4); return v; };
+    while (o + 12 <= end && !vm.colFound) {
+        const uint32_t t = u32(o), sz = u32(o + 4);
+        const size_t p = o + 12;
+        if (p + sz > end) return;
+        if (t == 0x253F2FA && sz >= 0x6C && (std::memcmp(&b[p], "COL3", 4) == 0 || std::memcmp(&b[p], "COL2", 4) == 0)) {
+            for (int k = 0; k < 3; k++) { vm.colMin[k] = f32(p + 0x20 + 4 * (size_t)k); vm.colMax[k] = f32(p + 0x2C + 4 * (size_t)k); }
+            const uint16_t ns = u16(p + 0x48), nb = u16(p + 0x4A);
+            const uint32_t offS = u32(p + 0x54), offB = u32(p + 0x58);
+            for (uint16_t k = 0; k < ns; k++) {
+                const size_t q = p + 4 + offS + (size_t)k * 20;
+                if (q + 16 > p + sz) break;
+                vm.colSpheres.push_back({{f32(q), f32(q + 4), f32(q + 8)}, f32(q + 12)});
+            }
+            for (uint16_t k = 0; k < nb; k++) {
+                const size_t q = p + 4 + offB + (size_t)k * 28;
+                if (q + 24 > p + sz) break;
+                vm.colBoxes.push_back({{f32(q), f32(q + 4), f32(q + 8)}, {f32(q + 12), f32(q + 16), f32(q + 20)}});
+            }
+            vm.colFound = true;
+            return;
+        }
+        if (t == 0x10 || t == 0x3) ParseVehicleCol(b, p, p + sz, vm);
+        o = p + sz;
+    }
+}
+
 // Parts that are not shown on an undamaged car: damage and low detail stand-ins, extras.
 bool HiddenPart(const std::string& n) {
     return n.find("_dam") != std::string::npos || n.find("_vlo") != std::string::npos ||
@@ -216,9 +248,51 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             h.engineType = t[16][0];
             h.brakeDecel = (float)std::atof(t[17].c_str());
             h.brakeBias = (float)std::atof(t[18].c_str());
+            h.abs = std::atoi(t[19].c_str()) != 0;
             h.steeringLock = (float)std::atof(t[20].c_str());
+            h.suspForce = (float)std::atof(t[21].c_str());
+            h.suspDamping = (float)std::atof(t[22].c_str());
+            h.suspHighSpdComDamp = (float)std::atof(t[23].c_str());
+            h.suspUpper = (float)std::atof(t[24].c_str());
+            h.suspLower = (float)std::atof(t[25].c_str());
+            h.suspBias = (float)std::atof(t[26].c_str());
+            h.antiDive = (float)std::atof(t[27].c_str());
+            h.seatOffset = (float)std::atof(t[28].c_str());
+            h.collisionDamageMult = (float)std::atof(t[29].c_str());
             h.monetaryValue = std::atoi(t[30].c_str());
-            if (t.size() > 31) h.low = (std::strtoul(t[31].c_str(), nullptr, 16) & 0x4u) != 0;
+            if (t.size() > 31) h.modelFlags = (uint32_t)std::strtoul(t[31].c_str(), nullptr, 16);
+            if (t.size() > 32) h.handlingFlags = (uint32_t)std::strtoul(t[32].c_str(), nullptr, 16);
+            h.low = (h.modelFlags & 0x4u) != 0;
+            // cHandlingDataMgr::ConvertDataToGameUnits (InitFromData scales the engine by 0.4 first)
+            constexpr float kAccel = 1.0f / (50.0f * 50.0f), kVelocity = 0.277778f / 50.0f;
+            Transmission& tr = h.trans;
+            tr.numGears = std::clamp(h.numGears, 1, 5);
+            tr.driveType = h.driveType;
+            tr.handlingFlags = h.handlingFlags;
+            tr.engineAccel = h.engineAccel * 0.4f * kAccel;
+            tr.engineInertia = h.engineInertia;
+            tr.maxVelocity = h.maxVelocity * kVelocity;
+            h.brakeDecelGame = h.brakeDecel * kAccel;
+            h.collisionDamageGame = h.collisionDamageMult / h.mass * 2000.0f;
+            const float accelLimit = tr.engineAccel / 6.0f;
+            float maxV = tr.maxVelocity;
+            while (maxV > 0.0f) {   // the top speed where drag eats the whole engine
+                maxV -= 0.01f;
+                if (h.dragMult >= 0.01f) {
+                    if (maxV * maxV * (h.dragMult / 2.0f) / 1000.0f <= accelLimit) break;
+                } else if ((1.0f / (maxV * maxV * h.dragMult + 1.0f) - 1.0f) * -maxV <= accelLimit) break;
+            }
+            if (h.name == "rcbandit") { tr.maxFlatVelocity = maxV; tr.maxReverseVelocity = -maxV; }
+            else if (h.handlingFlags & 0x1000000u) {   // USE_MAXSP_LIMIT
+                tr.maxFlatVelocity = maxV / 1.2f;
+                tr.maxReverseVelocity = std::min(-tr.maxFlatVelocity / 4.0f, -0.2f);
+            } else {
+                tr.maxVelocity = maxV * 1.2f;
+                tr.maxFlatVelocity = maxV;
+                tr.maxReverseVelocity = std::min(-maxV * 0.3f, -0.2f);
+            }
+            tr.engineAccel /= h.driveType == '4' ? 4.0f : 2.0f;
+            tr.InitGearRatios();
             m_handling[h.name] = h;
         }
     }
@@ -365,6 +439,11 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             vm.seatFound = true;
             vm.seatPos[0] = -std::fabs(glob[i][12]); vm.seatPos[1] = glob[i][13]; vm.seatPos[2] = glob[i][14];
         }
+    ParseVehicleCol(dffData, 0, dffData.size(), vm);
+    // GetSizeOfWheel (eCarWheel order: front left, rear left, front right, rear right): the vehicles.ide
+    // wheel scale is the tyre diameter.
+    for (int k = 0; k < 4; k++) vm.wheelSize[k] = (k == 0 || k == 2) ? info->wheelScaleFront : info->wheelScaleRear;
+    std::fprintf(stderr, "[VEH] %s col: %zu spheres %zu boxes\n", info->dff.c_str(), vm.colSpheres.size(), vm.colBoxes.size());
     std::fprintf(stderr, "[VEH] %s frames:", info->dff.c_str());
     for (const DffFrame& f : w.frames) std::fprintf(stderr, " %s", f.name.c_str());
     std::fprintf(stderr, "\n");
@@ -505,7 +584,7 @@ void Vehicles::Draw(D3DRenderer& r) {
         // Heading 0 faces +y like the ped; the model's nose is +y too.
         const float cs = std::cos(c.heading), sn = std::sin(c.heading);
         float body[16] = {cs, sn, 0, 0, -sn, cs, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
-        if (c.hasRot) {   // CMatrix rows: right, forward, up
+        if (c.hasRot || c.phys.active) {   // CMatrix rows: right, forward, up
             const float* q = c.rot;
             const float m[16] = {q[0], q[1], q[2], 0, q[3], q[4], q[5], 0, q[6], q[7], q[8], 0, c.x, c.y, c.z, 1};
             std::memcpy(body, m, sizeof(m));
@@ -552,7 +631,9 @@ void Vehicles::Draw(D3DRenderer& r) {
                 const float rz[16] = {ca, sa, 0, 0, -sa, ca, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
                 Mul(wm, rz, wm);
             }
-            wm[12] = vm.wheelPos[k][0]; wm[13] = vm.wheelPos[k][1]; wm[14] = vm.wheelPos[k][2];
+            static const int kSaWheel[4] = {0, 2, 1, 3};   // lf, rf, lb, rb -> eCarWheel
+            wm[12] = vm.wheelPos[k][0]; wm[13] = vm.wheelPos[k][1];
+            wm[14] = c.phys.active && vm.suspReady ? c.phys.wheelZ[kSaWheel[k]] : vm.wheelPos[k][2];   // on its spring
             float t[16];
             Mul(wm, body, t);
             std::memcpy(&out._11, t, sizeof(t));

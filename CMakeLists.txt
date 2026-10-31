@@ -88,6 +88,7 @@ if(WIN32)
         host/engine/BulletInfo.cpp
         host/engine/Melee.cpp
         host/engine/Vehicle.cpp
+        host/engine/CarPhysics.cpp
         host/engine/Script.cpp
         host/engine/ScriptGame.cpp
         host/engine/EntryExit.cpp
