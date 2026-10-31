@@ -99,6 +99,8 @@ void CarGenerators::Process(Vehicles& v, D3DRenderer& r, const float player[3], 
             if (g.file.colour1 >= 0) c.paint[0] = g.file.colour1;
             if (g.file.colour2 >= 0) c.paint[1] = g.file.colour2;
         }
+        if (GenRand(100) < g.file.alarmChance) c.alarmMs = -1;         // armed
+        if (GenRand(100) < g.file.doorLockChance) c.locked = true;    // CARLOCK_LOCKED
         g.car = n;
         m_parked++;
         if (std::getenv("GTA_CARDBG")) std::fprintf(stderr, "[CARGEN] model %d at %.1f %.1f %.1f (spot %.1f, %.0f m away)\n", model, c.x, c.y, c.z, g.file.z, d);

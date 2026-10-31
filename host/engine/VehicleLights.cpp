@@ -38,6 +38,21 @@ bool Vehicles::LightsOn(const VehicleInstance& c, const LightEnv& env) {
            s < env.foggy || s < env.wet;
 }
 
+int Vehicles::ProcessCarAlarms(float dt, float x, float y) {
+    int best = -1;
+    float bd = 1e30f;
+    const int step = (int)(dt * 1000.0f);
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        VehicleInstance& c = m_cars[i];
+        if (c.alarmMs <= 0) continue;
+        if (c.wrecked || c.removed) { c.alarmMs = 0; continue; }
+        c.alarmMs = c.alarmMs >= step ? c.alarmMs - step : 0;
+        const float d = (c.x - x) * (c.x - x) + (c.y - y) * (c.y - y);
+        if (c.alarmMs > 0 && d < bd) { bd = d; best = (int)i; }
+    }
+    return best;
+}
+
 bool Vehicles::UsesSiren(int model) {
     switch (model) {
     case 407: case 416: case 423: return true;      // firetruck, ambulance, mr whoopee
@@ -94,7 +109,10 @@ void Vehicles::RenderLights(D3DRenderer& r, const float cam[3], const LightEnv& 
         const HandlingData* h = info ? Handling(info->handling) : nullptr;
         const bool halogen = h && (h->handlingFlags & 0x400000) != 0;   // HALOGEN_LIGHTS
         const bool twin = UsesCarPhysics(c.model);                     // CAutomobile: a pair, bikes one
-        const bool on = LightsOn(c, env);
+        // DoVehicleLights: a ringing alarm flashes the headlights every 256 ms (with the engine running).
+        const bool ringing = c.alarmMs > 0;
+        const bool alarmDark = ringing && (ms & 0x100u) == 0;
+        const bool on = (LightsOn(c, env) || ringing) && !alarmDark;
         // CDamageManager::GetLightStatus: front right, front left; both rear lights read the rear left (as retail).
         const bool frOk = c.lightStatus[1] == 0, flOk = c.lightStatus[0] == 0, rearOk = c.lightStatus[3] == 0;
         float rt[3], fw[3], up[3];

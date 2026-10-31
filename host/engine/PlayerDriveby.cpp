@@ -112,11 +112,24 @@ void PlayerPed::VehDoorOffsetFor(bool lowCar, bool right, float out[2]) const {
 
 // CTaskComplexEnterCarAsDriver from the door CCarEnterExit::GetNearestCarDoor chose: open it and get in; through the
 // passenger door CJ then slides across (CTaskSimpleCarShuffle). The host walks him to the door first.
-void PlayerPed::StartEnterCar(bool lowCar, bool right) {
+void PlayerPed::StartEnterCar(bool lowCar, bool right, bool locked) {
     if (m_vehTrans != VehTrans::None || m_seated) return;
     m_seatLow = lowCar;
     m_vehRight = right;
+    m_vehLocked = false;
     VehDoorOffsetFor(lowCar, right, m_vehDoor);
+    if (locked) {
+        if (const AnimClip* lk = Clip(right ? "car_doorlocked_rhs" : "car_doorlocked_lhs")) {
+            m_vehLocked = true;
+            m_vehClip = lk;
+            m_vehTrans = VehTrans::EnterLocked;
+            Blend(lk, false, false, 8.0f);
+            m_vehFrac = m_vehApproach = 0.0f;
+            m_busy = m_aiming = m_ducking = m_inAir = m_jumping = m_firing = m_reloading = false;
+            m_velX = m_velY = 0.0f;
+            return;
+        }
+    }
     const AnimClip* gi = VehGetInClip(lowCar, right);
     const AnimClip* open = Clip(right ? "car_open_rhs" : "car_open_lhs");
     m_vehClip = open ? open : gi;
@@ -154,7 +167,7 @@ float PlayerPed::VehDoorRatio() const {
     case VehTrans::EnterOpen: r = m_vehApproach * 2.0f; break;
     case VehTrans::EnterGetIn: r = (1.0f - m_vehFrac) / 0.35f; break;
     case VehTrans::ExitGetOut: { const float p = 1.0f - m_vehFrac; r = std::min(p / 0.2f, (1.0f - p) / 0.3f); break; }
-    case VehTrans::EnterShuffle: case VehTrans::None: break;
+    case VehTrans::EnterShuffle: case VehTrans::EnterLocked: case VehTrans::None: break;
     }
     return r < 0.0f ? 0.0f : (r > 1.0f ? 1.0f : r);
 }
@@ -196,6 +209,11 @@ void PlayerPed::UpdateVehTransition(const Input&) {
                 Blend(sh, false, false, 8.0f);
             } else { m_vehTrans = VehTrans::None; m_vehClip = nullptr; EnterVehicle(m_seatLow, 0); }
         }
+        break;
+    case VehTrans::EnterLocked:   // up to the door, a tug at the handle, back to standing
+        m_vehFrac = 0.0f;
+        m_vehApproach = std::min(1.0f, prog * 3.0f);
+        if (done) { m_vehTrans = VehTrans::None; m_vehClip = nullptr; LeaveVehicle(); }
         break;
     case VehTrans::EnterShuffle:
         m_vehFrac = 1.0f;

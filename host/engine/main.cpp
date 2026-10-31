@@ -2532,6 +2532,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         (k < 6 ? dc.doorStatus[k] : dc.panelStatus[k - 6]) = (uint8_t)(dm[k + (k >= 6)] - '0');
                 }
                 if (const char* hp = getenv("GTA_CARHP"); hp && ci >= 0) g_vehicles.Car((size_t)ci).health = (float)atof(hp);   // dev
+                if (ci >= 0 && getenv("GTA_CARLOCK")) g_vehicles.Car((size_t)ci).locked = true;     // dev
+                if (ci >= 0 && getenv("GTA_CARALARM")) g_vehicles.Car((size_t)ci).alarmMs = -1;     // dev
                 if (const char* ty = getenv("GTA_CARTYRES"); ty && ci >= 0)   // dev: "flrlfrrr" wheel states (0 ok, 1 burst, 2 missing)
                     for (int k = 0; k < 4 && ty[k]; k++) g_vehicles.Car((size_t)ci).wheelStatus[k] = (uint8_t)(ty[k] - '0');
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
@@ -3959,7 +3961,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_vehGoToCar = -1;
                             g_vehTransCar = (int)gc; g_vehTransEnter = true;
                             g_vehEnterStart[0] = playerX; g_vehEnterStart[1] = playerY; g_vehEnterStart[2] = playerZ - EYE_HEIGHT;
-                            g_cj.StartEnterCar(low, right);
+                            g_cj.StartEnterCar(low, right, gcar->locked);
+                            if (!gcar->locked && gcar->alarmMs == -1) g_vehicles.Car(gc).alarmMs = 15000;   // opening the door sets the alarm off
                             Log("DRIVE: entering car %d by the %s door", (int)gc, right ? "passenger" : "driver");
                         } else {
                             const float gx = wx * ch - wy * sh + gcar->x - playerX, gy = wx * sh + wy * ch + gcar->y - playerY;
@@ -4011,7 +4014,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             playerX = px; playerY = py; playerZ = feet + EYE_HEIGHT;
                             velZ = 0.0f; onGround = true;
                             if (!g_cj.VehTransitioning()) {   // the sequence finished this frame
-                                if (g_vehTransEnter) {
+                                if (g_vehTransEnter && g_cj.LastEntryLocked()) {
+                                    Log("DRIVE: car %d is locked", g_vehTransCar);
+                                } else if (g_vehTransEnter) {
                                     g_driveCar = g_vehTransCar; 
                                     Log("DRIVE: got in car %d", g_vehTransCar);
                                 } else {
@@ -4135,6 +4140,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 } else {
                     s_hornHeld = 0.0f;
                     g_audio.HornSiren(0, false, false, false);
+                }
+                {   // CVehicle::ProcessCarAlarm and the alarm horn: 375 ms on, 375 off (ProcessVehicleSirenAlarmHorn)
+                    const int ac = g_vehicles.ProcessCarAlarms(dt, playerX, playerY);
+                    float vol = 0.0f;
+                    if (ac >= 0) {
+                        const VehicleInstance& al = g_vehicles.Car((size_t)ac);
+                        const float d = std::sqrt((al.x - playerX) * (al.x - playerX) + (al.y - playerY) * (al.y - playerY));
+                        if ((((uint32_t)g_bulletMs) % 750u) < 375u) vol = std::clamp(1.0f - d / 60.0f, 0.0f, 1.0f);
+                    }
+                    g_audio.AlarmHorn(ac >= 0 ? g_vehicles.Car((size_t)ac).model : 0, vol);
                 }
             }
 

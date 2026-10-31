@@ -463,6 +463,17 @@ void Audio::StopMusic() {
     m_musEnded = false;
 }
 
+void Audio::AlarmHorn(int model, float vol) {
+    if (!m_ready) return;
+    const int idx = model - 400;
+    const VehAudioRow* row = idx >= 0 && idx < (int)(sizeof(kVehAudio) / sizeof(kVehAudio[0])) ? &kVehAudio[idx] : nullptr;
+    const bool on = vol > 0.0f && row && row->horn >= 0 && row->horn <= 9;
+    if (m_alarmVoice && (!on || m_alarmModel != model)) { Stop(m_alarmVoice); m_alarmVoice = 0; }
+    if (!on) return;
+    if (!m_alarmVoice) { m_alarmVoice = Play(74, row->horn, 0.6f * vol, 0.0f, row->hornPitch, true); m_alarmModel = model; }
+    else SetVoice(m_alarmVoice, 0.6f * vol, 0.0f, row->hornPitch);
+}
+
 int Audio::VehicleRadio(int model, int* type) {
     const int idx = model - 400;
     if (idx < 0 || idx >= (int)(sizeof(kVehAudio) / sizeof(kVehAudio[0]))) { if (type) *type = -1; return 13; }

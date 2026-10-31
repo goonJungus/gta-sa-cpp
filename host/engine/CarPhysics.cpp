@@ -735,6 +735,7 @@ void Vehicles::CarCarCollisions(float dt) {
             const bool bWasAwake = eb.awake;
             Activate(ca); Activate(cb);
             ca.phys.fakePhysics = 0; cb.phys.fakePhysics = 0;
+            for (VehicleInstance* av : {&ca, &cb}) if (av->alarmMs == -1) av->alarmMs = 15000;   // CPhysical::ProcessCollision sets armed alarms off
             ea.awake = eb.awake = true;
             Body A = Load(ca, *ea.h), B = Load(cb, *eb.h);
             const float count = (float)contacts.size();

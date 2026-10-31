@@ -194,6 +194,8 @@ struct VehicleInstance {
     bool siren = false;               // bSirenOrAlarm: the siren and its light bar
     int radioStation = -1;            // eRadioID it is tuned to, -1 until someone drives it
     bool recycle = false;             // a car generator's parked car: its slot is reused once it is removed
+    int alarmMs = 0;                  // m_nAlarmState: 0 none, -1 armed, else ms left ringing
+    bool locked = false;              // m_nDoorLock CARLOCK_LOCKED
     // CDoor per eDoors (bonnet, boot, lf, rf, lr, rr) while it swings loose: angle, angular speed, eDoorState.
     float doorAngle[6] = {0, 0, 0, 0, 0, 0}, doorAngVel[6] = {0, 0, 0, 0, 0, 0};
     uint8_t doorHit[6] = {0, 0, 0, 0, 0, 0};
@@ -223,6 +225,8 @@ public:
     struct LightEnv { int hour = 12, minute = 0; float foggy = 0.0f, wet = 0.0f; };
     // CVehicle::GetVehicleLightsStatus.
     static bool LightsOn(const VehicleInstance& c, const LightEnv& env);
+    // CVehicle::ProcessCarAlarm: a ringing alarm counts down. Returns the ringing car nearest to (x, y), or -1.
+    int ProcessCarAlarms(float dt, float x, float y);
     // CVehicle::UsesSiren: emergency vehicles and the law (IsLawEnforcementVehicle), not the rhino.
     static bool UsesSiren(int model);
     // CVehicle::DoVehicleLights: head and tail light coronas of the cars near the camera.

@@ -162,12 +162,14 @@ public:
     // blends between a door-open point and the seat by the clip's progress (CTaskUtilityLineUpPedWithCar).
     // The host drives the world position from VehTransFrac() and VehDoorOffset(); EnterVehicle() /
     // LeaveVehicle() fire automatically at the end of get-in / get-out.
-    void StartEnterCar(bool lowCar, bool right = false);   // right: by the passenger door, then shuffle across
+    // locked: CTaskSimpleCarOpenLockedDoorFromOutside, CJ tries the handle (car_doorlocked) and gives up.
+    void StartEnterCar(bool lowCar, bool right = false, bool locked = false);   // right: by the passenger door, then shuffle across
+    bool LastEntryLocked() const { return m_vehLocked; }
     void StartExitCar(bool lowCar);
     void CancelVehTransition();            // car gone / aborted: back to the on-foot idle
     bool VehTransitioning() const { return m_vehTrans != VehTrans::None; }
     bool VehEntering() const { return m_vehTrans == VehTrans::EnterOpen || m_vehTrans == VehTrans::EnterGetIn; }
-    bool VehOpening() const { return m_vehTrans == VehTrans::EnterOpen; }   // sliding up to the door
+    bool VehOpening() const { return m_vehTrans == VehTrans::EnterOpen || m_vehTrans == VehTrans::EnterLocked; }   // sliding up to the door
     float VehApproachFrac() const { return m_vehApproach; }  // 0 at CJ's start spot, 1 at the door
     float VehTransFrac() const { return m_vehFrac; }         // 0 at the door, 1 at the seat
     void VehDoorOffset(float out[2]) const { out[0] = m_vehDoor[0]; out[1] = m_vehDoor[1]; }   // seat->door, car space (x right, y fwd)
@@ -550,7 +552,8 @@ private:
     int m_dbSide = 0;                      // +1 left window, -1 right
     void UpdateSeated(const Input& in);
     // CTaskComplexEnterCar / CTaskComplexLeaveCar sequence state.
-    enum class VehTrans { None, EnterOpen, EnterGetIn, EnterShuffle, ExitGetOut };
+    enum class VehTrans { None, EnterOpen, EnterGetIn, EnterShuffle, ExitGetOut, EnterLocked };
+    bool m_vehLocked = false;              // the last entry found the door locked
     bool m_vehRight = false;               // entering by the passenger door (then shuffling across)
     float m_vehShuffle = 0.0f;             // shuffle: 0 in the passenger seat, 1 at the wheel
     VehTrans m_vehTrans = VehTrans::None;
