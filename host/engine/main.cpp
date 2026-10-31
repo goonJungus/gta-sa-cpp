@@ -4310,7 +4310,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         s_prevGun = gunKey;
                     }
                     g_airMark = -1; g_airLocked = false;
-                    if (worldReady && !c.wrecked && g_vehicles.IsAircraft(c.model)) {   // CPlane / CHeli::ProcessControl -> CVehicle::ProcessWeapons
+                    // CPlane / CHeli::ProcessControl -> CVehicle::ProcessWeapons, CBoat::ProcessControl -> DoFixedMachineGuns
+                    if (worldReady && !c.wrecked && (g_vehicles.IsAircraft(c.model) || c.model == VehicleGuns::kPredator)) {
                         static bool s_f1 = false, s_f2 = false, s_tg = false;
                         const bool f1 = ((RawGameKey(VK_LBUTTON) | RawGameKey(VK_RCONTROL) | RawGameKey(VK_LMENU)) & 0x8000) != 0;   // VEHICLE_FIREWEAPON
                         const bool f2 = ((RawGameKey(VK_LCONTROL) | RawGameKey(VK_NUMPAD0)) & 0x8000) != 0;                          // VEHICLE_FIREWEAPON_ALT
@@ -4335,7 +4336,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         g_airMark = af.markCar; g_airLocked = af.locked;
                         for (const VehicleGuns::AirFire::Shot& s : af.shots) {   // CWeapon::FireInstantHit -> DoBulletImpact
                             const WeaponInfo* wi = WeaponTable::Get(s.minigun ? "MINIGUN" : "M4", 1);
-                            const float dmg = wi ? (float)wi->damage : (s.minigun ? 140.0f : 30.0f);
+                            const float dmg = s.damage > 0.0f ? s.damage : wi ? (float)wi->damage : (s.minigun ? 140.0f : 30.0f);
                             float d[3] = {s.end[0] - s.origin[0], s.end[1] - s.origin[1], s.end[2] - s.origin[2]};
                             const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
                             if (len < 1e-3f) continue;

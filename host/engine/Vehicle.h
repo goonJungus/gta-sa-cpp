@@ -289,6 +289,7 @@ struct VehicleInstance {
         uint32_t gunMs = 0, ordMs[2] = {0, 0}, flareMs = 0, lockMs = 0;
         int cycle = 0, lockTarget = -1;
         bool mirror = false;
+        int clip = 20;                // m_nAmmoInClip: the Predator's fixed guns
     } air;
     float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
     bool hasRot = false;              // a recorded playback owns the orientation: rot is right, forward, up (CMatrix)

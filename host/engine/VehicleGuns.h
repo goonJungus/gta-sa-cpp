@@ -38,7 +38,7 @@ void FireWater(Vehicles& v, size_t car, WaterCannons& wc, float nowMs, float dt)
 void ResetClock();   // forget the last tank shot (dev tests)
 
 // ---- CVehicle::ProcessWeapons: the guns and ordnance of planes and helicopters ----
-constexpr int kHunter = 425, kSeaspar = 447, kRCBaron = 464, kRustler = 476, kMaverick = 487, kPolmav = 497,
+constexpr int kPredator = 430, kHunter = 425, kSeaspar = 447, kRCBaron = 464, kRustler = 476, kMaverick = 487, kPolmav = 497,
               kHydra = 520, kCargobob = 548;
 
 // CPad::GetCarGunFired / CarGunJustDown: 1 = VEHICLE_FIREWEAPON (LMB, right Ctrl, left Alt), 2 =
@@ -49,7 +49,8 @@ struct AirPad {
 };
 
 struct AirFire {
-    struct Shot { float origin[3], end[3]; bool minigun; };   // CWeapon::FireInstantHit with the auto-aim applied
+    // CWeapon::FireInstantHit with the auto-aim applied; damage 0: the weapon's own (MINIGUN or M4)
+    struct Shot { float origin[3], end[3]; bool minigun; float damage = 0.0f; };
     struct Missile { float pos[3], vel[3]; bool homing; int target; };   // vel in m/s; target car for a lock-on
     std::vector<Shot> shots;
     std::vector<Missile> missiles;
@@ -66,6 +67,7 @@ struct AirWorld {
     std::function<bool(const float*, const float*)> clear;
 };
 
+// Also the Predator's CVehicle::DoFixedMachineGuns.
 void ProcessAirWeapons(Vehicles& v, size_t car, const AirPad& pad, uint32_t nowMs, float dt, const AirWorld& w, AirFire& out);
 
 }  // namespace VehicleGuns

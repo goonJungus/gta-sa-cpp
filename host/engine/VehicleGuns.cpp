@@ -387,10 +387,40 @@ int ScanAndMark(Vehicles& v, size_t self, const Frame& fr, int preferred, const 
 }
 }  // namespace
 
+// CVehicle::DoFixedMachineGuns / FireFixedMachineGuns: the Predator's two guns 2 m either side of its bow fire a round
+// each every 150 ms at a point 60 m ahead on its heading (scattered 1.92 m sideways, 2.56 m up or down), 15 damage a
+// round; after 20 the guns rest 1.4 s, and letting go 1.4 s refills the clip. (DoTankDoomAiming has no target here.)
+void FixedMachineGuns(Vehicles& v, size_t car, bool fired, uint32_t now, AirFire& out) {
+    VehicleInstance::AirGuns& g = v.Car(car).air;
+    if (!fired) {
+        if (now > g.gunMs + 1400u) g.clip = 20;
+        return;
+    }
+    if (now <= g.gunMs + 150u) return;
+    g.gunMs = now;
+    const Frame fr = FrameOf(v, car);
+    const float fl = std::max(0.1f, std::sqrt(fr.f[0] * fr.f[0] + fr.f[1] * fr.f[1]));
+    const float ahead[2] = {fr.f[0] / fl * 60.0f, fr.f[1] / fl * 60.0f};
+    for (float side : {2.0f, -2.0f}) {
+        const float l[3] = {side, 2.5f, 1.0f};
+        AirFire::Shot s;
+        s.minigun = false;
+        s.damage = 15.0f;
+        fr.Point(l, s.origin);
+        const float ry = (float)((std::rand() & 0xff) - 0x80), rx = (float)((std::rand() & 0xff) - 0x80), rz = (float)((std::rand() & 0xff) - 0x80);
+        s.end[0] = s.origin[0] + ahead[0] + rx * 0.015f;
+        s.end[1] = s.origin[1] + ahead[1] + ry * 0.015f;
+        s.end[2] = s.origin[2] + rz * 0.02f;
+        out.shots.push_back(s);
+    }
+    if (--g.clip <= 0) { g.clip = 20; g.gunMs = now + 1400u; }
+}
+
 void ProcessAirWeapons(Vehicles& v, size_t car, const AirPad& pad, uint32_t now, float dt, const AirWorld& w, AirFire& out) {
     if (car >= v.Count()) return;
     VehicleInstance& c = v.Car(car);
     VehicleInstance::AirGuns& g = c.air;
+    if (c.model == kPredator) { FixedMachineGuns(v, car, pad.gunFired != 0, now, out); return; }
     const float ts = dt * 50.0f;
     // GetPlaneWeaponFiringStatus
     bool status = false;
