@@ -346,12 +346,14 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
                 else { std::memset(nd.base, 0, sizeof(nd.base)); nd.base[0] = nd.base[5] = nd.base[10] = nd.base[15] = 1.0f; }
             }
     }
-    static const char* kDoor[4] = {"door_lf", "door_rf", "door_lr", "door_rr"};
+    // eCarNodes CAR_DOOR_LF..RR: the hinge dummies; the door_*_ok / door_*_dam meshes hang under them.
+    static const char* kDoor[4] = {"door_lf_dummy", "door_rf_dummy", "door_lr_dummy", "door_rr_dummy"};
     for (size_t i = 0; i < w.frames.size(); i++)
         for (int k = 0; k < 4; k++) {
             if (w.frames[i].name != kDoor[k]) continue;
             VehicleModel::Door& d = vm.doors[k];
             d.found = true;
+            d.frame = (int)i;
             for (int c = 0; c < 3; c++) d.hinge[c] = w.frames[i].m[9 + c];
             d.openAngle = (k % 2 == 0 ? -0.5f : 0.5f) * 3.14159265f;
             const int p = w.frames[i].parent;
@@ -411,7 +413,18 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         if (fr >= 0 && (size_t)fr < glob.size()) std::memcpy(p.m, glob[(size_t)fr].data(), sizeof(p.m));
         else { std::memset(p.m, 0, sizeof(p.m)); p.m[0] = p.m[5] = p.m[10] = p.m[15] = 1.0f; }
         for (int k = 0; k < 3; k++) if (vm.nodes[k].found && name == (k == 0 ? "misc_a" : k == 1 ? "misc_b" : "misc_c")) p.node = k;
-        for (int k = 0; k < 4; k++) if (vm.doors[k].found && name == kDoor[k]) p.door = k;
+        for (int k = 0; k < 4 && fr >= 0; k++) {   // under a door hinge: keep the part's frame relative to it
+            if (!vm.doors[k].found) continue;
+            float rel[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            int f = fr;
+            for (int guard = 0; f >= 0 && f != vm.doors[k].frame && (size_t)f < w.frames.size() && guard < 64; guard++) {
+                float local[16];
+                FrameMatrix(w.frames[(size_t)f].m, local);
+                Mul(rel, local, rel);
+                f = w.frames[(size_t)f].parent;
+            }
+            if (f == vm.doors[k].frame && f != fr) { p.door = k; std::memcpy(p.doorLocal, rel, sizeof(rel)); }
+        }
         vm.parts.push_back(p);
     }
     {
@@ -499,7 +512,8 @@ void Vehicles::Draw(D3DRenderer& r) {
                 const float a = c.doorRatio[p.door] * d.openAngle, ca = std::cos(a), sa = std::sin(a);
                 const float loc[16] = {ca, sa, 0, 0, -sa, ca, 0, 0, 0, 0, 1, 0, d.hinge[0], d.hinge[1], d.hinge[2], 1};
                 float g[16];
-                Mul(loc, d.base, g);
+                Mul(p.doorLocal, loc, g);
+                Mul(g, d.base, g);
                 Mul(g, body, &out._11);
                 dev->SetTransform(D3DTS_WORLD, &out);
                 r.DrawMesh(p.mesh);

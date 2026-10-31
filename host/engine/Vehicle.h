@@ -44,7 +44,8 @@ struct VehiclePart {
     float m[16] = {};                 // part frame -> car, D3D row vectors
     bool wheel = false;
     int node = -1;                    // misc_a / misc_b / misc_c (0..2) when the part hangs on a turret frame
-    int door = -1;                    // door_lf / door_rf / door_lr / door_rr (0..3) when the part is a side door
+    int door = -1;                    // 0..3 when the part hangs under a side door hinge (door_lf_dummy .. door_rr_dummy)
+    float doorLocal[16] = {};         // part frame -> door hinge frame
 };
 
 struct VehicleModel {
@@ -67,7 +68,7 @@ struct VehicleModel {
     Node nodes[3];
     // The side doors (CAutomobile m_doors DOOR_LEFT_FRONT..DOOR_RIGHT_REAR): CDoor::UpdateFrameMatrix swings the
     // frame about its own Z through ratio * openAngle (left -pi/2, right +pi/2), replacing its rotation, keeping its hinge.
-    struct Door { bool found = false; float base[16] = {}; float hinge[3] = {}; float openAngle = 0.0f; };
+    struct Door { bool found = false; int frame = -1; float base[16] = {}; float hinge[3] = {}; float openAngle = 0.0f; };
     Door doors[4];
 };
 
