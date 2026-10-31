@@ -96,6 +96,7 @@ static FireManager g_fires;          // CFireManager
 static ExplosionManager g_expl;      // CExplosion
 static std::vector<std::array<float, 2>> g_shakeQ;   // camera shakes waiting for the shake clock: strength, distance
 static std::vector<std::array<float, 3>> g_carBooms;   // wrecked cars that blew up this frame
+static std::vector<std::array<float, 3>> g_aircraftBooms;   // the rocket blasts of burning aircraft nobody drives
 static std::vector<std::array<float, 3>> g_dynBooms;   // explosive props that went off this frame
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
 static Water g_water;    // CWaterLevel: water.dat surfaces + the open sea
@@ -4002,8 +4003,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             oc.doorStatus[0], oc.doorStatus[1], oc.doorStatus[2], oc.doorStatus[3], oc.doorStatus[4], oc.doorStatus[5],
                             oc.panelStatus[0], oc.panelStatus[1], oc.panelStatus[2], oc.panelStatus[3], oc.panelStatus[4], oc.panelStatus[5], oc.panelStatus[6]);
                 }
-            g_vehicles.UpdateDamage(dt, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
-                                    [](const float* p) { g_carBooms.push_back({p[0], p[1], p[2]}); });
+            g_vehicles.UpdateDamage(dt, g_driveCar, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
+                                    [](const float* p, bool rocket) { (rocket ? g_aircraftBooms : g_carBooms).push_back({p[0], p[1], p[2]}); });
             {   // CEventKnockOffBike: the rider leaves the bike at its speed, falls, and gets up
                 float kv[3]; int kd = 0;
                 if (g_driveCar >= 0 && g_vehicles.TakeKnockOff((size_t)g_driveCar, kv, &kd)) {
@@ -4991,6 +4992,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     fw.carCount = g_vehicles.Ready() ? g_vehicles.Count() : 0;
                     fw.carPos = [](int i, float* o) { if (!g_vehicles.Ready() || (size_t)i >= g_vehicles.Count()) return false; const VehicleInstance& c = g_vehicles.Car((size_t)i); o[0] = c.x; o[1] = c.y; o[2] = c.z + 0.5f; return true; };
                     fw.carWrecked = [](int i) { return g_vehicles.Car((size_t)i).wrecked; };
+                    fw.carEngineBurning = [](int i) { return g_vehicles.Car((size_t)i).engineStatus >= 225; };
                     fw.carDamage = [](int i, float step) { g_vehicles.Damage(i, step); };   // InflictDamage(WEAPON_FLAMETHROWER, step * 1.2)
                     fw.carBurning = [](int) {};
                     fw.player = [&](float* o) { if (g_driveCar >= 0 || g_cj.Dead()) return false; o[0] = playerX; o[1] = playerY; o[2] = playerZ - EYE_HEIGHT; return true; };
@@ -5039,7 +5041,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     eh.setCarsOnFire = [&](const float* p, float r) {   // CWorld::SetCarsOnFire
                         for (size_t i = 0; g_vehicles.Ready() && i < g_vehicles.Count(); i++) {
                             const VehicleInstance& c = g_vehicles.Car(i);
-                            if (c.wrecked || std::fabs(c.x - p[0]) > r || std::fabs(c.y - p[1]) > r || std::fabs(c.z - p[2]) > 5.0f) continue;
+                            if (c.wrecked || c.engineStatus >= 225 || std::fabs(c.x - p[0]) > r || std::fabs(c.y - p[1]) > r || std::fabs(c.z - p[2]) > 5.0f) continue;
                             g_fires.StartFireOn(FireManager::Target::Vehicle, (int)i, 0.8f, 7000.0f, 100);
                         }
                     };
@@ -5082,6 +5084,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     }
                     for (const auto& bm : g_carBooms) g_expl.Add(ExplType::Car, bm.data(), eh);
                     g_carBooms.clear();
+                    for (const auto& bm : g_aircraftBooms) g_expl.Add(ExplType::Rocket, bm.data(), eh);
+                    g_aircraftBooms.clear();
                     for (const auto& bm : g_dynBooms) g_expl.Add(ExplType::Object, bm.data(), eh);
                     g_dynBooms.clear();
                     for (const Projectiles::Event& e : pev) {

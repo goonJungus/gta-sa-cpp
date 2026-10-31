@@ -273,6 +273,9 @@ struct VehicleInstance {
     float health = 1000.0f;           // below 250 it smokes, at 0 it burns and blows up
     float burnTime = 0.0f;            // m_fBurnTimer: seconds the engine has been on fire (below 250 health)
     float smokeTime = 0.0f;
+    // CDamageManager::m_nEngineStatus: 225 once the engine catches fire (no other fire takes the car then), 250 a
+    // wreck, 0 after a repair. Above 225 with the health over 250 the health drains 2 a frame.
+    uint8_t engineStatus = 0;
     bool wrecked = false;
     bool removed = false;             // deleted by the script: not drawn, shot or entered
     float doomV = 0.0f, doomH = 0.05f;   // m_fDoomVerticalRotation / m_fDoomHorizontalRotation: turret yaw and pitch
@@ -448,8 +451,10 @@ public:
     bool BurstTyre(size_t i, int wheel);
     // Damage a car; returns true when this hit set the engine on fire (health under 250). Burning cars blow up 5 s later.
     bool Damage(int car, float damage);
-    // Advance fire and smoke; calls onSmoke(pos, dark), onFire(pos) and onExplode(pos).
-    void UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire, const std::function<void(const float*)>& onExplode);
+    // Advance fire and smoke; calls onSmoke(pos, dark), onFire(pos) and onExplode(pos, rocket): a car blowing up, or
+    // (rocket) the random blasts of a burning aircraft nobody drives. playerCar is the car the player drives.
+    void UpdateDamage(float dt, int playerCar, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire,
+                      const std::function<void(const float*, bool)>& onExplode);
     // CGlass::CarWindscreenShatters: called with the glass rectangle (bottom corner, up and across edges, world
     // space), the car's move speed (per 1/50 s) and the rectangle's centre when a windscreen falls out.
     std::function<void(const float* corner, const float* fwd, const float* right, const float* vel, const float* centre)> onWindscreenShatter;

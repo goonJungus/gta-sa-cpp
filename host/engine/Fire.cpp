@@ -150,6 +150,7 @@ void FireManager::Update(float dt, World& w) {
                 const float dx = cp[0] - f.pos[0], dy = cp[1] - f.pos[1], dz = cp[2] - f.pos[2];
                 if (dx * dx + dy * dy + dz * dz >= 4.0f) continue;
                 if (w.carWrecked && w.carWrecked((int)c)) continue;
+                if (w.carEngineBurning && w.carEngineBurning((int)c)) continue;
                 if (StartFireOn(Target::Vehicle, (int)c, 0.8f, 7000.0f, 100) >= 0 && w.carBurning) w.carBurning((int)c);
             }
         }

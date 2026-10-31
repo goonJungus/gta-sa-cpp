@@ -814,6 +814,7 @@ void Vehicles::Fix(size_t i) {
     std::fill(std::begin(c.doorHit), std::end(c.doorHit), (uint8_t)0);
     for (VehicleInstance::BouncingPanel& p : c.panels) p = VehicleInstance::BouncingPanel{};
     c.burnTime = 0.0f;
+    c.engineStatus = 0;   // CDamageManager::ResetDamageStatus
 }
 
 bool Vehicles::NextColours(size_t i) {
@@ -1108,10 +1109,16 @@ bool Vehicles::Damage(int car, float damage) {
     return !wasBurning && c.health < 250.0f;
 }
 
-void Vehicles::UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire,
-                            const std::function<void(const float*)>& onExplode) {
+void Vehicles::UpdateDamage(float dt, int playerCar, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire,
+                            const std::function<void(const float*, bool)>& onExplode) {
+    static unsigned s_rng = 0x6a7090u;
+    static unsigned s_frame = 0;
+    s_frame++;
+    auto rand01 = [] { s_rng = s_rng * 1664525u + 1013904223u; return (float)(s_rng >> 8) / 16777216.0f; };
     for (VehicleInstance& c : m_cars) {
         if (c.removed) continue;
+        // CAutomobile::VehicleDamage (0x6A83DF): under 250 the engine status goes to 225 and the burn timer restarts
+        if (!c.wrecked && c.health < 250.0f && c.engineStatus < 225) { c.engineStatus = 225; c.burnTime = 0.0f; }
         if (c.wrecked) {   // a burnt out shell keeps smoking
             const float p[3] = {c.x, c.y, c.z + 0.6f};
             if (std::fmod(c.burnTime += dt, 0.12f) < dt) onSmoke(p, 1.0f);
@@ -1128,18 +1135,38 @@ void Vehicles::UpdateDamage(float dt, const std::function<void(const float*, flo
         }
         if (c.health < 250.0f) {   // CAutomobile::ProcessCarOnFireAndExplode: the engine burns and the car blows up 5 s later
             c.burnTime += dt;
-            onFire(p);
-            if (std::fmod(c.burnTime, 0.1f) < dt) onSmoke(p, 0.9f);
+            if (IsAircraft(c.model)) {
+                // A plane or helicopter: huge smoke about its middle every other frame; driven by the player it only
+                // shows flames after 2.5 s, nobody's it never does but blows a rocket blast on itself 1.2% of frames.
+                const int m = c.model;
+                const bool rc = m == 464 || m == 465 || m == 501 || m == 441 || m == 564;   // RC Baron, Raider, Goblin, Bandit, Tiger
+                const float spread = rc ? 0.7f : 2.0f;
+                if ((s_frame & 1) == 0) {   // CTimer::GetFrameCounter() % 2
+                    const float sp[3] = {c.x + (rand01() * 2.0f - 1.0f) * spread, c.y + (rand01() * 2.0f - 1.0f) * spread, c.z};
+                    onSmoke(sp, rc ? 0.6f : 0.9f);
+                }
+                if ((int)(&c - m_cars.data()) == playerCar) {
+                    if (c.burnTime > 2.5f) onFire(p);
+                } else if (!rc && rand01() < 0.012f) {
+                    const float bp[3] = {c.x, c.y, c.z};
+                    onExplode(bp, true);   // CExplosion::AddExplosion(EXPLOSION_ROCKET) on itself
+                }
+            } else {
+                onFire(p);
+                if (std::fmod(c.burnTime, 0.1f) < dt) onSmoke(p, 0.9f);
+            }
             if (c.burnTime > 5.0f) {   // BlowUpCar
                 c.wrecked = true; c.burnTime = 0.0f; c.health = 0.0f;
+                c.engineStatus = 250;   // CDamageManager::FuckCarCompletely
                 for (int k = 0; k < 4; k++) c.paint[k] = 0;   // burnt black
                 c.speed = 0.0f; c.vx = c.vy = 0.0f;
                 c.siren = false; c.engineOn = false;
                 BlowUp((size_t)(&c - m_cars.data()));
-                onExplode(p);
+                onExplode(p, false);
             }
         } else {
             c.burnTime = 0.0f;
+            if (c.engineStatus > 225 && c.health > 250.0f) c.health -= 2.0f;   // DecreaseHealthAndProcess
             // CVehicle::AddDamagedVehicleParticles: the overheat smoke from 650 down, thicker towards 250.
             if (c.health < 650.0f) {
                 c.smokeTime += dt;

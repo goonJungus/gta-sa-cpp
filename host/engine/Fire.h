@@ -38,6 +38,7 @@ public:
         std::function<bool(int car)> carOnFire;
         std::function<void(int car, float amount)> carDamage;                      // InflictDamage(FLAMETHROWER, step * 1.2)
         std::function<void(int car)> carBurning;
+        std::function<bool(int car)> carEngineBurning;   // engine status 225 and up: CFireManager::StartFire refuses the car
         std::function<bool(float* out)> player;                                    // CJ position (feet), false if in a vehicle
         std::function<void(float dt)> playerBurn;
         std::function<bool()> playerBurning;
