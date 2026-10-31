@@ -468,6 +468,18 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             }
     }
     for (size_t i = 0; i < w.frames.size(); i++)
+        for (int k = 0; k < 2; k++) {
+            if (w.frames[i].name != (k == 0 ? "bump_front_dummy" : "bump_rear_dummy")) continue;
+            VehicleModel::Bumper& bm = vm.bumpers[k];
+            bm.found = true;
+            bm.frame = (int)i;
+            FrameMatrix(w.frames[i].m, bm.local);
+            const int p = w.frames[i].parent;
+            if (p >= 0 && (size_t)p < i) std::memcpy(bm.base, glob[(size_t)p].data(), sizeof(bm.base));
+            else { std::memset(bm.base, 0, sizeof(bm.base)); bm.base[0] = bm.base[5] = bm.base[10] = bm.base[15] = 1.0f; }
+            for (int c = 0; c < 3; c++) bm.pos[c] = glob[i][12 + (size_t)c];
+        }
+    for (size_t i = 0; i < w.frames.size(); i++)
         if (w.frames[i].name == "engine") {
             vm.engineFound = true;
             vm.enginePos[0] = glob[i][12]; vm.enginePos[1] = glob[i][13]; vm.enginePos[2] = glob[i][14];
@@ -551,6 +563,18 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
                 f = w.frames[(size_t)f].parent;
             }
             if (f == vm.doors[k].frame && f != fr) { p.door = k; std::memcpy(p.doorLocal, rel, sizeof(rel)); }
+        }
+        for (int k = 0; k < 2 && fr >= 0; k++) {   // under a bumper frame: likewise
+            if (!vm.bumpers[k].found) continue;
+            float rel[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            int f = fr;
+            for (int guard = 0; f >= 0 && f != vm.bumpers[k].frame && (size_t)f < w.frames.size() && guard < 64; guard++) {
+                float local[16];
+                FrameMatrix(w.frames[(size_t)f].m, local);
+                Mul(rel, local, rel);
+                f = w.frames[(size_t)f].parent;
+            }
+            if (f == vm.bumpers[k].frame && f != fr) { p.bumper = k; std::memcpy(p.bumperLocal, rel, sizeof(rel)); }
         }
         vm.parts.push_back(p);
     }
@@ -724,6 +748,21 @@ float Vehicles::DoorDrawAngle(const VehicleInstance& c, int slot) const {
 }
 
 void Vehicles::PartToCar(const VehicleInstance& c, const VehicleModel& vm, const VehiclePart& p, float out[16]) const {
+    if (p.bumper >= 0) {
+        for (const VehicleInstance::BouncingPanel& bp : c.panels) {
+            if (bp.bumper != p.bumper) continue;
+            // CBouncingPanel::ProcessPanel writes the rotation straight into two entries of the frame matrix
+            const VehicleModel::Bumper& bm = vm.bumpers[p.bumper];
+            float m[16], g[16];
+            std::memcpy(m, bm.local, sizeof(m));
+            if (bp.axis == 0) { m[1] = bp.rot[2]; m[2] = bp.rot[1]; }        // right.y, right.z
+            else if (bp.axis == 1) { m[4] = bp.rot[2]; m[6] = bp.rot[0]; }   // forward.x, forward.z
+            else { m[9] = bp.rot[0]; m[8] = bp.rot[1]; }                     // up.y, up.x
+            Mul(p.bumperLocal, m, g);
+            Mul(g, bm.base, out);
+            return;
+        }
+    }
     const float a = p.door >= 0 ? DoorDrawAngle(c, p.door) : 0.0f;
     if (a == 0.0f) { std::memcpy(out, p.m, sizeof(p.m)); return; }
     // CDoor::UpdateFrameMatrix: the hinge frame turns about its own X or Z

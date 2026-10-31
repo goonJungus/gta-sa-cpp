@@ -2530,6 +2530,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     VehicleInstance& dc = g_vehicles.Car((size_t)ci);
                     for (int k = 0; k < 13 && dm[k + (k >= 6)]; k++)
                         (k < 6 ? dc.doorStatus[k] : dc.panelStatus[k - 6]) = (uint8_t)(dm[k + (k >= 6)] - '0');
+                    for (int b = 0, n = 0; b < 2; b++)   // SetupDamageAfterLoad: loose bumpers bounce
+                        if (dc.panelStatus[5 + b] == 1) { dc.panels[n].bumper = b; dc.panels[n].limit = -0.35f; n++; }
                 }
                 if (const char* hp = getenv("GTA_CARHP"); hp && ci >= 0) g_vehicles.Car((size_t)ci).health = (float)atof(hp);   // dev
                 if (ci >= 0 && getenv("GTA_CARLOCK")) g_vehicles.Car((size_t)ci).locked = true;     // dev

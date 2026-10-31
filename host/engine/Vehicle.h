@@ -72,6 +72,8 @@ struct VehiclePart {
     int comp = -1;                    // a damageable component: 0..5 eDoors (bonnet, boot, doors), 6..12 6 + ePanels
     bool damagedMesh = false;         // the component's _dam stand-in (shown once it is damaged)
     float doorLocal[16] = {};         // part frame -> door hinge frame
+    int bumper = -1;                  // 0 / 1 when the part hangs under bump_front_dummy / bump_rear_dummy
+    float bumperLocal[16] = {};       // part frame -> bumper frame
 };
 
 struct VehicleModel {
@@ -107,6 +109,9 @@ struct VehicleModel {
         float pivot[3] = {};          // the hinge in car space
     };
     Door doors[6];
+    // bump_front_dummy, bump_rear_dummy (CAR_BUMP_FRONT / CAR_BUMP_REAR): the frames a loose bumper bounces on.
+    struct Bumper { bool found = false; int frame = -1; float local[16] = {}; float base[16] = {}; float pos[3] = {}; };
+    Bumper bumpers[2];
     // The DFF's own collision model (CColModel): body spheres and boxes, and its bounding box.
     // piece: the car part the surface belongs to (eVehicleCollisionComponent: 1 bonnet, 2 boot, 3 front bumper,
     // 4 rear bumper, 5..8 doors lf rf lr rr, 9..12 wings, 19 windscreen, 0 none)
@@ -199,6 +204,10 @@ struct VehicleInstance {
     // CDoor per eDoors (bonnet, boot, lf, rf, lr, rr) while it swings loose: angle, angular speed, eDoorState.
     float doorAngle[6] = {0, 0, 0, 0, 0, 0}, doorAngVel[6] = {0, 0, 0, 0, 0, 0};
     uint8_t doorHit[6] = {0, 0, 0, 0, 0, 0};
+    // CAutomobile m_panels (CBouncingPanel): a loose bumper wobbles on its frame. bumper -1 unused, else 0 front
+    // 1 rear; axis picks which two matrix entries the rotation drives; rot and vel are m_vecRotation / m_vecPos.
+    struct BouncingPanel { int bumper = -1; int axis = 0; float limit = 0.0f; float rot[3] = {0, 0, 0}, vel[3] = {0, 0, 0}; };
+    BouncingPanel panels[3];
     CarPhys phys;
 };
 

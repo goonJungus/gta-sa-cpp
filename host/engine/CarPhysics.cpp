@@ -1117,6 +1117,23 @@ void Vehicles::ProcessDoors(float dt) {
                 st = 4;
             }
         }
+        for (VehicleInstance::BouncingPanel& bp : c.panels) {   // CBouncingPanel::ProcessPanel
+            if (bp.bumper < 0 || !vm.bumpers[bp.bumper].found) continue;
+            const V3 pos = b.Rot(V3(vm.bumpers[bp.bumper].pos));
+            const V3 w = b.Speed(pos) - (oldMv + Cross(oldTv, pos));
+            const float av[3] = {Dot(w, b.right), Dot(w, b.fwd), Dot(w, b.up)};
+            auto change = [&](float v) { return std::clamp(v, -0.1f, 0.1f) * bp.limit; };   // BOUNCE_VEL_CHANGE_LIMIT
+            if (bp.axis == 0) { bp.vel[1] += change(av[2]); bp.vel[2] += change(av[1]); }
+            else if (bp.axis == 1) { bp.vel[0] += change(av[2]); bp.vel[2] += change(av[1]); }
+            else { bp.vel[0] += change(av[1]); bp.vel[1] += change(av[0]); }
+            const bool hanging = bp.axis == 2;
+            const float ret = hanging ? 0.02f : 0.1f, damp = std::pow(hanging ? 0.98f : 0.95f, ts);   // RETURN / DAMP_MULT
+            for (int k = 0; k < 3; k++) {
+                bp.vel[k] -= ret * bp.rot[k] * ts;
+                bp.vel[k] *= damp;
+                bp.rot[k] += bp.vel[k] * ts;
+            }
+        }
         std::memcpy(p.oldMv, p.mv, sizeof(p.oldMv));
         std::memcpy(p.oldTv, p.tv, sizeof(p.oldTv));
     }
@@ -1188,7 +1205,23 @@ void Vehicles::ApplyComponentDamage(VehicleInstance& c, int comp, float intensit
             // SetBumperDamage / SetPanelDamage: a bumper or wing comes away (the windscreen shatters instead)
             if (panel != 4) SpawnFlying((size_t)(&c - m_cars.data()), 6 + panel, panel >= 5 ? 0 : 5);
             st = 3;
-        } else if (st < 3) st++;
+        } else if (st < 3) {
+            st++;
+            // SetBumperDamage: a bumper gone loose bounces (CheckIfExistsGetFree), unless the model says not to
+            const VehicleInfo* vi = Info(c.model);
+            const HandlingData* hd = vi ? Handling(vi->handling) : nullptr;
+            if (st == 1 && panel >= 5 && !(hd && (hd->modelFlags & 0x10000000u))) {   // BOUNCE_PANELS
+                for (VehicleInstance::BouncingPanel& bp : c.panels) {
+                    if (bp.bumper == panel - 5) break;
+                    if (bp.bumper >= 0) continue;
+                    bp = VehicleInstance::BouncingPanel();
+                    bp.bumper = panel - 5;
+                    bp.axis = 0;
+                    bp.limit = RandRange(-0.5f, -0.2f);
+                    break;
+                }
+            }
+        }
     };
     const size_t ci = (size_t)(&c - m_cars.data());
     if (group == 2 || group == 3 || group == 4) {   // ProgressDoorDamage, then SetDoorDamage
