@@ -36,15 +36,18 @@ void TurnResistance(Body& b, const HandlingData::Fly& f, float ts, float k);
 
 // CVehicle::FlyingControl, FLIGHT_MODEL_HELI, then the turn resistance and speed caps every model shares.
 // skid: the tail rotor (look right +1), upDown: pitch (+ nose up), leftRight: roll (- to the right), accel: collective.
+// nozzle: the Hydra's nozzle angle (0 back .. 1.5708 down), the rotor's lift then pushes along it; < 0 for none.
+V3 NozzleThrust(const Body& b, float nozzle) { return Norm(b.up * std::sin(nozzle) + b.fwd * std::cos(nozzle)); }
+
 void FlyingControlHeli(Body& b, const HandlingData::Fly& f, float ts, const float wind[3], bool rc,
-                       float skid, float upDown, float leftRight, float accel) {
+                       float skid, float upDown, float leftRight, float accel, float nozzle = -1.0f) {
     if (ts <= 0.0f) return;
     const V3 windDir(wind);
     const V3 vel = b.mv - windDir * f.windMult;   // the speed through the air
     const V3 com = b.ComW();
 
     b.mv *= std::pow(f.moveRes, ts);
-    const V3 rotorUp = b.up;
+    const V3 rotorUp = nozzle >= 0.0f ? NozzleThrust(b, nozzle) : b.up;
     float climb = Dot(rotorUp, vel);
     if (climb > 0.0f) climb += climb;
     // the rotor carries half the weight outright, damping the climb and fall
@@ -83,7 +86,7 @@ void FlyingControlHeli(Body& b, const HandlingData::Fly& f, float ts, const floa
 // stabilisation, wing lift from the angle of attack, then the turn resistance and caps.
 // skid: rudder, upDown: elevators, leftRight: ailerons (-1 .. 1), accel: throttle; airborne: no wheel touches.
 void FlyingControlPlane(Body& b, const HandlingData::Fly& f, float tailY, float ts, const float wind[3], bool airborne, float gearStatus,
-                        float skid, float upDown, float leftRight, float accel) {
+                        float skid, float upDown, float leftRight, float accel, float nozzle = -1.0f) {
     if (ts <= 0.0f) return;
     const V3 vel = b.mv - V3(wind) * f.windMult;
     const V3 com = b.ComW();
@@ -109,7 +112,7 @@ void FlyingControlPlane(Body& b, const HandlingData::Fly& f, float tailY, float 
         }
     } else if (accel >= 0.0f || Dot(b.fwd, b.mv) >= 0.02f) thrust = 0.0f;
     else thrust = std::min(0.0f, accel - airSpeed * 7.76f) * f.thrust;   // backing up on the ground
-    b.ApplyMoveForce(b.fwd * (0.008f * thrust * b.mass * ts));
+    b.ApplyMoveForce((nozzle >= 0.0f ? NozzleThrust(b, nozzle) : b.fwd) * (0.008f * thrust * b.mass * ts));
 
     const float side = -Dot(vel, b.right);
     b.ApplyMoveForce(b.right * (std::fabs(side) * f.sideSlip * side * b.mass * ts));
@@ -254,6 +257,10 @@ void Vehicles::PlaneInputs(VehicleInstance& c, const HandlingData& h, float ts, 
     p.flyUpDown = std::clamp(p.flyUpDown + (-p.inLeanFwd - p.flyUpDown) * ts * 0.2f, -1.0f, 1.0f);   // steer up: nose down
     p.flySkid = std::clamp(p.flySkid + (p.inSkid - p.flySkid) * ts * 0.2f, -1.0f, 1.0f);
     p.flyAccel = p.inAccel - p.inBrake;
+    if (c.model == 520 && std::fabs(p.inGunUpDown * 128.0f) > 10.0f) {   // the Hydra's nozzles: 25 a step at full, 0 .. 5000
+        const int d = (int)(p.inGunUpDown * 128.0f * ts * 25.0f * 0.0078125f);
+        c.hoist = std::min(5000, std::max(0, c.hoist + d));
+    }
     const bool airborne = p.compPrev[0] == 1.0f && p.compPrev[1] == 1.0f && p.compPrev[2] == 1.0f && p.compPrev[3] == 1.0f;
     if (p.inGear && airborne && h.fly.gearUpR < 1.0f) {
         if (p.gearStatus == 0.0f) { for (uint8_t& w : c.wheelStatus) w = 2; p.gearStatus += ts * 0.02f; }
@@ -315,7 +322,19 @@ void Vehicles::PlaneFlyingCarStuff(VehicleInstance& c, const VehicleModel& vm, c
     if (!c.engineOn || !(p.planePropSpeed > kPropMin || Len2(V3(p.mv)) > 0.05f)) return;
     Body b = Load(c, h);
     const bool airborne = p.compPrev[0] == 1.0f && p.compPrev[1] == 1.0f && p.compPrev[2] == 1.0f && p.compPrev[3] == 1.0f;
-    FlyingControlPlane(b, h.fly, vm.colMin[1], ts, world.wind, airborne, p.gearStatus, skid, upDown, leftRight, p.flyAccel);
+    const float nozzle = c.model == 520 ? (float)c.hoist * 1.5707964f / 5000.0f : -1.0f;
+    if (c.model == 520 && c.hoist >= 3000) {   // HARRIER_NOZZLE_SWITCH_LIMIT: hovering, it flies as a helicopter on the Hunter's flying lines
+        const VehicleInfo* hi = Info(425);
+        const HandlingData* hh = hi ? Handling(hi->handling) : nullptr;
+        int contact = 0;
+        for (float cp : p.compPrev) contact += cp < 1.0f;
+        if (hh && hh->fly.found && (p.flyAccel > 0.0f || contact < 4)) {
+            FlyingControlHeli(b, hh->fly, ts, world.wind, false, skid, upDown, -leftRight, 0.25f * p.flyAccel, nozzle);
+            Store(b, c);
+        }
+        return;
+    }
+    FlyingControlPlane(b, h.fly, vm.colMin[1], ts, world.wind, airborne, p.gearStatus, skid, upDown, leftRight, p.flyAccel, nozzle);
     Store(b, c);
 }
 
@@ -325,10 +344,12 @@ void Vehicles::PlaneFrameMatrices(const VehicleInstance& c, const VehicleModel& 
     const CarPhys& p = c.phys;
     for (int k = 0; k < VehicleModel::kMoveNodes; k++) {
         const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
-        const bool moves = (k >= 11 && k <= 14) || (k >= 19 && k <= 23);
-        if (!moves || !bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
+        const bool moves = (k >= 11 && k <= 14) || (k >= 19 && k <= 23) || (c.model == 520 && k >= 26);
+        if (!bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
+        if (!moves) { Mul4(bn.local, bn.parent >= 0 ? nodes[bn.parent] : bn.base, nodes[k]); continue; }   // as modelled
         float m[16];
         switch (k) {
+        case 26: case 27: RotX((float)c.hoist * 1.5707964f / 5000.0f, m); break;   // CPlane::PreRender: the Hydra's nozzles
         case 11: case 12: RotY(2.0f * p.propAngle, m); break;
         case 13: case 14: RotY(-2.0f * p.propAngle, m); break;
         case 19: RotZ(p.flySkid * 0.6981317f, m); break;

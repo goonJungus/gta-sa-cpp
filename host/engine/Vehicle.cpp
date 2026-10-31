@@ -640,7 +640,8 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         static const char* kBikeNode[kN] = {"forks_front", "forks_rear", "handlebars", "wheel_front", "wheel_rear", "chainset", "pedal_r", "pedal_l",
                                             "boat_rudder", "boat_rearflap_left", "boat_rearflap_right", "static_prop", "moving_prop", "static_prop2", "moving_prop2",
                                             "static_rotor", "moving_rotor", "static_rotor2", "moving_rotor2",
-                                            "rudder", "elevator_l", "elevator_r", "aileron_l", "aileron_r", "gear_l", "gear_r"};
+                                            "rudder", "elevator_l", "elevator_r", "aileron_l", "aileron_r", "gear_l", "gear_r",
+                                            "wheel_rm_dummy", "wheel_lm_dummy"};   // the Hydra's nozzles (PLANE_WHEEL_RM / LM)
         for (size_t i = 0; i < w.frames.size(); i++)
             for (int k = 0; k < kN; k++)
                 if (w.frames[i].name == kBikeNode[k]) { vm.bikeNodes[k].found = true; vm.bikeNodes[k].frame = (int)i; }
@@ -816,6 +817,7 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
     c.randomSeed = (uint16_t)Random(65536);
     if (const HandlingData* hd = Handling(Info(id)->handling))   // CAutomobile(): a lowrider comes with hydraulics one time in four
         c.hyd.on = (hd->handlingFlags & 0x10000u) && (Random(4) == 0 || getenv("GTA_HYDRAULICS"));   // dev: GTA_HYDRAULICS always
+    if (id == 520) c.hoist = 5000;   // CPlane::CPlane: the Hydra's nozzles start at HARRIER_NOZZLE_ROTATE_LIMIT, straight down
     for (size_t i = 0; i < m_cars.size(); i++)   // a removed generator car's slot
         if (m_cars[i].removed && m_cars[i].recycle) { m_cars[i] = c; return (int)i; }
     m_cars.push_back(c);

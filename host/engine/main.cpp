@@ -4465,6 +4465,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 else if (vt == "bike" || vt == "bmx") { ki.kind = CarCamera::kBike; ki.arrPos = 1; }
                 else if (vt == "quad") ki.kind = CarCamera::kBike;
                 else if (vt == "heli") { ki.kind = CarCamera::kHeli; ki.arrPos = 2; }
+                else if (vt == "plane" && c.model == 520 && c.hoist >= 3000) { ki.kind = CarCamera::kHeli; ki.arrPos = 2; }   // a hovering Hydra
                 else if (vt == "plane") { ki.kind = CarCamera::kPlane; ki.arrPos = 4; }
                 else if (vt == "boat") { ki.kind = CarCamera::kBoat; ki.arrPos = 3; }
                 ki.pos[0] = c.x; ki.pos[1] = c.y; ki.pos[2] = c.z;
