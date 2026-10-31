@@ -122,6 +122,9 @@ struct VehicleModel {
     std::vector<ColSphere> probes;    // what touches the world: the spheres, plus each box filled with spheres
     float probeRadius = 0.0f;         // the probes' reach from the car origin
     bool colFound = false;
+    // The first two consecutive glass faces of the COL mesh (surface 45..47): the windscreen rectangle.
+    float glassTri[6][3] = {};
+    bool glassFound = false;
     float colMin[3] = {0, 0, 0}, colMax[3] = {0, 0, 0};
     // CAutomobile::SetupSuspensionLines, eCarWheel order (front left, rear left, front right, rear right):
     // each wheel's line runs from the upper limit down to the lower limit plus half the tyre.
@@ -288,6 +291,10 @@ public:
     bool Damage(int car, float damage);
     // Advance fire and smoke; calls onSmoke(pos, dark), onFire(pos) and onExplode(pos).
     void UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire, const std::function<void(const float*)>& onExplode);
+    // CGlass::CarWindscreenShatters: called with the glass rectangle (bottom corner, up and across edges, world
+    // space), the car's move speed (per 1/50 s) and the rectangle's centre when a windscreen falls out.
+    std::function<void(const float* corner, const float* fwd, const float* right, const float* vel, const float* centre)> onWindscreenShatter;
+    void WindscreenShatters(size_t ci);
     int Nearest(float x, float y, float range) const;
     // Body extents of a loaded model: y range and the lowest z. False when the model is not loaded.
     bool ModelBounds(int id, float* minY, float* maxY, float* minZ) const;

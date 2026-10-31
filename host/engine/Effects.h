@@ -38,6 +38,10 @@ public:
     // CBulletTraces::AddTrace(from, to, radius, disappearTime, alpha): sixteen slots, the later ones live shorter.
     int AddTrace(const float from[3], const float to[3], float radius, float lifeMs, int alpha);
     int ActiveTraces() const;
+    // CGlass::GeneratePanesForWindow (car type): the rectangle at corner with edges fwd and right breaks into up to
+    // 3 x 3 sections of five shards each that fall from vel (per 1/50 s), pushed out from centre, until groundZ.
+    void GlassPanes(const float corner[3], const float fwd[3], const float right[3], const float vel[3], const float centre[3],
+                    float centreDrag, float groundZ);
     bool TraceInfo(int slot, float* life, float* radius, int* alpha) const;
 
 private:
@@ -46,6 +50,9 @@ private:
     std::vector<Puff> m_puffs;
     Trace m_traces[16];
     float m_clockMs = 0.0f;
+    // CFallingGlassPane: matrix right / forward / up / position, speed, spin, which of the five shards.
+    struct Pane { bool exist = false; int piece = 0; float r[3], f[3], u[3], p[3], v[3], spin[3]; float bornMs = 0, groundZ = 0; };
+    Pane m_panes[44];
     struct Scorch_ { float p[3], size, age, life; };
     std::vector<Scorch_> m_scorch;
     IDirect3DTexture9* m_tex = nullptr;

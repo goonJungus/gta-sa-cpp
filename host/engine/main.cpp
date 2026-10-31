@@ -1694,6 +1694,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_enex.Load(GameDir());
             g_enex.setArea = [](int a) { g_world.SetArea(a); };
             if (const char* ga = getenv("GTA_AREA")) { g_enex.ForceArea(atoi(ga)); Log("DEV: start in area %d", atoi(ga)); }   // test: begin inside an interior
+            g_vehicles.onWindscreenShatter = [](const float* corner, const float* fwd, const float* right, const float* vel, const float* centre) {
+                const float gz = g_world.GetGroundHeight(corner[0], corner[1], corner[2]);   // CWorld::FindGroundZFor3DCoord
+                g_fx.GlassPanes(corner, fwd, right, vel, centre, 0.1f, gz > -500.0f ? gz : corner[2] - 2.0f);
+            };
             g_world.onDynSmash = [](const float* p) { g_fx.Impact(p, 1.0f); g_fx.Smoke(p, 0.3f); g_audio.Impact(0.0f); };
             g_world.onDynExplode = [](const float* p) { g_dynBooms.push_back({p[0], p[1], p[2]}); };
             // Data-driven spawn: stream once so ground COL tris are loaded,
@@ -2536,6 +2540,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (const char* hp = getenv("GTA_CARHP"); hp && ci >= 0) g_vehicles.Car((size_t)ci).health = (float)atof(hp);   // dev
                 if (ci >= 0 && getenv("GTA_CARLOCK")) g_vehicles.Car((size_t)ci).locked = true;     // dev
                 if (ci >= 0 && getenv("GTA_CARALARM")) g_vehicles.Car((size_t)ci).alarmMs = -1;     // dev
+                if (ci >= 0 && getenv("GTA_CARSHATTER")) { g_vehicles.Car((size_t)ci).panelStatus[4] = 3; g_vehicles.WindscreenShatters((size_t)ci); }   // dev
                 if (const char* ty = getenv("GTA_CARTYRES"); ty && ci >= 0)   // dev: "flrlfrrr" wheel states (0 ok, 1 burst, 2 missing)
                     for (int k = 0; k < 4 && ty[k]; k++) g_vehicles.Car((size_t)ci).wheelStatus[k] = (uint8_t)(ty[k] - '0');
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);

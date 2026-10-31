@@ -103,7 +103,7 @@ public:
     struct ColorTexVertex { float x, y, z; uint32_t color; float u, v; };
     void DrawBlendedTriangles(const ColorTexVertex* verts, uint32_t vertexCount,
                               const uint16_t* indices, uint32_t indexCount,
-                              IDirect3DTexture9* tex);
+                              IDirect3DTexture9* tex, bool additive = false);   // additive: ONE / ONE
 
     // Time-of-day sky inputs, straight from timecyc.dat (0..255 channels).
     // Defaults are retail SUNNY_LA midday: SkyTop (30,117,210), SkyBot (53,162,227).

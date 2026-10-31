@@ -877,7 +877,7 @@ void D3DRenderer::DrawSkySprites(const SkySprite* s, int count, IDirect3DTexture
 
 void D3DRenderer::DrawBlendedTriangles(const ColorTexVertex* verts, uint32_t vertexCount,
                                        const uint16_t* indices, uint32_t indexCount,
-                                       IDirect3DTexture9* tex) {
+                                       IDirect3DTexture9* tex, bool additive) {
     if (!m_device || !verts || !indices || vertexCount < 3 || indexCount < 3) return;
     SetLightState(false);
     m_device->SetRenderState(D3DRS_ZENABLE, TRUE);
@@ -885,8 +885,8 @@ void D3DRenderer::DrawBlendedTriangles(const ColorTexVertex* verts, uint32_t ver
     m_device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
     m_device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-    m_device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-    m_device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    m_device->SetRenderState(D3DRS_SRCBLEND, additive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA);
+    m_device->SetRenderState(D3DRS_DESTBLEND, additive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA);
     m_device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
     m_device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
     m_device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
@@ -896,6 +896,7 @@ void D3DRenderer::DrawBlendedTriangles(const ColorTexVertex* verts, uint32_t ver
     m_device->SetFVF(SKY_FVF);
     m_device->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, vertexCount, indexCount / 3,
                                      indices, D3DFMT_INDEX16, verts, sizeof(ColorTexVertex));
+    if (additive) { m_device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA); m_device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA); }
     // Restore world defaults.
     m_device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     SetLightState(m_lightingReady && m_lightingAllowed);

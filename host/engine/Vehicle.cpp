@@ -124,6 +124,25 @@ void ParseVehicleCol(const std::vector<uint8_t>& b, size_t o, size_t end, Vehicl
                 if (q + 28 > p + sz) break;
                 vm.colBoxes.push_back({{f32(q), f32(q + 4), f32(q + 8)}, {f32(q + 12), f32(q + 16), f32(q + 20)}, b[q + 25]});
             }
+            // the faces: u16 a b c, material, light; vertices int16 x y z / 128
+            const uint16_t nf = u16(p + 0x4C);
+            const uint32_t offV = u32(p + 0x60), offF = u32(p + 0x64);
+            for (uint16_t k = 0; k + 1 < nf && !vm.glassFound; k++) {
+                const size_t q = p + 4 + offF + (size_t)k * 8;
+                if (q + 16 > p + sz) break;
+                const uint8_t mat = b[q + 6];
+                if (mat < 45 || mat > 47) continue;   // SurfaceInfos_c::IsGlass
+                for (int t = 0; t < 2; t++)
+                    for (int v = 0; v < 3; v++) {
+                        const size_t vq = p + 4 + offV + (size_t)u16(q + (size_t)t * 8 + (size_t)v * 2) * 6;
+                        for (int c = 0; c < 3; c++) {
+                            int16_t s = 0;
+                            if (vq + 6 <= b.size()) std::memcpy(&s, &b[vq + (size_t)c * 2], 2);
+                            vm.glassTri[t * 3 + v][c] = (float)s / 128.0f;
+                        }
+                    }
+                vm.glassFound = true;
+            }
             vm.colFound = true;
             return;
         }

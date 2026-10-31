@@ -260,6 +260,58 @@ bool Effects::TraceInfo(int i, float* life, float* radius, int* alpha) const {
     return true;
 }
 
+namespace {
+// CGlass::PanePolyPositions (0x8D5CD8): the five shards of a pane in its unit square
+const float kPanePoly[5][3][2] = {{{0, 0}, {0, 1}, {0.4f, 0.5f}}, {{0, 1}, {1, 1}, {0.4f, 0.5f}}, {{0, 0}, {0.4f, 0.5f}, {0.7f, 0}},
+                                  {{0.7f, 0}, {0.4f, 0.5f}, {1, 1}}, {{0.7f, 0}, {1, 1}, {1, 0}}};
+void PaneCentre(int piece, float out[2]) {
+    out[0] = out[1] = 0.0f;
+    for (int v = 0; v < 3; v++) { out[0] += kPanePoly[piece][v][0] / 3.0f; out[1] += kPanePoly[piece][v][1] / 3.0f; }
+}
+unsigned g_glassRng = 0x1234567u;
+int GlassRand() { g_glassRng = g_glassRng * 1103515245u + 12345u; return (int)((g_glassRng >> 16) & 0x7fff); }
+}  // namespace
+
+void Effects::GlassPanes(const float corner[3], const float fwd[3], const float right[3], const float vel[3], const float centre[3],
+                         float centreDrag, float groundZ) {
+    const float sy = std::sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
+    const float sx = std::sqrt(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
+    if (sx < 1e-4f || sy < 1e-4f) return;
+    const int nx = std::min(2 * (int)(sx + 0.75f), 3), ny = std::min(2 * (int)(sy + 0.75f), 3);   // two sections a metre
+    if (nx <= 0 || ny <= 0) return;
+    const float px = sx / (float)nx, py = sy / (float)ny;
+    const float nr[3] = {right[0] / sx, right[1] / sx, right[2] / sx}, nf[3] = {fwd[0] / sy, fwd[1] / sy, fwd[2] / sy};
+    for (int y = 0; y < ny; y++)
+        for (int x = 0; x < nx; x++)
+            for (int piece = 0; piece < 5; piece++) {
+                Pane* pane = nullptr;
+                for (Pane& q : m_panes) if (!q.exist) { pane = &q; break; }   // FindFreePane
+                if (!pane) continue;
+                pane->piece = piece;
+                for (int k = 0; k < 3; k++) { pane->r[k] = nr[k] * px; pane->u[k] = nf[k] * py; }
+                float fw[3] = {pane->r[1] * pane->u[2] - pane->r[2] * pane->u[1], pane->r[2] * pane->u[0] - pane->r[0] * pane->u[2],
+                               pane->r[0] * pane->u[1] - pane->r[1] * pane->u[0]};
+                const float fl = std::sqrt(fw[0] * fw[0] + fw[1] * fw[1] + fw[2] * fw[2]);
+                for (int k = 0; k < 3; k++) pane->f[k] = fl > 1e-6f ? fw[k] / fl : 0.0f;
+                float pc[2];
+                PaneCentre(piece, pc);
+                const float cx = (pc[0] + (float)x) * px, cy = (pc[1] + (float)y) * py;
+                for (int k = 0; k < 3; k++) pane->p[k] = corner[k] + nf[k] * cy + nr[k] * cx;
+                pane->v[0] = vel[0] + (float)(GlassRand() % 128 - 64) * 0.0015f;
+                pane->v[1] = vel[1] + (float)(GlassRand() % 128 - 64) * 0.0015f;
+                pane->v[2] = vel[2];
+                if (centreDrag != 0.0f) {
+                    float d[3] = {pane->p[0] - centre[0], pane->p[1] - centre[1], pane->p[2] - centre[2]};
+                    const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                    if (dl > 1e-6f) for (int k = 0; k < 3; k++) pane->v[k] += d[k] / dl * centreDrag;
+                }
+                for (float& s : pane->spin) s = (float)(GlassRand() % 128 - 64) / 500.0f;
+                pane->bornMs = m_clockMs;
+                pane->groundZ = groundZ;
+                pane->exist = true;
+            }
+}
+
 void Effects::Update(float dt) {
     for (Puff& f : m_puffs) {
         f.age += dt;
@@ -270,13 +322,65 @@ void Effects::Update(float dt) {
     m_puffs.erase(std::remove_if(m_puffs.begin(), m_puffs.end(), [](const Puff& f) { return f.age >= f.life; }), m_puffs.end());
     m_clockMs += dt * 1000.0f;
     for (Trace& t : m_traces) if (t.exists && m_clockMs - t.createMs >= t.lifeMs) t.exists = false;   // CBulletTrace::Update
+    const float ts = dt * 50.0f;
+    for (Pane& q : m_panes) {   // CFallingGlassPane::Update, the slow car kind
+        if (!q.exist) continue;
+        for (int k = 0; k < 3; k++) q.p[k] += ts * 0.35f * q.v[k];
+        q.v[2] -= ts / 100.0f;
+        for (float* a : {q.r, q.f, q.u}) {
+            const float c[3] = {q.spin[1] * a[2] - q.spin[2] * a[1], q.spin[2] * a[0] - q.spin[0] * a[2], q.spin[0] * a[1] - q.spin[1] * a[0]};
+            for (int k = 0; k < 3; k++) a[k] += c[k] * ts;
+        }
+        if (q.p[2] < q.groundZ) {   // a tinkle of glass on the ground
+            q.exist = false;
+            for (int i = 0; i < 4; i++) {
+                Puff f{};
+                for (int k = 0; k < 3; k++) f.p[k] = q.p[k];
+                f.p[2] = q.groundZ + 0.02f;
+                f.v[0] = (float)(GlassRand() % 100 - 50) * 0.02f; f.v[1] = (float)(GlassRand() % 100 - 50) * 0.02f; f.v[2] = 1.0f;
+                f.life = 0.4f; f.size0 = f.size1 = 0.02f + (float)(GlassRand() % 100) * 0.0004f;
+                f.rgb = 0xFFFFFF; f.alpha = 0.6f; f.spark = true;
+                m_puffs.push_back(f);
+            }
+        }
+    }
     for (Scorch_& c : m_scorch) c.age += dt;
     m_scorch.erase(std::remove_if(m_scorch.begin(), m_scorch.end(), [](const Scorch_& c) { return c.age >= c.life; }), m_scorch.end());
 }
 
 void Effects::Render(D3DRenderer& r) {
-    if (!m_tex || (m_puffs.empty() && !ActiveTraces() && m_scorch.empty())) return;
+    bool panes = false;
+    for (const Pane& q : m_panes) panes |= q.exist;
+    if (!m_tex || (m_puffs.empty() && !ActiveTraces() && m_scorch.empty() && !panes)) return;
     const D3DMATRIX& v = r.GetViewMatrix();
+    if (panes) {   // CFallingGlassPane::Render: the highlight polys, added on top of the scene
+        const float camF[3] = {v._13, v._23, v._33};
+        std::vector<D3DRenderer::ColorTexVertex> gv;
+        std::vector<uint16_t> gi;
+        for (const Pane& q : m_panes) {
+            if (!q.exist) continue;
+            // CGlass::CalcAlphaWithNormal: the camera's view reflected off the shard, against light from (1, 1, -1)
+            const float fl = std::sqrt(q.f[0] * q.f[0] + q.f[1] * q.f[1] + q.f[2] * q.f[2]);
+            const float n[3] = {q.f[0] / fl, q.f[1] / fl, q.f[2] / fl};
+            const float dn = camF[0] * n[0] + camF[1] * n[1] + camF[2] * n[2];
+            const float refl[3] = {camF[0] - 2.0f * dn * n[0], camF[1] - 2.0f * dn * n[1], camF[2] - 2.0f * dn * n[2]};
+            const float spec = (refl[0] + refl[1] - refl[2]) * 0.57f;
+            const float alpha = std::pow(spec, 6.0f) * 235.0f + 20.0f;
+            const float age = std::clamp(m_clockMs - q.bornMs, 0.0f, 500.0f);
+            const uint32_t c = (uint32_t)std::max(64.0f, std::min(255.0f, alpha * age / 500.0f));
+            float pc[2];
+            PaneCentre(q.piece, pc);
+            static const float kUv[3][2] = {{0.5f, 0.5f}, {0.5f, 0.6f}, {0.6f, 0.6f}};
+            const uint16_t base = (uint16_t)gv.size();
+            for (int i = 0; i < 3; i++) {
+                const float ox = kPanePoly[q.piece][i][0] - pc[0], oy = kPanePoly[q.piece][i][1] - pc[1];
+                gv.push_back({q.p[0] + q.r[0] * ox + q.u[0] * oy, q.p[1] + q.r[1] * ox + q.u[1] * oy, q.p[2] + q.r[2] * ox + q.u[2] * oy,
+                              (c << 24) | (c << 16) | (c << 8) | c, kUv[i][0], kUv[i][1]});
+            }
+            for (uint16_t k : {0, 1, 2}) gi.push_back((uint16_t)(base + k));
+        }
+        if (!gi.empty()) r.DrawBlendedTriangles(gv.data(), (uint32_t)gv.size(), gi.data(), (uint32_t)gi.size(), m_tex, true);
+    }
     const float right[3] = {v._11, v._21, v._31}, up[3] = {v._12, v._22, v._32};
     std::vector<D3DRenderer::ColorTexVertex> vs;
     std::vector<uint16_t> ix;

@@ -1178,6 +1178,35 @@ void Vehicles::UpdateFlying(float dt, const VehicleWorld& world) {
     }
 }
 
+void Vehicles::WindscreenShatters(size_t ci) {
+    if (ci >= m_cars.size() || !onWindscreenShatter) return;
+    const VehicleInstance& c = m_cars[ci];
+    auto it = m_models.find(c.model);
+    if (it == m_models.end() || !it->second.glassFound) return;
+    const VehicleModel& vm = it->second;
+    V3 r(1, 0, 0), f(0, 1, 0), u(0, 0, 1);
+    if (c.phys.active || c.hasRot) { r = V3(&c.rot[0]); f = V3(&c.rot[3]); u = V3(&c.rot[6]); }
+    else { const float cs = std::cos(c.heading), sn = std::sin(c.heading); r = V3(cs, sn, 0); f = V3(-sn, cs, 0); }
+    const V3 pos(c.x, c.y, c.z);
+    V3 tv[6];
+    for (int k = 0; k < 6; k++) { const V3 l(vm.glassTri[k]); tv[k] = pos + r * l.x + f * l.y + u * l.z; }
+    // the first face's plane normal, then the glass's own up and across directions
+    const V3 l0(vm.glassTri[0]), l1(vm.glassTri[1]), l2(vm.glassTri[2]);
+    const V3 nl = Norm(Cross(l2 - l0, l1 - l0));
+    const V3 n = r * nl.x + f * nl.y + u * nl.z;
+    const V3 gf = Norm(Cross(r, n)), gr = Norm(Cross(u, n));
+    float rd[6], fd[6], maxR = -1e30f, maxF = -1e30f, minSum = 1e30f;
+    int bl = 0;
+    for (int k = 0; k < 6; k++) {
+        rd[k] = Dot(tv[k], gr); fd[k] = Dot(tv[k], gf);
+        maxR = std::max(maxR, rd[k]); maxF = std::max(maxF, fd[k]);
+        if (rd[k] + fd[k] < minSum) { minSum = rd[k] + fd[k]; bl = k; }
+    }
+    const V3 fwd = gf * (maxF - fd[bl]), right = gr * (maxR - rd[bl]);
+    const V3 centre = tv[bl] + fwd * 0.5f + right * 0.5f;
+    onWindscreenShatter(&tv[bl].x, &fwd.x, &right.x, c.phys.mv, &centre.x);
+}
+
 int Vehicles::Random(int n) {
     m_rng = m_rng * 1664525u + 1013904223u;
     return (int)((m_rng >> 8) % (unsigned)n);
@@ -1204,6 +1233,7 @@ void Vehicles::ApplyComponentDamage(VehicleInstance& c, int comp, float intensit
             if (Random(panel == 4 ? 3 : 9) != 0) return;
             // SetBumperDamage / SetPanelDamage: a bumper or wing comes away (the windscreen shatters instead)
             if (panel != 4) SpawnFlying((size_t)(&c - m_cars.data()), 6 + panel, panel >= 5 ? 0 : 5);
+            else WindscreenShatters((size_t)(&c - m_cars.data()));
             st = 3;
         } else if (st < 3) {
             st++;
