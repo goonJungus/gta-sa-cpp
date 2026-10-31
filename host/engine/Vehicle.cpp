@@ -406,7 +406,9 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         p.mesh = mesh;
         {
             const float oy = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][13] : 0.0f, oz = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][14] : 0.0f;
+            const float ox = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][12] : 0.0f;
             for (const DffVertex& v : dm.vertices) {
+                vm.bbHalfX = std::max(vm.bbHalfX, std::fabs(v.x + ox));
                 vm.bbMinY = std::min(vm.bbMinY, v.y + oy); vm.bbMaxY = std::max(vm.bbMaxY, v.y + oy); vm.bbMinZ = std::min(vm.bbMinZ, v.z + oz);
             }
         }
@@ -458,15 +460,30 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
     return (int)m_cars.size() - 1;
 }
 
-bool Vehicles::SeatWorld(size_t i, float out[3], bool* low) const {
+bool Vehicles::HasDoor(size_t i, int door) const {
+    if (i >= m_cars.size() || door < 0 || door > 3) return false;
+    auto it = m_models.find(m_cars[i].model);
+    return it != m_models.end() && it->second.doors[door].found;
+}
+
+bool Vehicles::Footprint(size_t i, float* halfX, float* minY, float* maxY) const {
+    if (i >= m_cars.size()) return false;
+    auto it = m_models.find(m_cars[i].model);
+    if (it == m_models.end()) return false;
+    *halfX = it->second.bbHalfX; *minY = it->second.bbMinY; *maxY = it->second.bbMaxY;
+    return true;
+}
+
+bool Vehicles::SeatWorld(size_t i, float out[3], bool* low, bool passenger) const {
     if (i >= m_cars.size()) return false;
     const VehicleInstance& c = m_cars[i];
     auto it = m_models.find(c.model);
     if (it == m_models.end()) return false;
     const VehicleModel& vm = it->second;
     const float cs = std::cos(c.heading), sn = std::sin(c.heading);
-    out[0] = c.x + vm.seatPos[0] * cs - vm.seatPos[1] * sn;
-    out[1] = c.y + vm.seatPos[0] * sn + vm.seatPos[1] * cs;
+    const float sx = passenger ? -vm.seatPos[0] : vm.seatPos[0];   // the front passenger seat mirrors the driver's
+    out[0] = c.x + sx * cs - vm.seatPos[1] * sn;
+    out[1] = c.y + sx * sn + vm.seatPos[1] * cs;
     out[2] = c.z + vm.seatPos[2];
     if (low) {
         const HandlingData* h = Handling(vm.info.handling);

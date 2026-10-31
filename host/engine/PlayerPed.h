@@ -162,7 +162,7 @@ public:
     // blends between a door-open point and the seat by the clip's progress (CTaskUtilityLineUpPedWithCar).
     // The host drives the world position from VehTransFrac() and VehDoorOffset(); EnterVehicle() /
     // LeaveVehicle() fire automatically at the end of get-in / get-out.
-    void StartEnterCar(bool lowCar);
+    void StartEnterCar(bool lowCar, bool right = false);   // right: by the passenger door, then shuffle across
     void StartExitCar(bool lowCar);
     void CancelVehTransition();            // car gone / aborted: back to the on-foot idle
     bool VehTransitioning() const { return m_vehTrans != VehTrans::None; }
@@ -171,7 +171,12 @@ public:
     float VehApproachFrac() const { return m_vehApproach; }  // 0 at CJ's start spot, 1 at the door
     float VehTransFrac() const { return m_vehFrac; }         // 0 at the door, 1 at the seat
     void VehDoorOffset(float out[2]) const { out[0] = m_vehDoor[0]; out[1] = m_vehDoor[1]; }   // seat->door, car space (x right, y fwd)
-    float VehDoorRatio() const;            // driver door CDoor::Open ratio: 0 shut, 1 open
+    float VehDoorRatio() const;            // the entry door's CDoor::Open ratio: 0 shut, 1 open
+    bool VehRightSide() const { return m_vehRight; }                        // entering by the passenger door
+    bool VehShuffling() const { return m_vehTrans == VehTrans::EnterShuffle; }
+    float VehShuffleFrac() const { return m_vehShuffle; }   // 0 in the passenger seat, 1 at the wheel
+    // The door-open point (seat -> door, car space) for a door before the entry starts.
+    void VehDoorOffsetFor(bool lowCar, bool right, float out[2]) const;
     void SetSeat(const float pos[3], float noseYaw) { m_seatPos[0] = pos[0]; m_seatPos[1] = pos[1]; m_seatPos[2] = pos[2]; m_seatYaw = noseYaw; }
     void SeatPlacement(float out[3]) const { for (int i = 0; i < 3; i++) out[i] = m_seatPos[i]; }
     bool Driveby() const { return m_seated && m_dbClip != nullptr; }
@@ -545,13 +550,15 @@ private:
     int m_dbSide = 0;                      // +1 left window, -1 right
     void UpdateSeated(const Input& in);
     // CTaskComplexEnterCar / CTaskComplexLeaveCar sequence state.
-    enum class VehTrans { None, EnterOpen, EnterGetIn, ExitGetOut };
+    enum class VehTrans { None, EnterOpen, EnterGetIn, EnterShuffle, ExitGetOut };
+    bool m_vehRight = false;               // entering by the passenger door (then shuffling across)
+    float m_vehShuffle = 0.0f;             // shuffle: 0 in the passenger seat, 1 at the wheel
     VehTrans m_vehTrans = VehTrans::None;
     const AnimClip* m_vehClip = nullptr;   // the phase clip in play
     float m_vehFrac = 0.0f;                // 0 at the door, 1 at the seat
     float m_vehApproach = 0.0f;            // open phase: 0 at CJ's start spot, 1 at the door
     float m_vehDoor[2] = {0.0f, 0.0f};     // seat->door offset, car space (x right, y forward)
-    const AnimClip* VehGetInClip() const;  // the get-in clip for this car (low vs high)
+    const AnimClip* VehGetInClip(bool lowCar, bool right) const;   // the get-in clip for this door (low vs high)
     void UpdateVehTransition(const Input& in);
     int m_goggles = 0, m_drawIdx = -1;
     int m_para = 0;

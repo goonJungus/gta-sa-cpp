@@ -61,6 +61,7 @@ struct VehicleModel {
     float rideHeight = 0.7f;          // body origin above the ground when standing on the wheels
     float wheelBase = 2.8f;           // front to rear axle
     float bbMinY = 0, bbMaxY = 0, bbMinZ = 0;   // body mesh extents in car space (stands in for the collision box)
+    float bbHalfX = 0;                          // body half width
     float seatPos[3] = {-0.45f, 0.1f, 0.35f};   // ped_frontseat dummy in car space (driver side)
     bool seatFound = false;
     // The misc_a, misc_b and misc_c frames (eCarNodes CAR_MISC_A..C): tank turret, barrel and muzzle, fire truck nozzle.
@@ -124,8 +125,12 @@ public:
     int Nearest(float x, float y, float range) const;
     // Body extents of a loaded model: y range and the lowest z. False when the model is not loaded.
     bool ModelBounds(int id, float* minY, float* maxY, float* minZ) const;
-    // The driver's seat (ped_frontseat) of car i in the world, and whether the car sits low.
-    bool SeatWorld(size_t i, float out[3], bool* low = nullptr) const;
+    // The driver's seat (ped_frontseat, or its passenger-side twin) of car i in the world, and whether the car sits low.
+    bool SeatWorld(size_t i, float out[3], bool* low = nullptr, bool passenger = false) const;
+    // Car i's model has this side door hinge (0 lf, 1 rf, 2 lr, 3 rr).
+    bool HasDoor(size_t i, int door) const;
+    // Car i's body footprint in car space: half width and the y range. False when the model is not loaded.
+    bool Footprint(size_t i, float* halfX, float* minY, float* maxY) const;
     // A turret frame (0 misc_a, 1 misc_b, 2 misc_c) of car i in the world with the turret rotation applied
     // (RwFrameGetLTM). False when the model has no such frame.
     bool NodeMatrix(size_t i, int node, float out[16]) const;

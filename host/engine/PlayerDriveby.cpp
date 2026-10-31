@@ -89,19 +89,16 @@ void PlayerPed::LeaveVehicle() {
         if (!Get(idle)) { Assoc* a = Add(idle, true, false); a->blend = 0.0f; a->delta = 8.0f; }
 }
 
-// The get-in clip for the current car: the low variant on a lowrider, else the standard driver door.
-const AnimClip* PlayerPed::VehGetInClip() const {
-    const AnimClip* c = Clip(m_seatLow ? "car_getinl_lhs" : "car_getin_lhs");
-    return c ? c : Clip("car_getin_lhs");
+// The get-in clip for this door: the low variant on a lowrider; _lhs is the driver door, _rhs the passenger door.
+const AnimClip* PlayerPed::VehGetInClip(bool lowCar, bool right) const {
+    const AnimClip* c = Clip(right ? (lowCar ? "car_getinl_rhs" : "car_getin_rhs") : (lowCar ? "car_getinl_lhs" : "car_getin_lhs"));
+    return c ? c : Clip(right ? "car_getin_rhs" : "car_getin_lhs");
 }
 
-// CTaskComplexEnterCarAsDriver: walk-up is skipped; CJ aligns at the driver door, opens it and gets in.
-void PlayerPed::StartEnterCar(bool lowCar) {
-    if (m_vehTrans != VehTrans::None || m_seated) return;
-    m_seatLow = lowCar;
-    // The door-open point is the seat minus the get-in clip's net root travel (CCarEnterExit door offset).
-    // The driver door is always on the car's left, so the clip only sets how far out CJ stands.
-    const AnimClip* gi = VehGetInClip();
+// CCarEnterExit::GetPositionToOpenCarDoor: the seat minus the get-in clip's net root travel (ComputeAnimDoorOffsets).
+// The clip only sets how far out and along CJ stands; the side is the door's.
+void PlayerPed::VehDoorOffsetFor(bool lowCar, bool right, float out[2]) const {
+    const AnimClip* gi = VehGetInClip(lowCar, right);
     float dx = 1.05f, dy = 0.08f;   // fallback magnitudes
     if (gi && gi->duration > 1e-4f) {
         float x0 = 0.0f, x1 = 0.0f;
@@ -109,9 +106,19 @@ void PlayerPed::StartEnterCar(bool lowCar) {
         const float cx = x0 - x1, cy = y0 - y1;   // seat->door, car space
         if (cx * cx + cy * cy > 0.25f) { dx = cx; dy = cy; }
     }
-    m_vehDoor[0] = -std::clamp(std::fabs(dx), 0.8f, 1.5f);   // negative = the car's left side
-    m_vehDoor[1] = std::clamp(dy, -0.4f, 0.4f);
-    const AnimClip* open = Clip("car_open_lhs");
+    out[0] = (right ? 1.0f : -1.0f) * std::clamp(std::fabs(dx), 0.8f, 1.5f);   // negative = the car's left side
+    out[1] = std::clamp(dy, -0.4f, 0.4f);
+}
+
+// CTaskComplexEnterCarAsDriver from the door CCarEnterExit::GetNearestCarDoor chose: open it and get in; through the
+// passenger door CJ then slides across (CTaskSimpleCarShuffle). The host walks him to the door first.
+void PlayerPed::StartEnterCar(bool lowCar, bool right) {
+    if (m_vehTrans != VehTrans::None || m_seated) return;
+    m_seatLow = lowCar;
+    m_vehRight = right;
+    VehDoorOffsetFor(lowCar, right, m_vehDoor);
+    const AnimClip* gi = VehGetInClip(lowCar, right);
+    const AnimClip* open = Clip(right ? "car_open_rhs" : "car_open_lhs");
     m_vehClip = open ? open : gi;
     m_vehTrans = open ? VehTrans::EnterOpen : VehTrans::EnterGetIn;
     Blend(m_vehClip, false, false, 8.0f);   // fade the on-foot clips out
@@ -132,6 +139,8 @@ void PlayerPed::StartExitCar(bool lowCar) {
     if (!go) go = Clip("car_getout_lhs");
     m_vehClip = go;
     m_vehTrans = VehTrans::ExitGetOut;
+    m_vehRight = false;   // CJ always leaves by the driver door
+    VehDoorOffsetFor(lowCar, false, m_vehDoor);
     m_vehFrac = 1.0f;
     if (go) Blend(go, false, false, 8.0f);   // fade the sit pose out
     else { LeaveVehicle(); m_vehTrans = VehTrans::None; }   // no clip: just pop out
@@ -145,7 +154,7 @@ float PlayerPed::VehDoorRatio() const {
     case VehTrans::EnterOpen: r = m_vehApproach * 2.0f; break;
     case VehTrans::EnterGetIn: r = (1.0f - m_vehFrac) / 0.35f; break;
     case VehTrans::ExitGetOut: { const float p = 1.0f - m_vehFrac; r = std::min(p / 0.2f, (1.0f - p) / 0.3f); break; }
-    case VehTrans::None: break;
+    case VehTrans::EnterShuffle: case VehTrans::None: break;
     }
     return r < 0.0f ? 0.0f : (r > 1.0f ? 1.0f : r);
 }
@@ -171,14 +180,27 @@ void PlayerPed::UpdateVehTransition(const Input&) {
         m_vehApproach = prog;   // slide up to the door while it opens
         if (done) {
             m_vehApproach = 1.0f;
-            m_vehClip = VehGetInClip();
+            m_vehClip = VehGetInClip(m_seatLow, m_vehRight);
             m_vehTrans = VehTrans::EnterGetIn;
             if (m_vehClip) Blend(m_vehClip, false, false, 8.0f);
         }
         break;
     case VehTrans::EnterGetIn:
         m_vehFrac = prog;
-        if (done) { m_vehTrans = VehTrans::None; m_vehClip = nullptr; EnterVehicle(m_seatLow, 0); }
+        if (done) {
+            const AnimClip* sh = m_vehRight ? Clip(m_seatLow ? "car_lshuffle_rhs" : "car_shuffle_rhs") : nullptr;
+            if (sh) {   // in the passenger seat: slide across to the wheel
+                m_vehClip = sh;
+                m_vehTrans = VehTrans::EnterShuffle;
+                m_vehShuffle = 0.0f;
+                Blend(sh, false, false, 8.0f);
+            } else { m_vehTrans = VehTrans::None; m_vehClip = nullptr; EnterVehicle(m_seatLow, 0); }
+        }
+        break;
+    case VehTrans::EnterShuffle:
+        m_vehFrac = 1.0f;
+        m_vehShuffle = prog;
+        if (done) { m_vehTrans = VehTrans::None; m_vehClip = nullptr; m_vehShuffle = 1.0f; EnterVehicle(m_seatLow, 0); }
         break;
     case VehTrans::ExitGetOut:
         m_vehFrac = 1.0f - prog;

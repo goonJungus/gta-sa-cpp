@@ -214,9 +214,14 @@ static int g_driveCar = -1;   // index of the car CJ is driving, -1 on foot
 static int g_vehTransCar = -1;   // car being entered/exited by the get-in / get-out animation, -1 none
 static bool g_vehTransEnter = false;   // the active transition is an entry (else an exit)
 static float g_vehEnterStart[3] = {0, 0, 0};   // CJ's feet where the entry began (he slides to the door)
+// CTaskComplexGoToCarDoorAndStandStill: CJ walks to the door GetNearestCarDoor chose, round the car body.
+static int g_vehGoToCar = -1;                  // car he is walking to, -1 none
+static bool g_vehGoToRight = false;            // its passenger door
+static float g_vehGoToTime = 0.0f;
+static float g_vehGoStick[2] = {0, 0};         // the walk direction this frame (world, unit)
 static SHORT GameKey(int vk) {
     // While driving, or mid get-in / get-out, the pedestrian controls are muted; the car reads raw keys.
-    if ((g_driveCar >= 0 || g_vehTransCar >= 0) && (vk == 'W' || vk == 'A' || vk == 'S' || vk == 'D' || vk == VK_SPACE || vk == VK_SHIFT ||
+    if ((g_driveCar >= 0 || g_vehTransCar >= 0 || g_vehGoToCar >= 0) && (vk == 'W' || vk == 'A' || vk == 'S' || vk == 'D' || vk == VK_SPACE || vk == VK_SHIFT ||
                             vk == 'C' || vk == 'F' || vk == 'Q' || vk == 'E' || vk == VK_RETURN)) return 0;
     return RawGameKey(vk);
 }
@@ -3011,6 +3016,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     speed = g_sg.playerGoal.mode >= 4 ? CJ_SPRINT_SPEED : g_sg.playerGoal.mode == 2 ? CJ_WALK_SPEED : CJ_RUN_SPEED;
                 }
             } else if (!g_sg.playerControl) { mx = my = 0.0f; mlen = 0.0f; }   // SET_PLAYER_CONTROL off
+            if (g_vehGoToCar >= 0) { mx = g_vehGoStick[0]; my = g_vehGoStick[1]; mlen = 1.0f; }   // walking to a car door
             if (scripted) {
                 // Scripted path: 5 legs x 4s, loop around Grove Street.
                 scriptedTime += dt;
@@ -3801,23 +3807,25 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const bool fDown = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen();
                 const bool fJust = fDown && !s_prevF;
                 s_prevF = fDown;
-                if (fJust && g_driveCar < 0 && g_vehTransCar < 0) {
+                if (fJust && g_driveCar < 0 && g_vehTransCar < 0 && g_vehGoToCar < 0) {
                     const int n = g_vehicles.Nearest(playerX, playerY, 6.5f);
                     if (n >= 0 && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) {
                         float sp[3]; bool low = false;
                         const bool ok = cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low);
-                        if (cjReady && ok && BikeKind(n) == 0) {   // cars: play the open-door / get-in sequence
-                            g_vehTransCar = n; g_vehTransEnter = true;
-                            g_vehEnterStart[0] = playerX; g_vehEnterStart[1] = playerY; g_vehEnterStart[2] = playerZ - EYE_HEIGHT;
-                            g_cj.StartEnterCar(low);
-                            Log("DRIVE: entering car %d", n);
+                        if (cjReady && ok && BikeKind(n) == 0) {   // cars: walk to the nearer front door, then get in
+                            const VehicleInstance& vc = g_vehicles.Car((size_t)n);
+                            const float lx = (playerX - vc.x) * std::cos(vc.heading) + (playerY - vc.y) * std::sin(vc.heading);
+                            g_vehGoToCar = n; g_vehGoToTime = 0.0f;
+                            g_vehGoToRight = lx > 0.0f && g_vehicles.HasDoor((size_t)n, 1);   // GetNearestCarDoor: the nearer door
+                            g_vehGoStick[0] = g_vehGoStick[1] = 0.0f;
+                            Log("DRIVE: going to the %s door of car %d", g_vehGoToRight ? "passenger" : "driver", n);
                         } else {   // bikes mount instantly; so does a car whose model is not loaded yet
                             g_driveCar = n; g_radio.Tune(g_radioStation);
                             if (ok) g_cj.EnterVehicle(low, BikeKind(n));
                             Log("DRIVE: got in %d", n);
                         }
                     }
-                } else if (fJust && g_driveCar >= 0 && g_vehTransCar < 0) {
+                } else if (fJust && g_driveCar >= 0 && g_vehTransCar < 0 && g_vehGoToCar < 0) {
                     const int n = g_driveCar;
                     VehicleInstance& c = g_vehicles.Car((size_t)n);
                     if (BikeKind(n) != 0) {   // bikes hop off instantly
@@ -3837,6 +3845,48 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         Log("DRIVE: exiting car %d", n);
                     }
                 }
+                // ---- Go to the door: steer CJ's own walk round the body (ComputeRouteRoundEntityBoundingBox) ----
+                if (g_vehGoToCar >= 0) {
+                    const size_t gc = (size_t)g_vehGoToCar;
+                    const bool right = g_vehGoToRight;
+                    float sp[3] = {0, 0, 0}, hx = 0.0f, y0 = 0.0f, y1 = 0.0f; bool low = false;
+                    const bool ok = cjReady && gc < g_vehicles.Count() && g_vehicles.SeatWorld(gc, sp, &low, right) && g_vehicles.Footprint(gc, &hx, &y0, &y1);
+                    const bool steer = (RawGameKey('W') | RawGameKey('A') | RawGameKey('S') | RawGameKey('D')) & 0x8000;   // the player walks off
+                    const VehicleInstance* gcar = ok ? &g_vehicles.Car(gc) : nullptr;
+                    g_vehGoToTime += dt;
+                    if (!gcar || gcar->wrecked || gcar->removed || gcar->health <= 0.0f || steer || swimming) {
+                        g_vehGoToCar = -1;
+                        Log("DRIVE: gave up on the car");
+                    } else {
+                        const float ch = std::cos(gcar->heading), sh = std::sin(gcar->heading);
+                        float door[2]; g_cj.VehDoorOffsetFor(low, right, door);
+                        const float ox = sp[0] - gcar->x, oy = sp[1] - gcar->y;
+                        const float tx = ox * ch + oy * sh + door[0], ty = -ox * sh + oy * ch + door[1];   // the door point, car space
+                        const float px = playerX - gcar->x, py = playerY - gcar->y;
+                        const float lx = px * ch + py * sh, ly = -px * sh + py * ch;                       // CJ, car space
+                        const float s = right ? 1.0f : -1.0f, m = 0.6f, w = hx + m;
+                        float wx = tx, wy = ty;   // head for the door unless the body is in the way
+                        if (lx * s >= hx + 0.2f) {}
+                        else if (ly > y1) { wx = s * w; wy = y1 + m; }   // in front: round the nose corner on the door's side
+                        else if (ly < y0) { wx = s * w; wy = y0 - m; }   // behind: round the tail corner
+                        else if (lx * s <= 0.0f) {                       // the far side: to the nearer end first
+                            wx = (lx >= 0.0f ? 1.0f : -1.0f) * w;
+                            wy = (y1 - ly < ly - y0) ? y1 + m : y0 - m;
+                        }
+                        const float dx = tx - lx, dy = ty - ly;
+                        if (dx * dx + dy * dy < 0.35f * 0.35f || g_vehGoToTime > 8.0f) {   // there: open the door
+                            g_vehGoToCar = -1;
+                            g_vehTransCar = (int)gc; g_vehTransEnter = true;
+                            g_vehEnterStart[0] = playerX; g_vehEnterStart[1] = playerY; g_vehEnterStart[2] = playerZ - EYE_HEIGHT;
+                            g_cj.StartEnterCar(low, right);
+                            Log("DRIVE: entering car %d by the %s door", (int)gc, right ? "passenger" : "driver");
+                        } else {
+                            const float gx = wx * ch - wy * sh + gcar->x - playerX, gy = wx * sh + wy * ch + gcar->y - playerY;
+                            const float gl = std::sqrt(gx * gx + gy * gy);
+                            g_vehGoStick[0] = gl > 1e-4f ? gx / gl : 0.0f; g_vehGoStick[1] = gl > 1e-4f ? gy / gl : 0.0f;
+                        }
+                    }
+                }
                 // ---- Get-in / get-out: blend CJ's world position between the door and the seat ----
                 if (g_vehTransCar >= 0 && cjReady) {
                     if ((size_t)g_vehTransCar >= g_vehicles.Count()) { g_cj.CancelVehTransition(); g_vehTransCar = -1; }
@@ -3845,28 +3895,36 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         float sp[3]; bool low = false;
                         const bool ok = g_vehicles.SeatWorld((size_t)g_vehTransCar, sp, &low);
                         if (!ok || c.wrecked || c.removed || c.health <= 0.0f) {   // car gone: bail out on foot
-                            g_cj.CancelVehTransition(); g_vehTransCar = -1; c.doorRatio[0] = 0.0f;
+                            g_cj.CancelVehTransition(); g_vehTransCar = -1; c.doorRatio[0] = c.doorRatio[1] = 0.0f;
                             velZ = 0.0f; onGround = true; g_audio.EngineStop(); g_radio.Tune(-1);
                         } else {
                             g_cj.SetSeat(sp, c.heading + 1.5707963f);
-                            c.doorRatio[0] = g_cj.VehDoorRatio();   // driver door swings with the sequence, shut when done
+                            const bool right = g_cj.VehRightSide();
+                            float ep[3] = {sp[0], sp[1], sp[2]};   // the seat behind the entry door
+                            if (right) g_vehicles.SeatWorld((size_t)g_vehTransCar, ep, nullptr, true);
+                            c.doorRatio[right ? 1 : 0] = g_cj.VehDoorRatio();   // the entry door swings with the sequence, shut when done
                             float door[2]; g_cj.VehDoorOffset(door);
                             const float ch = std::cos(c.heading), sh = std::sin(c.heading);
-                            const float doorX = sp[0] + door[0] * ch - door[1] * sh;   // seat + offset in car space
-                            const float doorY = sp[1] + door[0] * sh + door[1] * ch;
-                            const float dg = worldReady ? g_world.GetGroundHeight(doorX, doorY, sp[2]) : sp[2] - 1.0f;
-                            const float doorFeet = dg > -500.0f ? dg : sp[2] - 1.0f;
-                            const float seatFeet = sp[2] - 1.0f;
+                            const float doorX = ep[0] + door[0] * ch - door[1] * sh;   // seat + offset in car space
+                            const float doorY = ep[1] + door[0] * sh + door[1] * ch;
+                            const float dg = worldReady ? g_world.GetGroundHeight(doorX, doorY, ep[2]) : ep[2] - 1.0f;
+                            const float doorFeet = dg > -500.0f ? dg : ep[2] - 1.0f;
+                            const float seatFeet = ep[2] - 1.0f;
                             float px, py, feet;
-                            if (g_cj.VehOpening()) {   // slide from CJ's start spot up to the door while the door opens
+                            if (g_cj.VehOpening()) {   // close the last bit to the door point while the door opens
                                 const float a = g_cj.VehApproachFrac();
                                 px = g_vehEnterStart[0] + (doorX - g_vehEnterStart[0]) * a;
                                 py = g_vehEnterStart[1] + (doorY - g_vehEnterStart[1]) * a;
                                 feet = g_vehEnterStart[2] + (doorFeet - g_vehEnterStart[2]) * a;
+                            } else if (g_cj.VehShuffling()) {   // CTaskSimpleCarShuffle: passenger seat -> wheel
+                                const float f = g_cj.VehShuffleFrac();
+                                px = ep[0] + (sp[0] - ep[0]) * f;
+                                py = ep[1] + (sp[1] - ep[1]) * f;
+                                feet = seatFeet;
                             } else {                   // get-in / get-out: blend door <-> seat
                                 const float f = g_cj.VehTransFrac();   // 0 at the door, 1 at the seat
-                                px = doorX + (sp[0] - doorX) * f;
-                                py = doorY + (sp[1] - doorY) * f;
+                                px = doorX + (ep[0] - doorX) * f;
+                                py = doorY + (ep[1] - doorY) * f;
                                 feet = doorFeet + (seatFeet - doorFeet) * f;
                             }
                             playerX = px; playerY = py; playerZ = feet + EYE_HEIGHT;
