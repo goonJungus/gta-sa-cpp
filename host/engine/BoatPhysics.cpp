@@ -31,6 +31,40 @@ enum : int { kSkimmer = 460, kPredator = 430, kSqualo = 446, kSpeeder = 452, kRe
 // CPlane's propeller speeds, which boats share
 constexpr float kPropStd = 0.18f, kPropMax = 0.34f, kPropRoc = 0.01f;
 
+constexpr float kWakeLifetime = 150.0f, kMinWakeInterval = 2.0f;   // CBoat::WAKE_LIFETIME, MIN_WAKE_INTERVAL
+
+// CBoat::PruneWakeTrail: every point ages a step; the trail ends at the first one that dies.
+void PruneWakeTrail(CarPhys& p, float ts) {
+    int n = 0;
+    for (; n < 32; n++) {
+        float& life = p.wakeLife[n];
+        if (life <= 0.0f) break;
+        if (life <= ts) { life = 0.0f; break; }
+        life -= ts;
+    }
+    p.wakeCount = n;
+}
+
+// CBoat::AddWakePoint: a new point at the head once the boat is 2 m past the last one (31 kept for the player's
+// boat, 15 for the others: there are no mission boats yet).
+void AddWakePoint(CarPhys& p, const V3& pos, const V3& mv, bool player) {
+    const uint8_t speed = (uint8_t)std::min(255.0f, Len(mv) * 100.0f);
+    if (p.wakeLife[0] <= 0.0f) {
+        p.wakeX[0] = pos.x; p.wakeY[0] = pos.y; p.wakeSpeed[0] = speed; p.wakeLife[0] = kWakeLifetime;
+        p.wakeCount = 1;
+        return;
+    }
+    const float dx = p.wakeX[0] - pos.x, dy = p.wakeY[0] - pos.y;
+    if (dx * dx + dy * dy <= kMinWakeInterval * kMinWakeInterval) return;
+    const int keep = std::min(p.wakeCount, player ? 31 : 15);
+    for (int i = keep; i > 0; i--) {
+        p.wakeX[i] = p.wakeX[i - 1]; p.wakeY[i] = p.wakeY[i - 1];
+        p.wakeSpeed[i] = p.wakeSpeed[i - 1]; p.wakeLife[i] = p.wakeLife[i - 1];
+    }
+    p.wakeX[0] = pos.x; p.wakeY[0] = pos.y; p.wakeLife[0] = kWakeLifetime; p.wakeSpeed[0] = speed;
+    if (p.wakeCount < 32) p.wakeCount++;
+}
+
 struct Buoyancy {
     bool inWater = false;
     float level = 0.0f;       // the surface at the hull's position
@@ -158,6 +192,7 @@ void Vehicles::BoatStep(VehicleInstance& c, const VehicleModel& vm, const Handli
     p.player = player;
     const bool hitWall = p.hitWall;   // GetHasHitWall: the last step's collision
     p.hitWall = false;
+    PruneWakeTrail(p, ts);
     BoatControl(c, vm, h, ts, player, hitWall, world);
     Body b = Load(c, h);
     // CPhysical::ProcessControl: ApplyFriction, ApplyGravity, ApplyAirResistance
@@ -211,6 +246,7 @@ void Vehicles::BoatControl(VehicleInstance& c, const VehicleModel& vm, const Han
         if (b.up.z > -0.6f) {
             const float moving = std::fabs(p.gas) <= 0.05f ? std::sqrt(b.mv.x * b.mv.x + b.mv.y * b.mv.y) : 1.0f;
             if (std::fabs(p.gas) > 0.05f || moving > 0.01f) {
+                if (!skimmer && onWater && moving > 0.05f) AddWakePoint(p, b.pos, b.mv, player);   // IsSubBoat: a CBoat
                 float traction = 1.0f;
                 if (player) {
                     float loss = Dot(b.mv, b.fwd) * h.tractionBias;
@@ -303,4 +339,114 @@ void Vehicles::BoatControl(VehicleInstance& c, const VehicleModel& vm, const Han
         p.boatForce = Len(bu.force);
     }
     Store(b, c);
+}
+
+void Vehicles::BoatEffects(float dt, const float cam[3], bool firstPerson,
+                           const std::function<void(const float*, const float*, float, float, float)>& onSplash,
+                           const std::function<void(const float*, const float*, const float*, const float*, float)>& onProp) {
+    static unsigned s_rng = 0x6dd130u;
+    auto rnd = [](float lo, float hi) { s_rng = s_rng * 1664525u + 1013904223u; return lo + (hi - lo) * (float)(s_rng >> 8) / 16777216.0f; };
+    for (VehicleInstance& c : m_cars) {
+        if (c.removed || c.wrecked) continue;
+        auto mi = m_models.find(c.model);
+        if (mi == m_models.end()) continue;
+        const VehicleModel& vm = mi->second;
+        const bool skimmer = c.model == kSkimmer;
+        const bool boat = UsesBoatPhysics(c.model);   // IsSubBoat
+        if (!boat && !skimmer) continue;
+        const CarPhys& p = c.phys;
+        V3 right, fwd, up;
+        CarFrame(c, right, fwd, up);
+        const V3 pos(c.x, c.y, c.z);
+        const V3 mv(p.mv[0], p.mv[1], p.mv[2]);   // m_vecMoveSpeed, per 1/50 s
+        const float dx = c.x - cam[0], dy = c.y - cam[1], dz = c.z - cam[2];
+        const float camDist = std::sqrt(dx * dx + dy * dy + dz * dz);
+        // CBoat::PreRender: boat_prop at each static_prop while the hull floats (CULLDIST 20 m)
+        if (boat && p.boatInWater && camDist < 20.0f)
+            for (int k : {11, 13}) {
+                const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
+                if (!bn.found) continue;
+                float g[16];
+                Mul4(bn.local, bn.base, g);
+                const V3 at = pos + right * g[12] + fwd * g[13] + up * g[14];
+                const float pp[3] = {at.x, at.y, at.z}, f3[3] = {fwd.x, fwd.y, fwd.z}, u3[3] = {up.x, up.y, up.z};
+                const float v3[3] = {mv.x * 50.0f, mv.y * 50.0f, mv.z * 50.0f};   // the spray is local to the boat
+                onProp(pp, f3, u3, v3, std::min(1.0f, Len(mv) * 2.0f));
+            }
+        // CVehicle::DoBoatSplashes
+        const float speed2 = Len2(mv);
+        if (speed2 <= 0.0025f || up.z <= 0.0f || firstPerson) continue;
+        const float dist2D = std::sqrt(dx * dx + dy * dy);
+        if (dist2D >= 80.0f) continue;
+        float k = std::sqrt(speed2) * 0.075f * p.boatForce;
+        k = skimmer ? std::min(k * 3.0f, 0.5f) : std::min(k, 1.0f);
+        if (k <= 0.15f) continue;
+        const float k2 = k * 0.75f;
+        float alpha = std::min((float)(uint8_t)(k2 * 128.0f), 64.0f);
+        if (dist2D > 50.0f) alpha *= (80.0f - dist2D) * 0.033f;
+        alpha = std::min(alpha / 255.0f, 1.0f);
+        const float velMul = k2 * 10.0f;
+        const float size = std::min((velMul + 0.75f) * 0.1f, 1.0f);
+        const float xm = skimmer ? 0.25f : 0.7f, zm = skimmer ? 0.85f : 0.0f;
+        for (int side = 0; side < 2; side++) {
+            const float life = std::min(rnd(0.8f, 1.2f) * (k2 + k2 + 0.3f) * 0.2f, 1.0f);
+            const V3 local((side ? vm.colMax[0] : vm.colMin[0]) * xm, vm.colMax[1] * 0.5f, vm.colMin[2] * zm);
+            const V3 at = pos + right * local.x + fwd * local.y + up * local.z;
+            V3 v = fwd * -rnd(0.8f, 1.2f);
+            v += right * (side ? rnd(0.3f, 0.7f) : -rnd(0.3f, 0.7f));
+            v += up * rnd(0.8f, 1.2f);
+            v *= velMul;
+            const float pp[3] = {at.x, at.y, at.z}, vv[3] = {v.x, v.y, v.z};
+            onSplash(pp, vv, life, size, alpha);
+        }
+    }
+}
+
+void Vehicles::CollectWakes(const float cam[3], const float camFwd[3], const std::function<bool(float, float, float*)>& water,
+                            std::vector<BoatWake>& out) const {
+    out.clear();
+    std::vector<std::pair<float, size_t>> nearBoats;
+    float cf[2] = {camFwd[0], camFwd[1]};
+    {
+        const float l = std::sqrt(camFwd[0] * camFwd[0] + camFwd[1] * camFwd[1] + camFwd[2] * camFwd[2]);
+        if (l > 1e-6f) { cf[0] /= l; cf[1] /= l; }
+    }
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        const VehicleInstance& c = m_cars[i];
+        if (c.removed || c.phys.wakeCount == 0) continue;
+        const float dx = c.x - cam[0], dy = c.y - cam[1];
+        const float along = dx * cf[0] + dy * cf[1];
+        const float d = std::sqrt(dx * dx + dy * dy);
+        if (along > 100.0f || along < -15.0f || d > 80.0f) continue;
+        nearBoats.push_back({d, i});
+    }
+    std::sort(nearBoats.begin(), nearBoats.end());
+    if (nearBoats.size() > 4) nearBoats.resize(4);   // NUM_WAKE_GEN_BOATS
+    for (const auto& [d, i] : nearBoats) {
+        const VehicleInstance& c = m_cars[i];
+        const CarPhys& p = c.phys;
+        if (p.wakeCount <= 1) continue;
+        auto mi = m_models.find(c.model);
+        if (mi == m_models.end()) continue;
+        BoatWake w;
+        w.n = p.wakeCount;
+        V3 right, fwd, up;
+        CarFrame(c, right, fwd, up);
+        w.fwd[0] = fwd.x; w.fwd[1] = fwd.y;
+        w.z = c.z;
+        float lvl = 0.0f;
+        if (water && water(c.x, c.y, &lvl)) w.z = lvl;
+        const float maxWidth = mi->second.colMax[0] * 0.65f;
+        for (int k = 0; k < w.n; k++) {
+            w.x[k] = p.wakeX[k]; w.y[k] = p.wakeY[k];
+            const float t = (kWakeLifetime - p.wakeLife[k]) * ((p.wakeSpeed[k] / 25.0f + 0.5f) / kWakeLifetime);
+            w.width[k] = maxWidth + maxWidth * t;
+            float a = (1.0f - (float)k / (float)w.n) * 160.0f;
+            if (k < 3) a *= (float)k / 3.0f;
+            a *= (float)p.wakeSpeed[k] / 100.0f + 0.15f;
+            if (d > 50.0f) a *= (80.0f - d) / 30.0f;
+            w.alpha[k] = a;
+        }
+        out.push_back(w);
+    }
 }

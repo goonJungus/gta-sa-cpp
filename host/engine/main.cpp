@@ -4064,6 +4064,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const float dp[3] = {hc.x, hc.y, groundZ};
                 g_fx.HeliDust(dp, hp.dustTimeConst, onWater ? 2 : g_sandSurface[surf & 255] ? 1 : 0, dt, hp.dustAcc);
             }
+            {   // CBoat::PreRender boat_prop and CVehicle::DoBoatSplashes (no in-car first-person view yet)
+                const float cam[3] = {camPosX, camPosY, camPosZ};
+                g_vehicles.BoatEffects(dt, cam, false,
+                    [](const float* p, const float* v, float life, float size, float alpha) { g_fx.BoatSplash(p, v, life, size, alpha); },
+                    [dt](const float* p, const float* f, const float* u, const float* v, float t) { g_fx.BoatProp(p, f, u, v, t, dt); });
+            }
             if (cjReady) g_cj.SetInDrowningVehicle(g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).phys.drowning);
             g_vehicles.UpdateDamage(dt, g_driveCar, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p, bool rocket) { (rocket ? g_aircraftBooms : g_carBooms).push_back({p[0], p[1], p[2]}); });
@@ -4811,6 +4817,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // low surface, so nearer glass/foliage blends over it.
             // Wavyness = WindClipped + 0.3 in CWeather::Update; there is no wind yet.
             g_water.Render(g_renderer, camPosX, camPosY, fogEnd, GetTickCount(), g_waterRGBA, 0.3f);
+            {   // CBoat::RenderAllWakePointBoats
+                static std::vector<BoatWake> wakes;
+                const D3DMATRIX& vmx = g_renderer.GetViewMatrix();
+                const float cam[3] = {camPosX, camPosY, camPosZ}, camFwd[3] = {vmx._13, vmx._23, vmx._33};
+                g_vehicles.CollectWakes(cam, camFwd, [](float x, float y, float* z) { return g_water.Ready() && g_water.GetWaterLevel(x, y, z); }, wakes);
+                g_water.RenderBoatWakes(g_renderer, wakes);
+            }
             // Transparent world pass (glass, decals, soft foliage), back-to-front.
             g_world.RenderAlpha(g_renderer);
             // Night street-lamp glows (coronas + ground light pools). Ramp on at

@@ -29,6 +29,12 @@ public:
     // The heli_dust fx system (effects.fxp) held at const time t (0..1) at p for dt seconds: prim 0 "normal" dust,
     // 1 "sand", 2 "water". acc carries the part-particle emission between frames.
     void HeliDust(const float p[3], float t, int prim, float dt, float& acc);
+    // prt_boatsplash (FxSystem_c::AddParticle with an FxPrtMult): life and size are the multipliers, alpha 0..1;
+    // falls at 9.8 m/s^2.
+    void BoatSplash(const float p[3], const float v[3], float lifeMult, float sizeMult, float alpha);
+    // The boat_prop fx system at a propeller for dt seconds at const time t (0..1): its "spray" thrown back and up
+    // and its "propellor" bubbles. vel: the boat's velocity (m/s), which the local particles share.
+    void BoatProp(const float p[3], const float fwd[3], const float up[3], const float vel[3], float t, float dt);
     void Fire(const float p[3]);
     void Explosion(const float p[3]);
     // CExplosion fx systems: 0 explosion_tiny, 1 _small, 2 _medium, 3 _large, 4 _molotov.
@@ -49,7 +55,10 @@ public:
 
 private:
     // ring: a heli_dust particle (FX friction 0.985, unseen for its first half, then growing to size1 and fading)
-    struct Puff { float p[3], v[3]; float age, life, size0, size1; uint32_t rgb; float alpha; bool spark; bool ring; };
+    // fall: an fx particle with a FORCE line (grav down, no drag), alpha fading out over its life, size from size0
+    // to size1 (through sizeMid at half life when sizeMid >= 0)
+    struct Puff { float p[3], v[3]; float age, life, size0, size1; uint32_t rgb; float alpha; bool spark; bool ring;
+                  bool fall; float grav, sizeMid; };
     struct Trace { bool exists = false; float a[3], b[3]; float createMs, lifeMs, radius; int alpha; };
     std::vector<Puff> m_puffs;
     Trace m_traces[16];

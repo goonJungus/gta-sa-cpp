@@ -19,6 +19,15 @@
 #include <string>
 #include <vector>
 
+// One boat's wake trail as CBoat::RenderWakePoints lays it out: the points newest first, each with its half
+// width and alpha (0..255), the boat's forward direction for the first point, and the surface height.
+struct BoatWake {
+    int n = 0;
+    float x[32] = {}, y[32] = {}, width[32] = {}, alpha[32] = {};
+    float fwd[2] = {0.0f, 1.0f};
+    float z = 0.0f;
+};
+
 class Water {
 public:
     bool Load(D3DRenderer& r, const std::string& gameDir);
@@ -33,6 +42,9 @@ public:
     // open sea outside the map is drawn. wavyness: CWeather::Wavyness (0.3..1).
     void Render(D3DRenderer& r, float camX, float camY, float range, uint32_t timeMs,
                 const float rgba[4], float wavyness);
+    // CWaterLevel::RenderBoatWakes: each trail as segments of four strips across (alpha 0.4, 1, 0.2, 1, 0.4 from
+    // edge to edge) in particle.txd "waterwake", tiled every 4 m. Segments over 13 m long are skipped.
+    void RenderBoatWakes(D3DRenderer& r, const std::vector<BoatWake>& wakes);
 
 private:
     struct Poly {
@@ -43,6 +55,7 @@ private:
 
     std::vector<Poly> m_polys;
     IDirect3DTexture9* m_tex = nullptr;
+    IDirect3DTexture9* m_wakeTex = nullptr;
     std::vector<D3DRenderer::ColorTexVertex> m_verts;
     std::vector<uint16_t> m_indices;
 };

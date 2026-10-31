@@ -95,8 +95,55 @@ void Effects::HeliDust(const float p[3], float t, int prim, float dt, float& acc
         for (int k = 0; k < 3; k++) f.p[k] = p[k];
         f.v[0] = std::cos(h) * speed; f.v[1] = std::sin(h) * speed;
         f.life = life;
-        f.size0 = 0.0f; f.size1 = 32.0f;
+        f.size0 = 0.0f; f.size1 = 16.0f;   // SIZEX 32 is the full width (RenderInfo sprite -0.5..0.5)
         f.rgb = kRgb[prim]; f.alpha = kAlpha[prim]; f.ring = true;
+        m_puffs.push_back(f);
+    }
+}
+
+void Effects::BoatSplash(const float p[3], const float v[3], float lifeMult, float sizeMult, float alpha) {
+    Puff f = {};
+    for (int k = 0; k < 3; k++) { f.p[k] = p[k]; f.v[k] = v[k]; }
+    f.life = 5.0f * lifeMult;   // LIFE 5
+    // SIZEX 0, 20 at half life, 30: the full width, so half of it each side
+    f.size0 = 0.0f; f.sizeMid = 10.0f * sizeMult; f.size1 = 15.0f * sizeMult;
+    f.rgb = 0xFFFFFF; f.alpha = alpha;
+    f.fall = true; f.grav = 9.8f;
+    m_puffs.push_back(f);
+}
+
+void Effects::BoatProp(const float p[3], const float fwd[3], const float up[3], const float vel[3], float t, float dt) {
+    auto emit = [&](float rate) { const float n = rate * dt; return (int)n + (Rnd(0.0f, 1.0f) < n - (float)(int)n ? 1 : 0); };
+    // spray: RATE 0 below 0.1 then 5..30, LIFE 0.2..0.5, SPEED 2..8 +- 0..4, DIR (0, -1, 0..1), FORCE -10,
+    // alpha 64 -> 0, SIZEX 0.1 -> 6
+    const int sprays = t < 0.1f ? 0 : emit(5.0f + 25.0f * (t - 0.1f) / 0.9f);
+    for (int i = 0; i < sprays; i++) {
+        float d[3] = {-fwd[0] + up[0] * t, -fwd[1] + up[1] * t, -fwd[2] + up[2] * t};
+        const float l = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        const float sp = 2.0f + 6.0f * t + Rnd(-1.0f, 1.0f) * 4.0f * t;
+        Puff f = {};
+        for (int k = 0; k < 3; k++) { f.p[k] = p[k]; f.v[k] = d[k] / l * sp + vel[k]; }
+        f.life = 0.2f + 0.3f * t;
+        f.size0 = 0.05f; f.size1 = 3.0f; f.sizeMid = -1.0f;
+        f.rgb = 0xFFFFFF; f.alpha = 64.0f / 255.0f;
+        f.fall = true; f.grav = 10.0f;
+        m_puffs.push_back(f);
+    }
+    // propellor: RATE 20, LIFE 0.5, SPEED 1 along -y within 30 degrees, alpha 64 -> 0, SIZEX 0.1 -> 0.3
+    const int bubbles = emit(20.0f);
+    for (int i = 0; i < bubbles; i++) {
+        const float a = Rnd(0.0f, 30.0f) * 0.0174533f, h = Rnd(0.0f, 6.2831853f);
+        // a unit vector off -fwd by a, turned by h about it (any perpendicular will do: up and fwd x up)
+        const float side[3] = {fwd[1] * up[2] - fwd[2] * up[1], fwd[2] * up[0] - fwd[0] * up[2], fwd[0] * up[1] - fwd[1] * up[0]};
+        Puff f = {};
+        for (int k = 0; k < 3; k++) {
+            f.p[k] = p[k];
+            f.v[k] = -fwd[k] * std::cos(a) + (up[k] * std::cos(h) + side[k] * std::sin(h)) * std::sin(a) + vel[k];
+        }
+        f.life = 0.5f;
+        f.size0 = 0.05f; f.size1 = 0.15f; f.sizeMid = -1.0f;
+        f.rgb = 0xFFFFFF; f.alpha = 64.0f / 255.0f;
+        f.fall = true; f.grav = 0.0f;
         m_puffs.push_back(f);
     }
 }
@@ -338,6 +385,7 @@ void Effects::Update(float dt) {
         f.age += dt;
         for (int k = 0; k < 3; k++) f.p[k] += f.v[k] * dt;
         if (f.spark) f.v[2] -= 9.0f * dt;          // sparks fall
+        else if (f.fall) f.v[2] -= f.grav * dt;
         else if (f.ring) { const float fr = std::pow(0.985f, dt * 50.0f); for (float& v : f.v) v *= fr; }   // FxInfoFriction
         else for (int k = 0; k < 3; k++) f.v[k] *= std::max(0.0f, 1.0f - 2.5f * dt);   // dust slows
     }
@@ -428,6 +476,11 @@ void Effects::Render(D3DRenderer& r) {
         const float t = f.age / f.life;
         float s = f.size0 + (f.size1 - f.size0) * t;
         float a = f.alpha * (1.0f - t) * (f.spark ? 1.0f : std::min(1.0f, t * 8.0f));
+        if (f.fall) {
+            s = f.sizeMid < 0.0f ? f.size0 + (f.size1 - f.size0) * t
+              : t < 0.5f ? f.size0 + (f.sizeMid - f.size0) * t * 2.0f : f.sizeMid + (f.size1 - f.sizeMid) * (t - 0.5f) * 2.0f;
+            a = f.alpha * (1.0f - t);
+        }
         if (f.ring) {   // heli_dust: size and alpha keys 0 until half life, alpha peaking at 0.6
             if (t < 0.5f) continue;
             s = f.size1 * (t - 0.5f) * 2.0f;

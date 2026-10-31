@@ -47,13 +47,56 @@ bool Water::Load(D3DRenderer& r, const std::string& gameDir) {
     }
 
     for (const TxdTexture& t : TxdLoader::Load(gameDir + "\\models\\particle.txd")) {
-        if (TxdLoader::KeyOf(t.name) != "waterclear256") continue;
-        m_tex = r.CreateTexture(t.width, t.height, t.d3dFormat, t.mip0.data(), (uint32_t)t.mip0.size(),
-                                &t.extraMips);
-        break;
+        const std::string key = TxdLoader::KeyOf(t.name);
+        IDirect3DTexture9** dst = key == "waterclear256" ? &m_tex : key == "waterwake" ? &m_wakeTex : nullptr;
+        if (!dst || *dst) continue;
+        *dst = r.CreateTexture(t.width, t.height, t.d3dFormat, t.mip0.data(), (uint32_t)t.mip0.size(), &t.extraMips);
     }
     std::fprintf(stderr, "[WATER] %zu polys, texture %s\n", m_polys.size(), m_tex ? "ok" : "missing");
     return !m_polys.empty();
+}
+
+void Water::RenderBoatWakes(D3DRenderer& r, const std::vector<BoatWake>& wakes) {
+    if (!m_wakeTex || wakes.empty()) return;
+    static const float kAlphaMult[5] = {0.4f, 1.0f, 0.2f, 1.0f, 0.4f};
+    std::vector<D3DRenderer::ColorTexVertex> vs;
+    std::vector<uint16_t> ix;
+    for (const BoatWake& w : wakes) {
+        float prevDir[2] = {w.fwd[0], w.fwd[1]};
+        for (int i = 1; i < w.n; i++) {
+            float dir[2] = {w.x[i - 1] - w.x[i], w.y[i - 1] - w.y[i]};
+            const float d2 = dir[0] * dir[0] + dir[1] * dir[1];
+            if (d2 >= 9.0f) { const float l = std::sqrt(d2); dir[0] /= l; dir[1] /= l; }   // only normalised past 3 m, as retail
+            if (d2 <= 169.0f && vs.size() + 16 < 65000) {
+                // GetPerpRight (y, -x): A = point - perp * width, B = point + perp * width
+                const float pa[2] = {w.x[i - 1] - prevDir[1] * w.width[i - 1], w.y[i - 1] + prevDir[0] * w.width[i - 1]};
+                const float pb[2] = {w.x[i - 1] + prevDir[1] * w.width[i - 1], w.y[i - 1] - prevDir[0] * w.width[i - 1]};
+                const float ca[2] = {w.x[i] + dir[1] * w.width[i], w.y[i] - dir[0] * w.width[i]};
+                const float cb[2] = {w.x[i] - dir[1] * w.width[i], w.y[i] + dir[0] * w.width[i]};
+                for (int part = 0; part < 4; part++) {
+                    const float f0 = part / 4.0f, f1 = (part + 1) / 4.0f;
+                    const float c[4][2] = {{pb[0] + (pa[0] - pb[0]) * f0, pb[1] + (pa[1] - pb[1]) * f0},
+                                           {pb[0] + (pa[0] - pb[0]) * f1, pb[1] + (pa[1] - pb[1]) * f1},
+                                           {ca[0] + (cb[0] - ca[0]) * f1, ca[1] + (cb[1] - ca[1]) * f1},
+                                           {ca[0] + (cb[0] - ca[0]) * f0, ca[1] + (cb[1] - ca[1]) * f0}};
+                    const float al[4] = {w.alpha[i - 1] * kAlphaMult[part], w.alpha[i - 1] * kAlphaMult[part + 1],
+                                         w.alpha[i] * kAlphaMult[part + 1], w.alpha[i] * kAlphaMult[part]};
+                    float mu = 1e9f, mv = 1e9f;
+                    for (const auto& q : c) { mu = std::min(mu, std::floor(q[0] / 4.0f)); mv = std::min(mv, std::floor(q[1] / 4.0f)); }
+                    const uint16_t base = (uint16_t)vs.size();
+                    for (int k = 0; k < 4; k++) {
+                        const uint32_t a = (uint32_t)std::clamp(al[k], 0.0f, 255.0f);
+                        // retail sits the strip at -0.03 and sways it with the waves; the water here is flat, so it
+                        // rides just above the surface instead
+                        vs.push_back({c[k][0], c[k][1], w.z + 0.03f, (a << 24) | 0xFFFFFFu, c[k][0] / 4.0f - mu, c[k][1] / 4.0f - mv});
+                    }
+                    for (uint16_t k : {0, 2, 1, 0, 3, 2}) ix.push_back((uint16_t)(base + k));
+                }
+            }
+            prevDir[0] = dir[0]; prevDir[1] = dir[1];
+        }
+    }
+    if (!ix.empty()) r.DrawBlendedTriangles(vs.data(), (uint32_t)vs.size(), ix.data(), (uint32_t)ix.size(), m_wakeTex, false);
 }
 
 bool Water::GetWaterLevel(float x, float y, float* z) const {

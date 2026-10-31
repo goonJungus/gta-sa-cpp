@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "D3DRenderer.h"
+#include "Water.h"
 
 // cTransmission: the gearbox built from a handling line (InitGearRatios), in game units (per 1/50 s).
 struct Transmission {
@@ -226,6 +227,11 @@ struct CarPhys {
     float crankAngle = 0.0f;          // m_fCrankAngle (the pedals stay level: m_fPedalAngleL/R = -crank)
     // CBoat
     float engineSpeed = 0.0f, propAngle = 0.0f;   // m_EngineSpeed (the propeller), m_PropellerAngle
+    // CBoat's wake trail, newest first: m_WakeCoords, m_WakeBoatSpeed (|move speed| x 100), m_WakePtCounters
+    // (150 steps of life), m_NumWakeCoords
+    float wakeX[32] = {}, wakeY[32] = {}, wakeLife[32] = {};
+    uint8_t wakeSpeed[32] = {};
+    int wakeCount = 0;
     float prevVolume = 0.0f, boatForce = 0.0f;    // m_PrevVolume (the last immersion), |the buoyancy force|
     bool boatInWater = false, engineInWater = false;
     float skimDiveMs = 0.0f;          // m_f2ndSteerAngle on the Skimmer: what is left of its 300 ms nose-dive braking
@@ -469,6 +475,15 @@ public:
     bool Damage(int car, float damage);
     // Advance fire and smoke; calls onSmoke(pos, dark), onFire(pos) and onExplode(pos, rocket): a car blowing up, or
     // (rocket) the random blasts of a burning aircraft nobody drives. playerCar is the car the player drives.
+    // CBoat::PreRender's boat_prop spray at each static_prop (t = min(1, speed x 2), while it floats; within 20 m of
+    // the camera) and CVehicle::DoBoatSplashes (two bow splashes, within 80 m) for boats and the Skimmer.
+    void BoatEffects(float dt, const float cam[3], bool firstPerson,
+                     const std::function<void(const float* p, const float* v, float life, float size, float alpha)>& onSplash,
+                     const std::function<void(const float* p, const float* fwd, const float* up, const float* vel, float t)>& onProp);
+    // CBoat::FillBoatList and RenderWakePoints: the trails of the four boats nearest the camera (within 80 m, -15..100 m
+    // along its view), with each point's width and alpha.
+    void CollectWakes(const float cam[3], const float camFwd[3], const std::function<bool(float, float, float*)>& water,
+                      std::vector<BoatWake>& out) const;
     void UpdateDamage(float dt, int playerCar, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire,
                       const std::function<void(const float*, bool)>& onExplode);
     // CGlass::CarWindscreenShatters: called with the glass rectangle (bottom corner, up and across edges, world
