@@ -582,7 +582,8 @@ bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float st
     if (i >= m_cars.size() || !world.line || !world.sphere) return false;
     VehicleInstance& c = m_cars[i];
     const bool bike = UsesBikePhysics(c.model), boat = UsesBoatPhysics(c.model), heli = UsesHeliPhysics(c.model), plane = UsesPlanePhysics(c.model);
-    if (!bike && !boat && !heli && !plane && !UsesCarPhysics(c.model)) return false;
+    if (!bike && !boat && !heli && !plane && !c.derailed && !UsesCarPhysics(c.model)) return false;
+    if (c.derailed) { accel = brake = steer = leanFwd = skid = 0.0f; handbrake = gear = false; }   // nobody drives it now
     auto mi = m_models.find(c.model);
     const VehicleInfo* info = Info(c.model);
     const HandlingData* h = info ? Handling(info->handling) : nullptr;
@@ -665,7 +666,7 @@ void Vehicles::CarCarCollisions(float dt) {
     std::vector<Entry> cars;
     for (size_t i = 0; i < m_cars.size(); i++) {
         const VehicleInstance& c = m_cars[i];
-        if (c.removed || c.hasRot || (!UsesCarPhysics(c.model) && !UsesHeliPhysics(c.model) && !UsesPlanePhysics(c.model))) continue;
+        if (c.removed || c.hasRot || (!UsesCarPhysics(c.model) && !UsesHeliPhysics(c.model) && !UsesPlanePhysics(c.model) && !c.derailed)) continue;
         auto mi = m_models.find(c.model);
         const VehicleInfo* info = Info(c.model);
         const HandlingData* h = info ? Handling(info->handling) : nullptr;

@@ -46,6 +46,8 @@ public:
     ScmMachine* scm = nullptr;
     Peds* peds = nullptr;
     Vehicles* cars = nullptr;
+    Trains* trains = nullptr;           // the trains on the track nodes (the game loop runs them)
+    bool RandomTrainsOff() const { return m_randomTrainsOff; }
     D3DRenderer* r = nullptr;
     Hud* hud = nullptr;
     Pickups* pickups = nullptr;
@@ -109,7 +111,7 @@ public:
 private:
     struct Frame { uint32_t time; int16_t vel[3]; int8_t right[3], top[3]; int8_t steer, gas, brake, handbrake; float pos[3]; };
     struct Playback { bool on = false, looped = false, paused = false, ai = false; int car = 0, number = 0; size_t index = 0; float time = 0, speed = 1.0f; };
-    Trains m_trains;                    // mission trains on the track nodes
+
     ImgLoader m_carrecImg;
     bool m_carrecOpen = false;
     std::map<int, std::vector<Frame>> m_recs;                    // loaded recordings by number
@@ -121,6 +123,7 @@ private:
     CutState m_cut;
     int m_cutObjects = 0, m_cutSec = -1;
     int m_beatTrack = -1;               // PRELOAD_BEAT_TRACK
+    bool m_randomTrainsOff = false;      // SWITCH_RANDOM_TRAINS off
     std::string m_cutKey;
     float m_fadeFrom = 0, m_fadeTo = 0, m_fadeT = 0, m_fadeDur = 0;
     bool m_fading = false;

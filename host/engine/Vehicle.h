@@ -259,6 +259,7 @@ struct VehicleInstance {
     float doomV = 0.0f, doomH = 0.05f;   // m_fDoomVerticalRotation / m_fDoomHorizontalRotation: turret yaw and pitch
     float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
     bool hasRot = false;              // a recorded playback owns the orientation: rot is right, forward, up (CMatrix)
+    bool derailed = false;            // a train carriage off its rails: an ordinary physical body (bIsDerailed)
     float rot[9] = {};
     float doorRatio[4] = {0, 0, 0, 0};   // CDoor::Open angle ratio per side door: 0 shut, 1 fully open
     // CDamageManager: door / bonnet / boot states (eDoors) and panel states (ePanels: wings lf rf lr rr,

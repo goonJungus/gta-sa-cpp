@@ -307,6 +307,7 @@ static D3DMATRIX g_lastView = {};
 static std::vector<RadarBlip> g_blips;  // CRadar::ms_RadarTrace
 static bool g_cutHideCj = false;   // CJ is hidden while a cutscene plays
 static ScriptGame g_sg;          // the mission script's game commands
+static Trains g_trains;          // CTrain: the track nodes and every train on them (random and mission)
 static int g_nextBlip = 1;       // the frame's view matrix (lock-on marker projection)      // aim camera zoom: tan(fov / 2) scale
 // CCamera::Find3rdPersonCamTargetVector: the ray from the camera through the crosshair.
 static void CrosshairRay(float yaw, float pitch, float out[3]) {
@@ -1566,7 +1567,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         s_scm.host.addMoney = [&](int n) { g_money += n; };
         s_scm.host.getTime = [&](int& h, int& m) { const int t = (int)(g_gameSeconds / 60.0f) % 1440; h = t / 60; m = t % 60; };
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
-        g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud;
+        g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud; g_sg.trains = &g_trains;
         g_sg.wantedLevel = [] { return g_wanted; }; g_sg.setWantedLevel = [](int w) { g_wanted = w; };
         g_sg.pickups = &g_pickups; g_sg.enex = &g_enex;
         g_sg.getArea = [] { return g_world.Area(); };
@@ -1694,6 +1695,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     if (playMode) {
         Log("PLAY MODE: data-driven world (gta.dat IDE + text/binary IPLs + real COL)");
         worldReady = g_world.Init(img, g_renderer, GameDir());
+        if (worldReady && !g_trains.Load(GameDir())) Log("TRAINS: no track files");   // CTrain::InitTrains
         Log("WORLD INIT: %s (loaded %zu models dedup, %zu solid boxes)",
             worldReady ? "OK" : "FAIL", g_world.LoadedModelCount(), g_world.SolidBoxCount());
         if (worldReady) {
@@ -3867,6 +3869,28 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (getenv("GTA_CARDBG") && frame % 100 == 0) Log("CARGEN parked %d cars %zu", g_carGens.ParkedCars(), g_vehicles.Count());
             }
             if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
+            if (worldReady && g_vehicles.Ready() && g_trains.Loaded()) {   // CTrain::UpdateTrains
+                static uint32_t s_prevTrainMs = 0;
+                Trains::Frame tf;
+                tf.nowMs = (uint32_t)g_bulletMs; tf.prevMs = s_prevTrainMs; s_prevTrainMs = tf.nowMs;
+                tf.cam[0] = camPosX; tf.cam[1] = camPosY; tf.cam[2] = camPosZ;
+                tf.player[0] = playerX; tf.player[1] = playerY; tf.player[2] = playerZ;
+                tf.playerCar = g_driveCar >= 0 && g_trains.CarriageOfCar(g_driveCar) >= 0 ? g_driveCar : -1;
+                if (tf.playerCar >= 0 && !g_menu.IsOpen()) {
+                    tf.accel = (RawGameKey('W') & 0x8000) ? 1.0f : 0.0f;
+                    tf.brake = (RawGameKey('S') & 0x8000) ? 1.0f : 0.0f;
+                }
+                tf.randomTrains = !g_sg.RandomTrainsOff() && !getenv("GTA_NOTRAINS");   // dev: GTA_NOTRAINS
+                const int ev = g_trains.Update(g_vehicles, g_renderer, dt, tf);
+                if (ev & Trains::kShake) g_shakeQ.push_back({0.1f / 0.35f, 0.0f});   // CamShake(0.1) at the train
+                if (ev & Trains::kDerailed) Log("TRAIN: derailed");
+                if (getenv("GTA_CARDBG") && frame % 50 == 0)
+                    for (const TrainCarriage& tc : g_trains.Cars())
+                        if (!tc.removed && tc.engine)
+                            Log("TRAIN f%d car %d track %d rail %.1f speed %.3f cruise %.0f %s%s%s at %.1f %.1f %.1f", frame, tc.car, tc.track, tc.rail, tc.speed, tc.cruise,
+                                tc.mission ? "mission" : "random", tc.stopped ? " stopped" : "", tc.derailed ? " derailed" : "",
+                                g_vehicles.Car((size_t)tc.car).x, g_vehicles.Car((size_t)tc.car).y, g_vehicles.Car((size_t)tc.car).z);
+            }
             if (g_vehicles.Ready()) {
                 g_vehicles.CarCarCollisions(dt);
                 g_vehicles.ProcessDoors(dt);
@@ -3938,10 +3962,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 s_prevF = fDown;
                 if (fJust && g_driveCar < 0 && g_vehTransCar < 0 && g_vehGoToCar < 0) {
                     const int n = g_vehicles.Nearest(playerX, playerY, 6.5f);
-                    if (n >= 0 && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) {
+                    const int tm = n >= 0 && g_trains.CarriageOfCar(n) >= 0 ? g_vehicles.Car((size_t)n).model : 0;
+                    const bool trainCab = tm == 537 || tm == 538 || tm == 449;   // the freight and streak engines and the tram have a cab
+                    if (n >= 0 && (tm == 0 || trainCab) && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) {
                         float sp[3]; bool low = false;
                         const bool ok = cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low);
-                        if (cjReady && ok && BikeKind(n) == 0 && !g_vehicles.UsesBoatPhysics(g_vehicles.Car((size_t)n).model)) {   // cars: walk to the nearer front door, then get in
+                        if (cjReady && ok && BikeKind(n) == 0 && !g_vehicles.UsesBoatPhysics(g_vehicles.Car((size_t)n).model) && !trainCab) {   // cars: walk to the nearer front door, then get in
                             const VehicleInstance& vc = g_vehicles.Car((size_t)n);
                             const float lx = (playerX - vc.x) * std::cos(vc.heading) + (playerY - vc.y) * std::sin(vc.heading);
                             g_vehGoToCar = n; g_vehGoToTime = 0.0f;
@@ -3957,8 +3983,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 } else if (fJust && g_driveCar >= 0 && g_vehTransCar < 0 && g_vehGoToCar < 0) {
                     const int n = g_driveCar;
                     VehicleInstance& c = g_vehicles.Car((size_t)n);
-                    if (BikeKind(n) != 0 || g_vehicles.UsesBoatPhysics(c.model)) {   // bikes and boats: off at once
-                        playerX = c.x + std::cos(c.heading) * 2.4f; playerY = c.y + std::sin(c.heading) * 2.4f;
+                    const bool train = g_trains.CarriageOfCar(n) >= 0;
+                    if (BikeKind(n) != 0 || g_vehicles.UsesBoatPhysics(c.model) || train) {   // bikes, boats and trains: off at once
+                        const float side = train ? 3.2f : 2.4f;   // clear of a carriage's flank
+                        playerX = c.x + std::cos(c.heading) * side; playerY = c.y + std::sin(c.heading) * side;
                         playerZ = c.z + EYE_HEIGHT; velZ = 0.0f; onGround = true; c.speed = 0.0f;
                         g_driveCar = -1;
                         if (cjReady) g_cj.LeaveVehicle();
@@ -4137,7 +4165,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     static bool s_prevGear = false;   // the pad's R3 (2): a plane's landing gear
                     const bool gearDown = (RawGameKey('2') & 0x8000) != 0, gearJust = gearDown && !s_prevGear;
                     s_prevGear = gearDown;
-                    if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust)))
+                    const bool onRails = g_trains.CarriageOfCar(g_driveCar) >= 0 && !g_vehicles.Car((size_t)g_driveCar).derailed;   // UpdateTrains drives it
+                    if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
                                         [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
                                         [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });
