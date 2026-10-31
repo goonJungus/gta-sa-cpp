@@ -3867,7 +3867,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 playerX = wc.x + 2.5f; playerY = wc.y; playerZ = wc.z + EYE_HEIGHT; velZ = 3.0f; onGround = false;
                 g_driveCar = -1; g_audio.EngineStop(); g_radio.Tune(-1);
                 if (cjReady) g_cj.LeaveVehicle();
-                g_cj.Hurt(60.0f);
+                g_cj.Hurt(1000.0f);   // BlowUpCar: KillPedsInVehicle
             }
             // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
             {

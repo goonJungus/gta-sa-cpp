@@ -468,7 +468,10 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             }
     }
     for (size_t i = 0; i < w.frames.size(); i++)
-        if (w.frames[i].name == "ped_frontseat") {   // the dummy sits on the passenger side; the driver mirrors it
+        if (w.frames[i].name == "engine") {
+            vm.engineFound = true;
+            vm.enginePos[0] = glob[i][12]; vm.enginePos[1] = glob[i][13]; vm.enginePos[2] = glob[i][14];
+        } else if (w.frames[i].name == "ped_frontseat") {   // the dummy sits on the passenger side; the driver mirrors it
             vm.seatFound = true;
             vm.seatPos[0] = -std::fabs(glob[i][12]); vm.seatPos[1] = glob[i][13]; vm.seatPos[2] = glob[i][14];
         } else {
@@ -812,9 +815,9 @@ bool Vehicles::Damage(int car, float damage) {
     if (car < 0 || (size_t)car >= m_cars.size()) return false;
     VehicleInstance& c = m_cars[(size_t)car];
     if (c.wrecked || c.health <= 0.0f) return false;
-    c.health -= damage;
-    if (c.health <= 0.0f) { c.health = 0.0f; return true; }
-    return false;
+    const bool wasBurning = c.health < 250.0f;
+    c.health = std::max(0.0f, c.health - damage);
+    return !wasBurning && c.health < 250.0f;
 }
 
 void Vehicles::UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire,
@@ -826,22 +829,34 @@ void Vehicles::UpdateDamage(float dt, const std::function<void(const float*, flo
             if (std::fmod(c.burnTime += dt, 0.12f) < dt) onSmoke(p, 1.0f);
             continue;
         }
-        const float p[3] = {c.x - std::sin(c.heading) * 1.4f, c.y + std::cos(c.heading) * 1.4f, c.z + 0.6f};   // the bonnet
-        if (c.health <= 0.0f) {
+        // The engine dummy (else a point over the front axle) in the world.
+        float p[3];
+        {
+            auto mi = m_models.find(c.model);
+            const float l[3] = {0.0f, mi != m_models.end() && mi->second.engineFound ? mi->second.enginePos[1] : 1.4f,
+                                mi != m_models.end() && mi->second.engineFound ? mi->second.enginePos[2] + 0.3f : 0.6f};
+            if (c.phys.active || c.hasRot) for (int k = 0; k < 3; k++) p[k] = (k == 0 ? c.x : k == 1 ? c.y : c.z) + c.rot[3 + k] * l[1] + c.rot[6 + k] * l[2];
+            else { p[0] = c.x - std::sin(c.heading) * l[1]; p[1] = c.y + std::cos(c.heading) * l[1]; p[2] = c.z + l[2]; }
+        }
+        if (c.health < 250.0f) {   // CAutomobile::ProcessCarOnFireAndExplode: the engine burns and the car blows up 5 s later
             c.burnTime += dt;
             onFire(p);
-            onSmoke(p, 0.9f);
-            c.vx *= 1.0f - std::min(1.0f, 2.0f * dt); c.vy *= 1.0f - std::min(1.0f, 2.0f * dt);
-            if (c.burnTime > 5.0f) {
-                c.wrecked = true; c.burnTime = 0.0f;
+            if (std::fmod(c.burnTime, 0.1f) < dt) onSmoke(p, 0.9f);
+            if (c.burnTime > 5.0f) {   // BlowUpCar
+                c.wrecked = true; c.burnTime = 0.0f; c.health = 0.0f;
                 for (int k = 0; k < 4; k++) c.paint[k] = 0;   // burnt black
                 c.speed = 0.0f; c.vx = c.vy = 0.0f;
+                c.siren = false; c.engineOn = false;
                 BlowUp((size_t)(&c - m_cars.data()));
                 onExplode(p);
             }
-        } else if (c.health < 250.0f) {
-            c.burnTime += dt;
-            if (std::fmod(c.burnTime, 0.15f) < dt) onSmoke(p, 0.3f + 0.5f * (1.0f - c.health / 250.0f));
+        } else {
+            c.burnTime = 0.0f;
+            // CVehicle::AddDamagedVehicleParticles: the overheat smoke from 650 down, thicker towards 250.
+            if (c.health < 650.0f) {
+                c.smokeTime += dt;
+                if (std::fmod(c.smokeTime, 0.15f) < dt) onSmoke(p, 0.3f + 0.5f * (1.0f - (c.health - 250.0f) / 400.0f));
+            }
         }
     }
 }

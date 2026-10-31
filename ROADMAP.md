@@ -110,7 +110,7 @@ Source: CVehicle, CAutomobile, CBike, CBmx, CBoat, CPlane, CHeli, CTrain, CTrail
 - [ ] Car alarms, stealing and hotwiring, thieves, locked doors, drive-away, driver reactions (w 2)
 - [ ] Car recording playback (CVehicleRecording, scripted paths) (w 1)
 - [ ] Vehicle weapons: rhino cannon, hunter rockets, hydra missiles, fire truck cannon, police tazer-less (w 1)
-- [ ] Vehicle fire, explosion chain, wreck, petrol tank rules, burn out (w 1)
+- [~] Vehicle fire, explosion chain, wreck, petrol tank rules, burn out; done: CAutomobile::ProcessCarOnFireAndExplode (under 250 health the engine burns at the engine dummy and BlowUpCar follows 5 s later, still drivable meanwhile), AddDamagedVehicleParticles overheat smoke 650..250, BlowUpCar kills whoever is inside, burnt shell smokes; left: the engine damage status drain, plane / heli burn rules, the explosion setting neighbours alight (w 1)
 
 ## Gap list: world, AI and population
 Source: CPathFind, CCarCtrl, CPopulation, CPopCycle, CWanted, CGangWars, CGarage, CPickups, CWeather, CShadows, CReplay and Fx_c.

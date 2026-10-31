@@ -93,6 +93,8 @@ struct VehicleModel {
     // headlights, taillights, headlights2, taillights2 dummies (CVehicleModelInfo m_avDummyPos 0..3), right side
     float lightPos[4][3] = {};
     bool lightFound[4] = {false, false, false, false};
+    float enginePos[3] = {0, 0, 0};   // the engine dummy: where the fire and overheat smoke come from
+    bool engineFound = false;
     // The misc_a, misc_b and misc_c frames (eCarNodes CAR_MISC_A..C): tank turret, barrel and muzzle, fire truck nozzle.
     struct Node { bool found = false; int parent = -1; float local[16] = {}; float base[16] = {}; };
     Node nodes[3];
@@ -171,7 +173,8 @@ struct VehicleInstance {
     float speed = 0.0f;               // m/s along the heading, negative in reverse
     float steer = 0.0f;               // current front wheel angle, radians
     float health = 1000.0f;           // below 250 it smokes, at 0 it burns and blows up
-    float burnTime = 0.0f;
+    float burnTime = 0.0f;            // m_fBurnTimer: seconds the engine has been on fire (below 250 health)
+    float smokeTime = 0.0f;
     bool wrecked = false;
     bool removed = false;             // deleted by the script: not drawn, shot or entered
     float doomV = 0.0f, doomH = 0.05f;   // m_fDoomVerticalRotation / m_fDoomHorizontalRotation: turret yaw and pitch
@@ -265,7 +268,7 @@ public:
     int Trace(const float* eye, const float* dir, float reach, float* t, int* tyre = nullptr) const;
     // CAutomobile::BurstTyre: an intact tyre goes flat (and the car is jolted). False if it already was.
     bool BurstTyre(size_t i, int wheel);
-    // Damage a car; returns true when this shot started the burn. Burning cars blow up after a few seconds (true in *exploded).
+    // Damage a car; returns true when this hit set the engine on fire (health under 250). Burning cars blow up 5 s later.
     bool Damage(int car, float damage);
     // Advance fire and smoke; calls onSmoke(pos, dark), onFire(pos) and onExplode(pos).
     void UpdateDamage(float dt, const std::function<void(const float*, float)>& onSmoke, const std::function<void(const float*)>& onFire, const std::function<void(const float*)>& onExplode);
