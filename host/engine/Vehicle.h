@@ -145,8 +145,8 @@ struct VehicleModel {
     // bike frames 0..7, then a boat's rudder, rear flaps and propellers (8..14; a plane's propellers are 11..14 too),
     // a helicopter's rotors: 15 static_rotor, 16 moving_rotor, 17 static_rotor2, 18 moving_rotor2 (eHeliNodes 12..15),
     // and a plane's control surfaces: 19 rudder, 20 elevator_l, 21 elevator_r, 22 aileron_l, 23 aileron_r,
-    // 24 gear_l, 25 gear_r (ePlaneNodes 16..22)
-    static constexpr int kMoveNodes = 28;
+    // 24 gear_l, 25 gear_r (ePlaneNodes 16..22), 26 / 27 the Hydra's nozzles, 28 misc_a, 29 misc_b (PLANE_MISC_A / B)
+    static constexpr int kMoveNodes = 30;
     BikeNode bikeNodes[kMoveNodes];
     bool isBike = false, isBoat = false, isHeli = false, isPlane = false, isTrailer = false;
     float hookup[3] = {0, 0, 0};      // the hookup dummy (DUMMY_TRAILER_ATTACH): where a trailer hangs on its tractor

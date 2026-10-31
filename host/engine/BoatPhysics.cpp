@@ -136,7 +136,8 @@ void Vehicles::BoatFrameMatrices(const VehicleInstance& c, const VehicleModel& v
     const CarPhys& p = c.phys;
     for (int k = 0; k < VehicleModel::kMoveNodes; k++) {
         const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
-        if (k < 8 || k > 14 || !bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
+        if (!bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
+        if (k < 8 || k > 14) { Mul4(bn.local, bn.parent >= 0 ? nodes[bn.parent] : bn.base, nodes[k]); continue; }   // as modelled
         float m[16], r[16];
         std::memcpy(m, bn.local, sizeof(m));
         const float spin = k == 11 ? p.propAngle * 2.0f : k == 13 ? p.propAngle * -2.0f : k == 12 ? -p.propAngle : p.propAngle;

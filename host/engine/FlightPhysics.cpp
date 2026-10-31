@@ -230,7 +230,8 @@ void Vehicles::HeliRotors(VehicleInstance& c, float ts) {
 void Vehicles::HeliFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const {
     for (int k = 0; k < VehicleModel::kMoveNodes; k++) {
         const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
-        if (k < 15 || !bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
+        if (!bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
+        if (k < 15 || k > 18) { Mul4(bn.local, bn.parent >= 0 ? nodes[bn.parent] : bn.base, nodes[k]); continue; }   // as modelled
         float m[16];
         if (k <= 16) RotZ(c.phys.rotorZ, m);
         else RotX(c.phys.rotor2Z, m);
@@ -364,14 +365,35 @@ void Vehicles::PlaneFlyingCarStuff(VehicleInstance& c, const VehicleModel& vm, c
 // the elevators the stick's pitch and the ailerons its roll. The hinges turn about the frame's own axes.
 void Vehicles::PlaneFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const {
     const CarPhys& p = c.phys;
+    // CPlane::PreRender: the gear legs fold by |m_fLandingGearStatus| x the model's angle: gear_l / gear_r about one
+    // axis, misc_a / misc_b about X (the Rustler, Shamal, Hydra, Nevada, AT-400, Andromada; gaps: none)
+    int gearAxis = -1;   // 0 X, 1 Y
+    float gearL = 0.0f, gearR = 0.0f, miscA = 0.0f, miscB = 0.0f;
+    switch (c.model) {
+    case 476: gearAxis = 1; gearL = -1.4835299f; gearR = 1.4835299f; break;                                         // Rustler
+    case 519: case 577: gearAxis = 1; gearL = -1.4835299f; gearR = 1.4835299f; miscA = 2.268928f; break;            // Shamal, AT-400
+    case 520: gearAxis = 0; gearL = gearR = -1.5707964f; miscA = -1.3962635f; miscB = 2.268928f; break;            // Hydra
+    case 553: gearAxis = 0; gearL = gearR = 1.3089969f; break;                                                      // Nevada
+    case 592: gearAxis = 0; gearL = gearR = 2.268928f; miscA = -2.268928f; break;                                   // Andromada
+    default: break;
+    }
+    const float fold = std::fabs(p.gearStatus);
     for (int k = 0; k < VehicleModel::kMoveNodes; k++) {
         const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
-        const bool moves = (k >= 11 && k <= 14) || (k >= 19 && k <= 23) || (c.model == 520 && k >= 26);
+        const bool gearMoves = gearAxis >= 0 && (k == 24 || k == 25 || (k == 28 && miscA != 0.0f) || (k == 29 && miscB > 0.0f));
+        const bool moves = (k >= 11 && k <= 14) || (k >= 19 && k <= 23) || (c.model == 520 && (k == 26 || k == 27)) || gearMoves;
         if (!bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
         if (!moves) { Mul4(bn.local, bn.parent >= 0 ? nodes[bn.parent] : bn.base, nodes[k]); continue; }   // as modelled
         float m[16];
         switch (k) {
         case 26: case 27: RotX((float)c.hoist * 1.5707964f / 5000.0f, m); break;   // CPlane::PreRender: the Hydra's nozzles
+        case 24: case 25: {
+            const float a = fold * (k == 24 ? gearL : gearR);
+            if (gearAxis == 0) RotX(a, m); else RotY(a, m);
+            break;
+        }
+        case 28: RotX(fold * miscA, m); break;
+        case 29: RotX(fold * miscB, m); break;
         case 11: case 12: RotY(2.0f * p.propAngle, m); break;
         case 13: case 14: RotY(-2.0f * p.propAngle, m); break;
         case 19: RotZ(p.flySkid * 0.6981317f, m); break;

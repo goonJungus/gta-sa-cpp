@@ -641,7 +641,8 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
                                             "boat_rudder", "boat_rearflap_left", "boat_rearflap_right", "static_prop", "moving_prop", "static_prop2", "moving_prop2",
                                             "static_rotor", "moving_rotor", "static_rotor2", "moving_rotor2",
                                             "rudder", "elevator_l", "elevator_r", "aileron_l", "aileron_r", "gear_l", "gear_r",
-                                            "wheel_rm_dummy", "wheel_lm_dummy"};   // the Hydra's nozzles (PLANE_WHEEL_RM / LM)
+                                            "wheel_rm_dummy", "wheel_lm_dummy",   // the Hydra's nozzles (PLANE_WHEEL_RM / LM)
+                                            "misc_a", "misc_b"};
         for (size_t i = 0; i < w.frames.size(); i++)
             for (int k = 0; k < kN; k++)
                 if (w.frames[i].name == kBikeNode[k]) { vm.bikeNodes[k].found = true; vm.bikeNodes[k].frame = (int)i; }
