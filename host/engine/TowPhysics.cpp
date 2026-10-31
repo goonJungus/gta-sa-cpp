@@ -50,6 +50,14 @@ bool Vehicles::IsTrailer(int model) const {
     return t == "trailer";
 }
 
+bool Vehicles::IsAircraft(int model) const {
+    const VehicleInfo* info = Info(model);
+    if (!info) return false;
+    std::string t = info->type;
+    for (char& ch : t) ch = (char)std::tolower((unsigned char)ch);
+    return t == "plane" || t == "heli";
+}
+
 bool Vehicles::TowHitchPos(size_t i, bool check, int other, float out[3]) {
     const VehicleInstance& c = m_cars[i];
     VehicleModel* vm = nullptr;

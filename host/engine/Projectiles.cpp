@@ -7,7 +7,8 @@
 #include <cmath>
 
 namespace {
-constexpr int kGrenade = 16, kTearGas = 17, kMolotov = 18, kSatchel = 39, kRocket = 19, kRocketHS = 20;
+constexpr int kGrenade = 16, kTearGas = 17, kMolotov = 18, kSatchel = 39, kRocket = 19, kRocketHS = 20, kFlare = 58;
+constexpr float kFlareLifeMs = 10000.0f;
 constexpr float kGravity = 20.0f;        // m/s^2 (0.008 per timestep at 50 steps/s squared)
 constexpr float kRadius = 0.1f;          // resting height of the model above the ground
 constexpr float kGrenadeFuseMs = 2000.0f;
@@ -16,15 +17,30 @@ constexpr float kGasStartMs = 20000.0f - 17500.0f;   // 0x445c before the end th
 constexpr float kExplosionRadius = 9.0f;   // grenade and satchel
 constexpr float kMolotovRadius = 6.0f;
 constexpr float kGasRadius = 6.0f;
+float Dot3(const float a[3], const float b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+// CWeapon::EvaluateTargetForHeatSeekingMissile: lower is better, -1 outside the 1.2 cone
+float EvaluateTarget(const float tp[3], const float o[3], const float dir[3]) {
+    const float d[3] = {o[0] - tp[0], o[1] - tp[1], o[2] - tp[2]};
+    const float dist = std::sqrt(Dot3(d, d));
+    const float ab[3] = {dir[0] * 250.0f, dir[1] * 250.0f, dir[2] * 250.0f}, ap[3] = {tp[0] - o[0], tp[1] - o[1], tp[2] - o[2]};
+    const float t = Dot3(ap, ab), l2 = Dot3(ab, ab);
+    float line;
+    if (t <= 0.0f) line = std::sqrt(Dot3(ap, ap));
+    else if (t >= l2) { const float bp[3] = {ap[0] - ab[0], ap[1] - ab[1], ap[2] - ab[2]}; line = std::sqrt(Dot3(bp, bp)); }
+    else line = std::sqrt(std::max(0.0f, Dot3(ap, ap) - t * t / l2));
+    if (line * 1.2f >= dist) return -1.0f;
+    return std::sqrt(dist) / 10.0f + line / std::max(1e-4f, dist);
+}
 }  // namespace
 
-void Projectiles::Add(int gun, int type, const float pos[3], const float vel[3], bool fell) {
+void Projectiles::Add(int gun, int type, const float pos[3], const float vel[3], bool fell, int target) {
     P p;
     p.gun = gun;
     p.type = type;
+    p.target = target;
     for (int i = 0; i < 3; i++) { p.pos[i] = pos[i]; p.vel[i] = vel[i]; }
     p.homing = type == kRocketHS;
-    p.elasticity = type == kSatchel ? 0.03f : 0.5f;   // AddProjectile: the object's bounce
+    p.elasticity = type == kSatchel || type == kFlare ? 0.03f : 0.5f;   // AddProjectile: the object's bounce
     if (type == kTearGas || type == kMolotov) p.elasticity = 0.75f;
     if (fell && type != kGrenade && type != kSatchel) {   // CWeapon::FireProjectile: RemoveNotAdd, the effect at the origin
         P q = p;
@@ -52,17 +68,42 @@ void Projectiles::Update(float dt, const Env& env, std::vector<Event>& out) {
 
         if (p.type == kRocket || p.type == kRocketHS) {   // CProjectileInfo::Update: no gravity, +0.008 per step^2 along the nose, capped at 9.9 per step
             float sp = std::sqrt(p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1] + p.vel[2] * p.vel[2]);
-            if (p.homing && env.seekTarget) {
-                float tp[3];
-                if (env.seekTarget(p.pos, p.vel, tp) && sp > 1e-3f) {
-                    float d[3] = {tp[0] - p.pos[0], tp[1] - p.pos[1], tp[2] - p.pos[2]};
-                    const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-                    if (dl > 1e-3f) {   // turn the nose a little towards the target each step
-                        const float k = std::min(1.0f, 3.0f * dt);
-                        for (int i = 0; i < 3; i++) p.vel[i] += (d[i] / dl * sp - p.vel[i]) * k;
-                        const float nl = std::sqrt(p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1] + p.vel[2] * p.vel[2]);
-                        for (int i = 0; i < 3; i++) p.vel[i] *= sp / std::max(1e-4f, nl);
+            float tp[3], tvel[3] = {0, 0, 0};
+            bool aim = false;
+            if (p.homing && p.target >= 0 && sp > 1e-3f) {   // fired from a vehicle at a locked car
+                if (env.targetOf && env.targetOf(p.target, tp, tvel)) {
+                    // the flare rated highest inside the cone draws it off when it rates above the victim
+                    const float f[3] = {p.vel[0] / sp, p.vel[1] / sp, p.vel[2] / sp};
+                    const float o[3] = {p.pos[0] + f[0], p.pos[1] + f[1], p.pos[2] + f[2]};
+                    const float victim = EvaluateTarget(tp, o, f);
+                    float best = 0.0f;
+                    const P* flare = nullptr;
+                    for (const P& q : m_list) {
+                        if (q.type != kFlare) continue;
+                        const float r = EvaluateTarget(q.pos, o, f);
+                        if (best <= r) { best = r; flare = &q; }
                     }
+                    if (flare && best > victim) { for (int k = 0; k < 3; k++) { tp[k] = flare->pos[k]; tvel[k] = flare->vel[k]; } }
+                    // aim where it will be: the target's speed per step times the distance (capped at 50)
+                    const float d[3] = {tp[0] - p.pos[0], tp[1] - p.pos[1], tp[2] - p.pos[2]};
+                    const float lead = std::min(50.0f, std::sqrt(Dot3(d, d)));
+                    for (int k = 0; k < 3; k++) tp[k] += tvel[k] / 50.0f * lead;
+                    aim = true;
+                } else {
+                    p.target = -1;
+                    p.homing = false;   // the victim is gone: it flies on straight
+                }
+            } else if (p.homing && env.seekTarget && sp > 1e-3f) {
+                aim = env.seekTarget(p.pos, p.vel, tp);
+            }
+            if (aim) {
+                float d[3] = {tp[0] - p.pos[0], tp[1] - p.pos[1], tp[2] - p.pos[2]};
+                const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                if (dl > 1e-3f) {   // turn the nose a little towards the target each step
+                    const float k = std::min(1.0f, 3.0f * dt);
+                    for (int i = 0; i < 3; i++) p.vel[i] += (d[i] / dl * sp - p.vel[i]) * k;
+                    const float nl = std::sqrt(p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1] + p.vel[2] * p.vel[2]);
+                    for (int i = 0; i < 3; i++) p.vel[i] *= sp / std::max(1e-4f, nl);
                 }
             }
             if (sp > 1e-3f) {
@@ -121,6 +162,10 @@ void Projectiles::Update(float dt, const Env& env, std::vector<Event>& out) {
         }
 
         switch (p.type) {
+        case kFlare:   // burns ten seconds where it lies
+            if (p.ageMs >= kFlareLifeMs) { m_list.erase(m_list.begin() + (long)i); continue; }
+            out.push_back({Kind::Trail, {p.pos[0], p.pos[1], p.pos[2]}, 0.0f, 2});
+            break;
         case kGrenade:
             boom = p.ageMs >= kGrenadeFuseMs;
             break;

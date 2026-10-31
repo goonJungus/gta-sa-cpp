@@ -276,6 +276,15 @@ struct VehicleInstance {
     bool wrecked = false;
     bool removed = false;             // deleted by the script: not drawn, shot or entered
     float doomV = 0.0f, doomH = 0.05f;   // m_fDoomVerticalRotation / m_fDoomHorizontalRotation: turret yaw and pitch
+    // CVehicle::ProcessWeapons state of a plane or helicopter: m_nVehicleWeaponInUse (eCarWeapon), the firing
+    // times of the guns, the two ordnance types and the Hydra's flares, m_nGunsCycleIndex, the missile side
+    // flip, and the Hydra lock-on (start time, target car).
+    struct AirGuns {
+        int weapon = 0;
+        uint32_t gunMs = 0, ordMs[2] = {0, 0}, flareMs = 0, lockMs = 0;
+        int cycle = 0, lockTarget = -1;
+        bool mirror = false;
+    } air;
     float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
     bool hasRot = false;              // a recorded playback owns the orientation: rot is right, forward, up (CMatrix)
     bool derailed = false;            // a train carriage off its rails: an ordinary physical body (bIsDerailed)
@@ -384,6 +393,7 @@ public:
     bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd = 0.0f,
                     float skid = 0.0f, bool gear = false, float gunUpDown = 0.0f);
     bool IsTrailer(int model) const;          // CTrailer (vehicles.ide type trailer)
+    bool IsAircraft(int model) const;         // VEHICLE_TYPE_PLANE or VEHICLE_TYPE_HELI
     // CTrailer::SetTowLink(cab, true): the trailer is put on the cab's tow bar (ATTACH_TRAILER_TO_CAB).
     bool AttachTrailer(size_t trailer, size_t cab);
     void DetachTrailer(size_t trailer) { BreakTowLink(trailer); }

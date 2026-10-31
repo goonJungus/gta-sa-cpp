@@ -865,7 +865,7 @@ void Hud::DrawLockOn(Fe2d& g, const HudData& d, float sh) {
     if (!m_lockGrow) { m_lockPulse -= 2.0f * frames; if (m_lockPulse < 0.0f) m_lockGrow = true; }
     else { m_lockPulse += size * 2.0f * frames; if (m_lockPulse > size * 20.0f) m_lockGrow = false; }
     const float h = std::clamp(d.lockHealth, 0.0f, 1.0f);
-    const uint32_t col = 0xFF000000u | ((uint32_t)((1.0f - h) * 255.0f) << 16) | ((uint32_t)(h * 255.0f) << 8);
+    const uint32_t col = d.lockRgb ? 0xFF000000u | d.lockRgb : 0xFF000000u | ((uint32_t)((1.0f - h) * 255.0f) << 16) | ((uint32_t)(h * 255.0f) << 8);
     const float pulse = std::max(0.0f, m_lockPulse);
     for (int i = 0; i < 3; i++) {
         const float a = (float)i * 120.0f * 0.0174533f + m_lockRot;

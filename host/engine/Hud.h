@@ -84,7 +84,8 @@ struct HudData {
     bool lockOn = false;                   // a locked-on target: CWeaponEffects marker instead of the crosshair
     float lockX = 0, lockY = 0;            // its screen position, pixels
     float lockSize = 1.0f;                 // 1 - distance * 0.02
-    float lockHealth = 1.0f;               // 0..1: red .. green   // crosshair, fraction of the screen (CCamera::m_f3rdPersonCHairMultX / Y)
+    float lockHealth = 1.0f;               // 0..1: red .. green
+    uint32_t lockRgb = 0;                  // a fixed marker colour (the Hydra's missile lock), 0: by health   // crosshair, fraction of the screen (CCamera::m_f3rdPersonCHairMultX / Y)
     float spread = 0.0f;           // 0..1 crosshair widening (moving, firing)
     bool firstPerson = false;
     // Radar and map

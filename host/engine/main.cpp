@@ -146,7 +146,7 @@ static bool g_keyState[256] = { false };
 static volatile bool g_hasFocus = true;
 // Dev (headless tests): GTA_KEYS="from-to:KEYS;..." holds keys over frame
 // ranges, e.g. "0-120:W;120-200:WA;200-260:W+;260:_" (+ = Shift, ^ = Alt,
-// _ = Space, # = F4, % = Ctrl, other letters = their key).
+// _ = Space, # = F4, % = Ctrl, $ = left Ctrl, other letters = their key).
 static int g_scriptFrame = 0;
 static const bool g_scriptedRun = getenv("GTA_KEYS") != nullptr;   // GTA_KEYS drives the run alone
 static bool ScriptedKey(int vk) {
@@ -161,7 +161,7 @@ static bool ScriptedKey(int vk) {
         while (*p && *p != ';') p++;
         if (g_scriptFrame >= a && g_scriptFrame <= b)
             for (const char* k = keys; k < p; k++) {
-                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '`' ? VK_OEM_3 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON : *k == '%' ? VK_CONTROL
+                const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '`' ? VK_OEM_3 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON : *k == '%' ? VK_CONTROL : *k == '$' ? VK_LCONTROL
                                : *k == '>' ? VK_UP : *k == '<' ? VK_DOWN : *k == '{' ? VK_NUMPAD8 : *k == '}' ? VK_NUMPAD2 : *k == '[' ? VK_NUMPAD4 : *k == ']' ? VK_NUMPAD6
                                : toupper((unsigned char)*k);
                 if (want == vk) return true;
@@ -304,6 +304,8 @@ static float g_camFovScale = 1.0f;
 static int g_stealthPed = -1;            // the ped a knife takedown would hit
 static int g_lockPed = -1;              // locked-on pedestrian (CPlayerPed::m_pTargetedObject), -1 none
 static float g_lockPos[3] = {0, 0, 0};  // its aim point
+static int g_airMark = -1;              // the car the Hydra's crosshair marks (CWeaponEffects::MarkTarget), -1 none
+static bool g_airLocked = false;        // ... and the lock has held long enough to fire a heat seeker
 static D3DMATRIX g_lastView = {};
 static std::vector<RadarBlip> g_blips;  // CRadar::ms_RadarTrace
 static bool g_cutHideCj = false;   // CJ is hidden while a cutscene plays
@@ -2538,6 +2540,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const int ti = g_vehicles.Spawn(g_renderer, atoi(devPlus + 1), cab.x, cab.y - 8.0f, cab.z, cab.heading);
                     if (ti >= 0 && g_vehicles.AttachTrailer((size_t)ti, (size_t)g_driveCar) && getenv("GTA_TRAILERSCAN")) g_vehicles.DetachTrailer((size_t)ti);
                     if (ti >= 0) Log("DEV: trailer %d at %.1f %.1f %.1f towed by %d", ti, g_vehicles.Car((size_t)ti).x, g_vehicles.Car((size_t)ti).y, g_vehicles.Car((size_t)ti).z, g_vehicles.Car((size_t)ti).towedBy);
+                } else if (const char* ahead = getenv("GTA_VEHAHEAD"); ahead && g_driveCar >= 0) {   // dev: "model:dist" spawns a target that far off the nose
+                    const VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar);
+                    const char* colon = std::strchr(ahead, ':');
+                    const float dist = colon ? (float)atof(colon + 1) : 40.0f;
+                    float m[16];
+                    g_vehicles.BodyMatrix((size_t)g_driveCar, m);
+                    const float sx = dc.x + m[4] * dist, sy = dc.y + m[5] * dist;
+                    const float gz = g_world.GetGroundHeight(sx, sy, dc.z + 5.0f);
+                    const int ti = g_vehicles.Spawn(g_renderer, atoi(ahead), sx, sy, gz < -500.0f ? dc.z : gz, dc.heading);
+                    Log("DEV: target %d model %d at %.1f %.1f %.1f", ti, atoi(ahead), sx, sy, gz);
                 } else {
                 const int id = s_devModel ? s_devModel : g_vehicles.IdAt(g_vehSpawnIdx++ % g_vehicles.ModelCount());
                 float fx = playerX - camPosX, fy = playerY - camPosY;   // away from the camera, along the view
@@ -4266,6 +4278,75 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (getenv("GTA_VEHGUNDBG") && frame % 15 == 0) Log("VEHGUN car %d model %d doomV %.3f doomH %.3f fire %d", g_driveCar, gc.model, gc.doomV, gc.doomH, (int)gunKey);
                         s_prevGun = gunKey;
                     }
+                    g_airMark = -1; g_airLocked = false;
+                    if (worldReady && !c.wrecked && g_vehicles.IsAircraft(c.model)) {   // CPlane / CHeli::ProcessControl -> CVehicle::ProcessWeapons
+                        static bool s_f1 = false, s_f2 = false, s_tg = false;
+                        const bool f1 = ((RawGameKey(VK_LBUTTON) | RawGameKey(VK_RCONTROL) | RawGameKey(VK_LMENU)) & 0x8000) != 0;   // VEHICLE_FIREWEAPON
+                        const bool f2 = ((RawGameKey(VK_LCONTROL) | RawGameKey(VK_NUMPAD0)) & 0x8000) != 0;                          // VEHICLE_FIREWEAPON_ALT
+                        const bool tg = (RawGameKey(VK_SPACE) & 0x8000) != 0;                                                       // GetTarget
+                        VehicleGuns::AirPad ap;
+                        ap.gunFired = f1 ? 1 : f2 ? 2 : 0;
+                        ap.gunJustDown = f1 && !s_f1 ? 1 : f2 && !s_f2 ? 2 : 0;
+                        ap.target = tg;
+                        ap.enterTargeting = tg && !s_tg;
+                        s_f1 = f1; s_f2 = f2; s_tg = tg;
+                        VehicleGuns::AirWorld aw;
+                        aw.clear = [](const float* a, const float* b) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2], nullptr, nullptr) >= 1.0f; };
+                        if (ap.gunFired) {   // DoDriveByAutoAiming candidates: peds, and the other cars
+                            for (size_t i = 0; g_peds.Ready() && i < g_peds.Count(); i++) aw.aimPoints.push_back({g_peds.X(i), g_peds.Y(i), g_peds.Z(i) + 1.0f});
+                            for (size_t i = 0; i < g_vehicles.Count(); i++) {
+                                const VehicleInstance& o = g_vehicles.Car(i);
+                                if ((int)i != g_driveCar && !o.removed) aw.aimPoints.push_back({o.x, o.y, o.z});
+                            }
+                        }
+                        VehicleGuns::AirFire af;
+                        VehicleGuns::ProcessAirWeapons(g_vehicles, (size_t)g_driveCar, ap, (uint32_t)g_bulletMs, dt, aw, af);
+                        g_airMark = af.markCar; g_airLocked = af.locked;
+                        for (const VehicleGuns::AirFire::Shot& s : af.shots) {   // CWeapon::FireInstantHit -> DoBulletImpact
+                            const WeaponInfo* wi = WeaponTable::Get(s.minigun ? "MINIGUN" : "M4", 1);
+                            const float dmg = wi ? (float)wi->damage : (s.minigun ? 140.0f : 30.0f);
+                            float d[3] = {s.end[0] - s.origin[0], s.end[1] - s.origin[1], s.end[2] - s.origin[2]};
+                            const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                            if (len < 1e-3f) continue;
+                            for (float& x : d) x /= len;
+                            float hnz = 0.0f;
+                            const float tw = g_world.RayCast(s.origin[0], s.origin[1], s.origin[2], s.end[0], s.end[1], s.end[2], nullptr, &hnz);
+                            float reach = len * std::min(1.0f, tw), pt = 0.0f;
+                            bool head = false;
+                            const int pi2 = g_peds.Ready() ? g_peds.Trace(s.origin, d, reach, &pt, &head) : -1;
+                            if (pi2 >= 0) reach = pt;
+                            int tyre = -1;
+                            float vt = 0.0f;
+                            int vi2 = g_vehicles.Trace(s.origin, d, reach, &vt, &tyre);
+                            if (vi2 == g_driveCar) vi2 = -1;
+                            float hit[3];
+                            const float at = vi2 >= 0 ? vt : reach;
+                            for (int k = 0; k < 3; k++) hit[k] = s.origin[k] + d[k] * at;
+                            if (vi2 >= 0) {
+                                if (tyre >= 0) g_vehicles.BurstTyre((size_t)vi2, tyre);
+                                else g_vehicles.Damage(vi2, dmg * 3.0f);
+                                g_fx.Impact(hit, 0.0f);
+                            } else if (pi2 >= 0) {
+                                g_peds.Shoot(pi2, dmg, head, false);
+                                g_fx.Blood(hit);
+                            } else if (tw < 1.0f) {
+                                g_fx.Impact(hit, hnz);
+                            }
+                            g_fx.Tracer(s.origin, hit);
+                            if (getenv("GTA_VEHGUNDBG")) Log("AIRGUN model %d from %.1f %.1f %.1f dir %.2f %.2f %.2f -> %s at %.1f", c.model, s.origin[0], s.origin[1], s.origin[2], d[0], d[1], d[2],
+                                                             vi2 >= 0 ? "car" : pi2 >= 0 ? "ped" : tw < 1.0f ? "world" : "none", at);
+                        }
+                        if (!af.shots.empty()) g_audio.Gun("M4", 0);   // AE_WEAPON_FIRE_PLANE: the M4 sound for both guns
+                        for (const VehicleGuns::AirFire::Missile& m : af.missiles) {
+                            g_proj.Add(g_cj.RocketModelIndex(), m.homing ? 20 : 19, m.pos, m.vel, false, m.target);
+                            Log("AIR MISSILE model %d %s target %d pos %.1f %.1f %.1f vel %.1f %.1f %.1f", c.model, m.homing ? "heat seeker" : "rocket", m.target, m.pos[0], m.pos[1], m.pos[2], m.vel[0], m.vel[1], m.vel[2]);
+                        }
+                        for (const auto& fl : af.flares) {
+                            g_proj.Add(-1, 58, fl.data(), fl.data() + 3, false);
+                            Log("AIR FLARE at %.1f %.1f %.1f", fl[0], fl[1], fl[2]);
+                        }
+                        if (getenv("GTA_VEHGUNDBG") && frame % 15 == 0) Log("AIRGUN car %d model %d weapon %d mark %d locked %d", g_driveCar, c.model, c.air.weapon, g_airMark, (int)g_airLocked);
+                    }
                     playerX = c.x; playerY = c.y; playerZ = c.z + EYE_HEIGHT + 0.7f;   // the camera rides above the roof
                     velZ = 0.0f; onGround = true; vx = vy = 0.0f;
                 }
@@ -4858,6 +4939,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         for (size_t i = 0; g_peds.Ready() && i < g_peds.Count(); i++) consider(g_peds.X(i), g_peds.Y(i), g_peds.Z(i) + 1.0f);
                         return found;
                     };
+                    env.targetOf = [](int car, float* pos, float* vel) {
+                        if (car < 0 || (size_t)car >= g_vehicles.Count()) return false;
+                        const VehicleInstance& t = g_vehicles.Car((size_t)car);
+                        if (t.removed) return false;
+                        pos[0] = t.x; pos[1] = t.y; pos[2] = t.z;
+                        vel[0] = t.vx; vel[1] = t.vy; vel[2] = t.phys.active ? t.phys.mv[2] * 50.0f : 0.0f;
+                        return true;
+                    };
                     std::vector<Projectiles::Event> pev;
                     if (worldReady) g_proj.Update(dt, env, pev);
                     // ---- CFireManager / CExplosion / CWorld::TriggerExplosion / SetPedsChoking ----
@@ -4975,7 +5064,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_expl.Add(e.sub == 1 ? ExplType::Rocket : ExplType::Grenade, e.pos, eh);
                         } else if (e.kind == Projectiles::Kind::Trail) {
                             static int s_trail = 0;
-                            if (++s_trail % 3 == 0) g_fx.Smoke(e.pos, 0.5f);
+                            if (++s_trail % 3 == 0) g_fx.Smoke(e.pos, e.sub == 2 ? 0.0f : 0.5f);   // a flare's smoke is pale
                         } else if (e.kind == Projectiles::Kind::Fire) {
                             Log("FIRE %.2f %.2f %.2f", e.pos[0], e.pos[1], e.pos[2]);
                             g_expl.Add(ExplType::Molotov, e.pos, eh);
@@ -5580,11 +5669,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             hd.crossX = g_chairX; hd.crossY = g_chairY;
             hd.crossRadius = g_cj.WeaponRadiusOnScreen();
             hd.lockOn = false;
-            if (g_lockPed >= 0 && (size_t)g_lockPed < g_peds.Count()) {   // project the target for the marker
+            hd.lockRgb = 0;
+            const bool airMark = g_driveCar >= 0 && g_airMark >= 0 && (size_t)g_airMark < g_vehicles.Count();
+            if ((g_lockPed >= 0 && (size_t)g_lockPed < g_peds.Count()) || airMark) {   // project the target for the marker
                 const D3DMATRIX proj = MatrixPerspectiveFov(g_fovDeg * 3.14159f / 180.0f, (float)WIDTH / (float)HEIGHT, 0.5f, 3000.0f);
                 const float* v = &g_lastView._11;
                 const float* pm = &proj._11;
-                const float pw[4] = {g_lockPos[0], g_lockPos[1], g_lockPos[2], 1.0f};
+                float lp[3] = {g_lockPos[0], g_lockPos[1], g_lockPos[2]};
+                if (airMark) { const VehicleInstance& t = g_vehicles.Car((size_t)g_airMark); lp[0] = t.x; lp[1] = t.y; lp[2] = t.z; }
+                const float pw[4] = {lp[0], lp[1], lp[2], 1.0f};
                 float vv[4] = {}, cc[4] = {};
                 for (int j = 0; j < 4; j++) for (int k = 0; k < 4; k++) vv[j] += pw[k] * v[k * 4 + j];
                 for (int j = 0; j < 4; j++) for (int k = 0; k < 4; k++) cc[j] += vv[k] * pm[k * 4 + j];
@@ -5592,9 +5685,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     hd.lockOn = true;
                     hd.lockX = (cc[0] / cc[3] * 0.5f + 0.5f) * (float)WIDTH;
                     hd.lockY = (0.5f - cc[1] / cc[3] * 0.5f) * (float)HEIGHT;
-                    const float dx = g_lockPos[0] - playerX, dy = g_lockPos[1] - playerY;
+                    const float dx = lp[0] - playerX, dy = lp[1] - playerY;
                     hd.lockSize = 1.0f - sqrtf(dx * dx + dy * dy) * 0.02f;
-                    hd.lockHealth = g_peds.HealthFrac((size_t)g_lockPed);
+                    if (airMark) { hd.lockSize = 1.3f; hd.lockRgb = g_airLocked ? 0xFF0000u : 0xFFFFFFu; }   // MarkTarget(255, 255, 255, size 1.3); red once locked
+                    else hd.lockHealth = g_peds.HealthFrac((size_t)g_lockPed);
                 }
             }
             hd.spread = std::min(1.0f, sqrtf(g_cj.VelX() * g_cj.VelX() + g_cj.VelY() * g_cj.VelY()) / 6.0f);

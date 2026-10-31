@@ -1,5 +1,5 @@
 #pragma once
-// CProjectileInfo for the thrown weapons: grenade, tear gas, molotov and satchel charge in flight.
+// CProjectileInfo for the thrown weapons (grenade, tear gas, molotov, satchel charge), rockets and the Hydra's flares.
 // PlayerPed hands over a Launch; this flies it under gravity, bounces it, and reports what it did.
 #include <functional>
 #include <vector>
@@ -10,16 +10,18 @@ class PlayerPed;
 class Projectiles {
 public:
     enum class Kind { Explode, Fire, Gas, Trail };
-    struct Event { Kind kind; float pos[3]; float radius; int sub = 0; };   // sub: 1 = rocket
+    struct Event { Kind kind; float pos[3]; float radius; int sub = 0; };   // sub: 1 = rocket, 2 = a flare burning
 
     struct Env {
         std::function<float(float, float, float)> groundAt;                 // < -1e5: none
         std::function<float(const float*, const float*, float*)> rayCast;
         std::function<bool(const float*, const float*)> entityHit;          // a ped or car on the segment a -> b
         std::function<bool(const float*, const float*, float*)> seekTarget;   // heat-seeker: origin, forward -> target position   // fraction of a -> b to the first hit (>= 1: clear), wall normal z in the third
+        std::function<bool(int, float*, float*)> targetOf;   // a heat seeker's victim car: position, velocity (m/s); false once it is gone
     };
 
-    void Add(int gun, int type, const float pos[3], const float vel[3], bool fell);
+    // target: the car a heat seeker fired from a vehicle was locked on (m_pVictim), -1 none
+    void Add(int gun, int type, const float pos[3], const float vel[3], bool fell, int target = -1);
     void Detonate();   // CWorld::UseDetonator: every satchel charge goes off
     void Update(float dt, const Env& env, std::vector<Event>& out);
     void Draw(D3DRenderer& r, PlayerPed& ped);
@@ -34,6 +36,7 @@ private:
         bool resting = false;
         float elasticity = 0.75f;
         bool homing = false;
+        int target = -1;
     };
     std::vector<P> m_list;
     unsigned m_rng = 12345;
