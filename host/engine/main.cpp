@@ -2498,6 +2498,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // distance deterministically (collision test, not a timing test).
         if (g_autoWalk || getenv("GTA_KEYS")) dt = 1.0f / 60.0f;   // headless motion tests: fixed step
         if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); g_sg.Update(dt); }
+        else if (getenv("GTA_CARREC")) g_sg.PlaybackStep(dt);   // dev: a playback with no script running
         if (worldReady && playMode) {
             g_enex.warp = [&](float x, float y, float z, float hdg, int area) {
                 playerX = camPosX = x; playerY = camPosY = y; playerZ = camPosZ = z - 1.0f + 0.05f + EYE_HEIGHT;   // z is the ped centre, 1 m above the feet
@@ -2556,6 +2557,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (dc.panelStatus[5 + b] == 1) { dc.panels[n].bumper = b; dc.panels[n].limit = -0.35f; n++; }
                 }
                 if (const char* hp = getenv("GTA_CARHP"); hp && ci >= 0) g_vehicles.Car((size_t)ci).health = (float)atof(hp);   // dev
+                if (const char* rec = getenv("GTA_CARREC"); rec && ci >= 0) {   // dev: "24" plays carrec024 on the car, "24a" using AI
+                    g_sg.cars = &g_vehicles; g_sg.gameDir = g_gameDir;
+                    g_sg.StartPlayback(ci + 1, atoi(rec), false, std::strchr(rec, 'a') != nullptr);
+                }
                 if (ci >= 0 && getenv("GTA_CARLOCK")) g_vehicles.Car((size_t)ci).locked = true;     // dev
                 if (ci >= 0 && getenv("GTA_CARALARM")) g_vehicles.Car((size_t)ci).alarmMs = -1;     // dev
                 if (ci >= 0 && getenv("GTA_CARSHATTER")) { g_vehicles.Car((size_t)ci).panelStatus[4] = 3; g_vehicles.WindscreenShatters((size_t)ci); }   // dev

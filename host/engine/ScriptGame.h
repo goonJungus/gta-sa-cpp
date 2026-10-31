@@ -97,6 +97,8 @@ public:
     void StartPlayback(int car, int number, bool looped, bool useAi);
     void StopPlayback(int car, bool skipToEnd);
     void PlaybackStep(float dt);
+    // CCarCtrl::SteerAICarWithPhysicsFollowPreRecordedPath for a playback using AI
+    void PlaybackAI(int slot);
     // The overlay for this frame; call after Update. Clears the per frame text queue.
     ScriptOverlay Overlay();
 
@@ -110,7 +112,7 @@ public:
 
 private:
     struct Frame { uint32_t time; int16_t vel[3]; int8_t right[3], top[3]; int8_t steer, gas, brake, handbrake; float pos[3]; };
-    struct Playback { bool on = false, looped = false, paused = false, ai = false; int car = 0, number = 0; size_t index = 0; float time = 0, speed = 1.0f; };
+    struct Playback { bool on = false, looped = false, paused = false, ai = false, aiFound = false; int car = 0, number = 0; size_t index = 0; float time = 0, speed = 1.0f; };
 
     ImgLoader m_carrecImg;
     bool m_carrecOpen = false;

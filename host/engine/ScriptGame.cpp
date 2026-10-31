@@ -396,7 +396,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x05ED: case 0x05EE: { const int s = PlaybackSlot(c.I(0)); if (s >= 0) m_play[s].paused = c.op == 0x05ED; return true; }   // PAUSE / UNPAUSE_PLAYBACK_RECORDED_CAR
     case 0x090A: { const int s = PlaybackSlot(c.I(0)); c.result = s >= 0 && m_play[s].paused; return true; }   // IS_PLAYBACK_FOR_CAR_PAUSED
     case 0x06FD: { const int s = PlaybackSlot(c.I(0)); if (s >= 0) m_play[s].speed = c.F(1); return true; }   // SET_PLAYBACK_SPEED
-    case 0x099B: { const int s = PlaybackSlot(c.I(0)); if (s >= 0) m_play[s].ai = true; return true; }         // CHANGE_PLAYBACK_TO_USE_AI
+    case 0x099B: { const int s = PlaybackSlot(c.I(0)); if (s >= 0) { m_play[s].ai = true; m_play[s].aiFound = false; } return true; }         // CHANGE_PLAYBACK_TO_USE_AI
     case 0x0873: return true;                                                // REMOVE_CAR_RECORDING
     case 0x0186: {   // ADD_BLIP_FOR_CAR(car) -> blip
         VehicleInstance* v = carAlive(c.I(0));
@@ -1178,7 +1178,7 @@ bool ScriptGame::RecordingLoaded(int number) {
     if (m_recs.count(number)) return true;
     if (!m_carrecOpen) { m_carrecOpen = m_carrecImg.Open(gameDir + "/data/Paths/carrec.img") || m_carrecImg.Open(gameDir + "/data/paths/carrec.img"); if (!m_carrecOpen) return false; }
     char name[32];
-    std::snprintf(name, sizeof(name), "carrec%d.rrr", number);
+    std::snprintf(name, sizeof(name), "carrec%03d.rrr", number);   // carrec024.rrr
     std::vector<uint8_t> raw = m_carrecImg.Extract(name);
     if (raw.empty()) { std::fprintf(stderr, "[CARREC] %s not in carrec.img\n", name); m_recs[number]; return true; }
     size_t n = raw.size() / 32;
@@ -1186,6 +1186,8 @@ bool ScriptGame::RecordingLoaded(int number) {
     std::memcpy(fr.data(), raw.data(), n * 32);
     for (size_t i = 1; i < n; i++) if (fr[i].time == 0) { n = i; break; }   // CVehicleRecording::Load: the first zero time past frame 0 ends the data
     fr.resize(n);
+    for (size_t i = 4; i < fr.size(); i++)   // SmoothRecording: each time evened out between its neighbours
+        fr[i - 1].time = (uint32_t)((float)(fr[i].time + fr[i - 2].time) / 2.0f);
     std::fprintf(stderr, "[CARREC] %s: %zu frames, %u ms\n", name, n, n ? fr[n - 1].time : 0u);
     m_recs[number] = std::move(fr);
     return true;
@@ -1207,16 +1209,20 @@ void ScriptGame::RestoreFrame(VehicleInstance& v, const Frame& f, bool pause) {
     v.rot[6] = r[1] * t[2] - r[2] * t[1]; v.rot[7] = r[2] * t[0] - r[0] * t[2]; v.rot[8] = r[0] * t[1] - r[1] * t[0];
     v.hasRot = true;
     v.x = f.pos[0]; v.y = f.pos[1]; v.z = f.pos[2];
-    v.vx = pause ? 0.0f : f.vel[0] * 6.103702e-05f * 50.0f;   // per-tick units to m/s
-    v.vy = pause ? 0.0f : f.vel[1] * 6.103702e-05f * 50.0f;
+    std::fill(v.phys.tv, v.phys.tv + 3, 0.0f);   // ResetTurnSpeed
     v.heading = std::atan2(-t[0], t[1]);
-    v.speed = pause ? 0.0f : std::sqrt(v.vx * v.vx + v.vy * v.vy);
-    v.steer = f.steer * 0.05f;
+    v.steer = pause ? 0.0f : f.steer * 0.05f;   // m_fSteerAngle, m_GasPedal, m_BrakePedal, bIsHandbrakeOn
+    v.phys.steerAngle = v.steer;
+    v.phys.gas = pause ? 0.0f : (uint8_t)f.gas / 100.0f;
+    v.phys.brake = pause ? 0.0f : (uint8_t)f.brake / 100.0f;
+    v.phys.handbrake = pause || f.handbrake != 0;
+    if (pause) { v.vx = v.vy = v.speed = 0.0f; std::fill(v.phys.mv, v.phys.mv + 3, 0.0f); }
 }
 
 void ScriptGame::StartPlayback(int car, int number, bool looped, bool useAi) {
     if (!cars || car < 1 || (size_t)car > cars->Count()) return;
     RecordingLoaded(number);
+    if (const int old = PlaybackSlot(car); old >= 0) m_play[old].on = false;
     int s = 0;
     while (s < 16 && m_play[s].on) s++;
     if (s == 16) s = 15;
@@ -1233,8 +1239,8 @@ void ScriptGame::StopPlayback(int car, bool skipToEnd) {
     VehicleInstance* v = cars && car >= 1 && (size_t)car <= cars->Count() ? &cars->Car((size_t)car - 1) : nullptr;
     const std::vector<Frame>& fr = m_recs[p.number];
     if (v && skipToEnd && !fr.empty()) RestoreFrame(*v, fr.back(), false);
-    else if (v) v->vx = v->vy = v->speed = 0.0f;
-    if (v) v->hasRot = false;
+    if (v) cars->EndPlayback((size_t)car - 1);   // StopPlaybackWithIndex: the car goes on under physics with the speed it had
+    if (v && p.ai) cars->SetAIControls((size_t)car - 1, 0.0f, 0.0f, 0.5f, true);   // MISSION_STOP_FOREVER
     p.on = false;
     std::fprintf(stderr, "[CARREC] stop car %d recording %d%s\n", car, p.number, skipToEnd ? " (skipped to end)" : "");
 }
@@ -1248,6 +1254,7 @@ void ScriptGame::PlaybackStep(float dt) {
         if (!v || v->removed || v->wrecked) { p.on = false; if (v) v->hasRot = false; continue; }
         const std::vector<Frame>& fr = m_recs[p.number];
         if (fr.size() < 2) { StopPlayback(p.car, false); continue; }
+        if (p.ai) { PlaybackAI(s); continue; }   // the recording only steers; the car drives itself
         if (!p.paused) p.time += dt * 1000.0f * p.speed;
         size_t i = p.index;
         while (i + 1 < fr.size() && (float)fr[i + 1].time < p.time) i++;
@@ -1264,14 +1271,64 @@ void ScriptGame::PlaybackStep(float dt) {
             r[6] = r[1] * r[5] - r[2] * r[4]; r[7] = r[2] * r[3] - r[0] * r[5]; r[8] = r[0] * r[4] - r[1] * r[3];
             for (int j = 0; j < 9; j++) v->rot[j] = v->rot[j] * (1.0f - k) + r[j] * k;
             v->x = a.pos[0] * (1.0f - k) + b.pos[0] * k; v->y = a.pos[1] * (1.0f - k) + b.pos[1] * k; v->z = a.pos[2] * (1.0f - k) + b.pos[2] * k;
-            v->vx = (a.vel[0] * (1.0f - k) + b.vel[0] * k) * 6.103702e-05f * 50.0f;
-            v->vy = (a.vel[1] * (1.0f - k) + b.vel[1] * k) * 6.103702e-05f * 50.0f;
+            // InterpolateInfoForCar: the move speed eases from what it was toward the next frame's
+            v->vx = v->vx * (1.0f - k) + b.vel[0] * 6.103702e-05f * 50.0f * k;
+            v->vy = v->vy * (1.0f - k) + b.vel[1] * 6.103702e-05f * 50.0f * k;
             v->heading = std::atan2(-v->rot[3], v->rot[4]);
             v->speed = std::sqrt(v->vx * v->vx + v->vy * v->vy);
             v->wheelSpin += v->speed * dt / 0.35f;
         } else if (p.looped) { p.time = 0; p.index = 0; }
         else StopPlayback(p.car, false);
     }
+}
+
+void ScriptGame::PlaybackAI(int s) {
+    Playback& p = m_play[s];
+    const size_t ci = (size_t)p.car - 1;
+    VehicleInstance& v = cars->Car(ci);
+    const std::vector<Frame>& fr = m_recs[p.number];
+    v.hasRot = false;
+    if (!p.aiFound) {   // SetRecordingToPointClosestToCoors
+        float best = 1000000.0f;
+        for (size_t i = 0; i < fr.size(); i++) {
+            const float dx = fr[i].pos[0] - v.x, dy = fr[i].pos[1] - v.y, dz = fr[i].pos[2] - v.z;
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (d < best) { best = d; p.index = i; }
+        }
+        p.aiFound = true;
+    }
+    if (p.paused) { cars->SetAIControls(ci, 0.0f, 0.0f, 0.5f, false); return; }
+    auto dist = [&](size_t i) {
+        const float dx = v.x - fr[i].pos[0], dy = v.y - fr[i].pos[1], dz = v.z - fr[i].pos[2];
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    // aim at the first point at least 10 m off that is nearer than the one after it
+    while (p.index + 1 < fr.size() && !(dist(p.index) >= 10.0f && dist(p.index) <= dist(p.index + 1))) {
+        if (++p.index + 1 >= fr.size()) {   // the recording ran out: the car stops for good
+            StopPlayback(p.car, false);
+            return;
+        }
+    }
+    const Frame& f = fr[p.index];
+    const float* fwd = v.phys.active ? &v.rot[3] : nullptr;
+    const float heading = fwd ? std::atan2(fwd[1], fwd[0]) : v.heading + 1.5707963f;   // GetATanOfXY of the forward axis
+    float steer = std::atan2(f.pos[1] - v.y, f.pos[0] - v.x) - heading;   // (FindAngleToWeaveThroughTraffic: no traffic to weave)
+    while (steer < -3.1415927f) steer += 6.2831855f;
+    while (steer > 3.1415927f) steer -= 6.2831855f;
+    const float mvx = v.phys.active ? v.phys.mv[0] : v.vx / 50.0f, mvy = v.phys.active ? v.phys.mv[1] : v.vy / 50.0f;
+    const float mvz = v.phys.active ? v.phys.mv[2] : 0.0f;
+    const float moving = std::sqrt(mvx * mvx + mvy * mvy + mvz * mvz);
+    const float maxSteer = moving > 0.7f ? 0.2f : std::min(0.9f - moving, 0.7f);   // FindMaxSteerAngle
+    steer = std::clamp(steer, -maxSteer, maxSteer);
+    const float vx = f.vel[0] * 6.103702e-05f, vy = f.vel[1] * 6.103702e-05f;
+    float want = std::sqrt(vx * vx + vy * vy) * p.speed * 60.0f;
+    if (p.index * 32 < 0x321 && want <= 5.0f) want = 5.0f;   // pull away from the start
+    const float now = std::sqrt(mvx * mvx + mvy * mvy) * 60.0f;
+    float gas = 0.0f, brake = 0.0f;
+    const float diff = want - now;
+    if (diff <= 0.0f) brake = std::min(diff * -0.05f, 0.5f);
+    else gas = std::min(diff * (now >= 2.0f ? 0.125f : 0.25f), 1.0f);
+    cars->SetAIControls(ci, steer, gas, brake, false);
 }
 
 void ScriptGame::Update(float dt) {

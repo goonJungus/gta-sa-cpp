@@ -240,6 +240,9 @@ struct CarPhys {
     float inGunUpDown = 0.0f;         // the pad's special control up (+1) / down (-1): a tow truck's hoist
     float inGunLeftRight = 0.0f;      // special control right (+1) / left (-1)
     bool inHornJust = false, inHydJump = false;   // the horn went down this frame; the hydraulic jump key held
+    // STATUS_PHYSICS: an AI driver's pedals and steering (CCarCtrl::SteerAICarWithPhysics), radians + left
+    bool ai = false, aiHandbrake = false;
+    float aiGas = 0.0f, aiBrake = 0.0f, aiSteer = 0.0f;
     // CTrailer: the legs' extension (m_fTrailerTowedRatio: 1 down, 0 wound up), the least of it that holds
     // (m_fTrailerTowedRatio2) and each leg line's hit (m_supportRatios, m_supportCPs)
     float supportExt = 1.0f, supportMin = 1.0f;
@@ -386,6 +389,12 @@ public:
     void DetachTrailer(size_t trailer) { BreakTowLink(trailer); }
     // The driver's hydraulics pad for car i this frame (before ProcessCar): special control left / right, the horn
     // just pressed (pumps up / drops), the jump key held.
+    // An AI driver at car i's controls (STATUS_PHYSICS): gas and brake 0..1, steer in radians (+ left). The car is
+    // simulated from now on like the player's, with these in place of the pad.
+    void SetAIControls(size_t i, float steer, float gas, float brake, bool handbrake);
+    void ClearAIControls(size_t i) { if (i < m_cars.size()) m_cars[i].phys.ai = false; }
+    // A recorded playback lets go of car i: the simulation takes it on where it is, as it is turned, at its speed.
+    void EndPlayback(size_t i);
     void SetHydraulicPad(size_t i, float leftRight, bool hornJust, bool jump) {
         if (i < m_cars.size()) { m_cars[i].phys.inGunLeftRight = leftRight; m_cars[i].phys.inHornJust = hornJust; m_cars[i].phys.inHydJump = jump; }
     }

@@ -408,6 +408,8 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         else { gas = gasInput; brake = 0.0f; }
         p.gas = gas; p.brake = brake;
         p.steerAngle = h.steeringLock * 0.0174532925f * std::copysign(p.rawSteer * p.rawSteer, p.rawSteer);
+    } else if (p.ai) {   // ProcessAI, STATUS_PHYSICS: the AI driver's controls
+        p.gas = p.aiGas; p.brake = p.aiBrake; p.steerAngle = p.aiSteer; p.handbrake = p.aiHandbrake;
     } else if (c.towedBy >= 0) {   // ProcessAI, STATUS_IS_TOWED: rolling free behind the tractor
         p.handbrake = false;
         p.brake = 0.0f; p.steerAngle = 0.0f; p.gas = 0.0f;
@@ -567,7 +569,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         if (tr.driveType == '4' || (tr.driveType == 'F' && front) || (tr.driveType == 'R' && !front)) p.driveWheelsOnGround++;
     }
     float acceleration = 0.0f;
-    if (player && !heli && !plane)   // the engine runs while someone drives (aircraft have no driven wheels)
+    if ((player || p.ai) && !heli && !plane)   // the engine runs while someone drives (aircraft have no driven wheels)
         acceleration = tr.DriveAcceleration(p.gas, p.gear, speedForward, &p.inertia1, &p.inertia2, p.driveWheelsOnGround != 0, ts);
     const float traction = h.tractionMult / 250.0f * 0.25f;
     {   // the player's steering is cut back to what the tyres can hold at speed
@@ -813,6 +815,29 @@ void Vehicles::SyncFromPhys(VehicleInstance& c, const VehicleModel& vm) {
     c.speed = Dot(V3(c.phys.mv), fwd) * 50.0f;
     c.steer = -c.phys.steerAngle;
     (void)vm;
+}
+
+void Vehicles::SetAIControls(size_t i, float steer, float gas, float brake, bool handbrake) {
+    if (i >= m_cars.size()) return;
+    VehicleInstance& c = m_cars[i];
+    Activate(c);
+    CarPhys& p = c.phys;
+    p.ai = true;
+    p.aiSteer = steer; p.aiGas = gas; p.aiBrake = brake; p.aiHandbrake = handbrake;
+    p.fakePhysics = 0;   // a driven car never sleeps
+}
+
+void Vehicles::EndPlayback(size_t i) {
+    if (i >= m_cars.size()) return;
+    VehicleInstance& c = m_cars[i];
+    if (!c.hasRot) return;
+    float rot[9];
+    std::memcpy(rot, c.rot, sizeof(rot));
+    c.hasRot = false;
+    Activate(c);   // (a car new to the simulation takes the heading's matrix; the playback's is kept)
+    std::memcpy(c.rot, rot, sizeof(rot));
+    c.phys.mv[0] = c.vx / 50.0f; c.phys.mv[1] = c.vy / 50.0f;
+    c.phys.fakePhysics = 0;
 }
 
 bool Vehicles::Lookup(int model, VehicleModel*& vm, const HandlingData*& h) {
