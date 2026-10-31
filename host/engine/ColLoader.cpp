@@ -141,6 +141,7 @@ bool ColLoader::LoadModelTriangles(const uint8_t* colData, size_t colSize,
                 tri.ax = vx[a]; tri.ay = vy[a]; tri.az = vz[a];
                 tri.bx = vx[b]; tri.by = vy[b]; tri.bz = vz[b];
                 tri.cx = vx[c]; tri.cy = vy[c]; tri.cz = vz[c];
+                tri.surface = r[6];
                 outTris.push_back(tri);
             }
             return true;

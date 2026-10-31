@@ -20,6 +20,7 @@ struct ColTriangle {
     float ax, ay, az;
     float bx, by, bz;
     float cx, cy, cz;
+    uint8_t surface = 0;   // CColTriangle::m_nMaterial: the surfinfo.dat surface id
 };
 
 class ColLoader {

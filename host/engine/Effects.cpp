@@ -80,6 +80,27 @@ void Effects::Splash(const float p[3], float strength) {
     }
 }
 
+void Effects::HeliDust(const float p[3], float t, int prim, float dt, float& acc) {
+    // heli_dust.fxs: emitter keys at the system's const time; particles fly out flat (EMANGLE 90, any heading)
+    auto lerp = [&](float a, float b) { return a + (b - a) * t; };
+    auto lerp3 = [&](float a, float m, float b) { return t < 0.5f ? a + (m - a) * t * 2.0f : m + (b - m) * (t - 0.5f) * 2.0f; };
+    const float life = prim == 2 ? lerp(1.0f, 2.0f) : lerp(0.5f, 2.0f);
+    const float speed = prim == 2 ? lerp(15.0f, 25.0f) : lerp(1.0f, 25.0f);
+    const float rate = prim == 0 ? lerp(5.0f, 50.0f) : prim == 1 ? lerp3(5.0f, 25.0f, 50.0f) : lerp3(2.0f, 25.0f, 50.0f);
+    static const uint32_t kRgb[3] = {0xFFFFFF, 0xCEAB91, 0xE6E6FF};
+    static const float kAlpha[3] = {64.0f / 255.0f, 48.0f / 255.0f, 32.0f / 255.0f};
+    for (acc += rate * dt; acc >= 1.0f; acc -= 1.0f) {
+        const float h = Rnd(0.0f, 6.2831853f);
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k];
+        f.v[0] = std::cos(h) * speed; f.v[1] = std::sin(h) * speed;
+        f.life = life;
+        f.size0 = 0.0f; f.size1 = 32.0f;
+        f.rgb = kRgb[prim]; f.alpha = kAlpha[prim]; f.ring = true;
+        m_puffs.push_back(f);
+    }
+}
+
 void Effects::Dust(const float p[3], float strength) {
     const int n = 3 + (int)(5 * strength);
     for (int i = 0; i < n; i++) {
@@ -317,6 +338,7 @@ void Effects::Update(float dt) {
         f.age += dt;
         for (int k = 0; k < 3; k++) f.p[k] += f.v[k] * dt;
         if (f.spark) f.v[2] -= 9.0f * dt;          // sparks fall
+        else if (f.ring) { const float fr = std::pow(0.985f, dt * 50.0f); for (float& v : f.v) v *= fr; }   // FxInfoFriction
         else for (int k = 0; k < 3; k++) f.v[k] *= std::max(0.0f, 1.0f - 2.5f * dt);   // dust slows
     }
     m_puffs.erase(std::remove_if(m_puffs.begin(), m_puffs.end(), [](const Puff& f) { return f.age >= f.life; }), m_puffs.end());
@@ -403,8 +425,14 @@ void Effects::Render(D3DRenderer& r) {
         quad(cp, rx, ux, ((uint32_t)(a * 255.0f) << 24) | 0x0A0806);
     }
     for (const Puff& f : m_puffs) {
-        const float t = f.age / f.life, s = f.size0 + (f.size1 - f.size0) * t;
-        const float a = f.alpha * (1.0f - t) * (f.spark ? 1.0f : std::min(1.0f, t * 8.0f));
+        const float t = f.age / f.life;
+        float s = f.size0 + (f.size1 - f.size0) * t;
+        float a = f.alpha * (1.0f - t) * (f.spark ? 1.0f : std::min(1.0f, t * 8.0f));
+        if (f.ring) {   // heli_dust: size and alpha keys 0 until half life, alpha peaking at 0.6
+            if (t < 0.5f) continue;
+            s = f.size1 * (t - 0.5f) * 2.0f;
+            a = f.alpha * (t < 0.6f ? (t - 0.5f) * 10.0f : (1.0f - t) / 0.4f);
+        }
         const float rx[3] = {right[0] * s, right[1] * s, right[2] * s}, ux[3] = {up[0] * s, up[1] * s, up[2] * s};
         quad(f.p, rx, ux, ((uint32_t)(a * 255.0f) << 24) | f.rgb);
     }

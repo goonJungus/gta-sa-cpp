@@ -232,7 +232,9 @@ struct CarPhys {
     // CAutomobile::ProcessBuoyancy: m_fBuoyancyConstant (from the handling, sinking lower while it drowns; 0 = not
     // yet set), bIsDrowning and bTouchingWater
     float buoyancyConst = 0.0f;
-    bool smokeEjector = false, prevGearKey = false;   // CPlane::m_bSmokeEjectorEnabled (Cropduster, Stuntplane)
+    bool smokeEjector = false, prevGearKey = false;
+    // CAutomobile::m_heliDustFxTimeConst (eased 0.04 a frame) and the heli_dust emission carried between frames
+    float dustTimeConst = 0.0f, dustAcc = 0.0f;   // CPlane::m_bSmokeEjectorEnabled (Cropduster, Stuntplane)
     bool drowning = false, touchingWater = false;
     float sprintLean = 0.0f;          // m_fSprintLeanAngle: the frame rocks under a sprinting rider
     // CHeli: the pad (ProcessControlInputs: m_fAccelerationBreakStatus, m_fSteeringUpDown, m_fSteeringLeftRight,

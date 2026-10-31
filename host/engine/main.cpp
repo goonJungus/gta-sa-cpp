@@ -25,6 +25,8 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <d3d9.h>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -96,6 +98,7 @@ static FireManager g_fires;          // CFireManager
 static ExplosionManager g_expl;      // CExplosion
 static std::vector<std::array<float, 2>> g_shakeQ;   // camera shakes waiting for the shake clock: strength, distance
 static std::vector<std::array<float, 3>> g_carBooms;   // wrecked cars that blew up this frame
+static bool g_sandSurface[256];   // SurfaceInfos_c::IsSand: the SAND column of data/surfinfo.dat, by surface id
 static std::vector<std::array<float, 3>> g_aircraftBooms;   // the rocket blasts of burning aircraft nobody drives
 static std::vector<std::array<float, 3>> g_dynBooms;   // explosive props that went off this frame
 static PlayerPed g_cj;   // CJ: skinned player model + animations (replaces the box)
@@ -1456,6 +1459,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     // CJ himself (player.img clothes + anim\ped.ifp); the box stays as a fallback.
     Stats::Init();   // CStats::Init, then the saved [Stats] values
     Stats::Load(g_iniPath);
+    {   // SurfaceInfos_c::LoadSurfaceInfos: one line per surface id, the SAND flag the 10th column
+        std::ifstream sf(FindGameFile("data\\surfinfo.dat"));
+        std::string line;
+        int id = 0, sand = 0;
+        while (id < 256 && std::getline(sf, line)) {
+            std::istringstream ls(line);
+            std::string tok[10];
+            int n = 0;
+            while (n < 10 && ls >> tok[n]) n++;
+            if (n < 10 || tok[0][0] == '#') continue;
+            g_sandSurface[id] = tok[9] == "1";
+            sand += g_sandSurface[id++];
+        }
+        Log("SURFINFO: %d surfaces, %d sand", id, sand);
+    }
     Log("STATS: ar_stats.dat %d values", Stats::LoadReactions(getenv("GTA_ARSTATS") ? getenv("GTA_ARSTATS") : (g_gameDir + "\\data\\ar_stats.dat").c_str())   /* dev: GTA_ARSTATS=alt file */);
     Stats::g_hooks.health = [] { return g_cj.Health() * 5.69f; };   // the stats count health in 569 = 100 hp
     Stats::g_hooks.maxHealth = [] { return g_cj.MaxHealth() * 5.69f; };
@@ -4019,6 +4037,32 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const float l[3] = {0.0f, sc.model == 512 ? -0.5f : -5.0f, sc.model == 512 ? -0.5f : 0.0f};
                 const float sp[3] = {m[12] + m[4] * l[1] + m[8] * l[2], m[13] + m[5] * l[1] + m[9] * l[2], m[14] + m[6] * l[1] + m[10] * l[2]};
                 g_fx.Spray(sp, sc.model == 512 ? 0xFFFFFFu : 0xFF0000u);   // the Cropduster sprays white, the Stuntplane smokes red
+            }
+            for (size_t i = 0; i < g_vehicles.Count(); i++) {   // CHeli::PreRender / CPlane::PreRender: CAutomobile::DoHeliDustEffect
+                VehicleInstance& hc = g_vehicles.Car(i);
+                CarPhys& hp = hc.phys;
+                const bool heli = g_vehicles.UsesHeliPhysics(hc.model) && hc.model != 465 && hc.model != 501;   // not the RC Raider / Goblin
+                const bool hydra = hc.model == 520 && hc.engineOn && hc.hoist >= 3000;
+                float timeConst = 1.0f, maxZ = 30.0f;
+                if (hydra) { timeConst = (hp.gas - hp.brake + 1.0f) * 0.5f; maxZ = 60.0f; }   // m_fAccelerationBreakStatus, fxMaxZMult 2
+                const float dx = hc.x - camPosX, dy = hc.y - camPosY, dz = hc.z - camPosZ;
+                bool on = (heli && hp.rotorSpeed >= 0.1125f) || hydra;
+                on = on && dx * dx + dy * dy + dz * dz < 2500.0f;
+                float groundZ = -1000.0f, waterZ = -1000.0f;
+                int surf = 0;
+                bool onWater = false;
+                if (on) {   // CWorld::ProcessVerticalLine down to -1000, or the water if it is higher
+                    const float t = g_world.RayCast(hc.x, hc.y, hc.z, hc.x, hc.y, -1000.0f, nullptr, nullptr, nullptr, &surf);
+                    groundZ = t < 1.0f ? hc.z + (-1000.0f - hc.z) * t : -1000.0f;
+                    if (g_water.Ready() && g_water.GetWaterLevel(hc.x, hc.y, &waterZ) && groundZ < waterZ) { groundZ = waterZ; onWater = true; }
+                    on = hc.z - groundZ < maxZ;
+                }
+                if (!on) { hp.dustTimeConst = 0.0f; hp.dustAcc = 0.0f; continue; }   // FxSystem_c::Kill
+                float tc = (maxZ - (hc.z - groundZ)) / maxZ * timeConst;
+                tc *= tc;
+                hp.dustTimeConst = tc > hp.dustTimeConst ? std::min(tc, hp.dustTimeConst + 0.04f) : std::max(tc, hp.dustTimeConst - 0.04f);
+                const float dp[3] = {hc.x, hc.y, groundZ};
+                g_fx.HeliDust(dp, hp.dustTimeConst, onWater ? 2 : g_sandSurface[surf & 255] ? 1 : 0, dt, hp.dustAcc);
             }
             if (cjReady) g_cj.SetInDrowningVehicle(g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).phys.drowning);
             g_vehicles.UpdateDamage(dt, g_driveCar, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },

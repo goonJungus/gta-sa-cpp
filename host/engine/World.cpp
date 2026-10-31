@@ -2181,15 +2181,16 @@ float RayTri(const float o[3], const float d[3], const float a[3], const float b
 }
 }  // namespace
 
-float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind, float* hitNz, float* hitN) const {
+float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind, float* hitNz, float* hitN, int* surface) const {
     const float o[3] = {ax, ay, az}, d[3] = {bx - ax, by - ay, bz - az};
     float best = 1.0f;
-    int curKind = 0;
+    int curKind = 0, curSurface = 0;
     auto hit = [&](const float a[3], const float b[3], const float c[3]) {
         const float t = RayTri(o, d, a, b, c);
         if (t >= 0.0f && t < best) {
             best = t;
             if (kind) *kind = curKind;
+            if (surface) *surface = curSurface;
             if (hitNz || hitN) {
                 const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, v[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
                 float n[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
@@ -2214,11 +2215,12 @@ float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float
             if (it == m_cells.end()) continue;
             for (const ColTriangle& t : it->second.tris) {
                 const float a[3] = {t.ax, t.ay, t.az}, b[3] = {t.bx, t.by, t.bz}, c[3] = {t.cx, t.cy, t.cz};
+                curSurface = t.surface;
                 hit(a, b, c);
             }
         }
     // Oriented boxes: the 6 faces (corner bit 0 = top, bits 1/2 the other axes).
-    curKind = 1;
+    curKind = 1; curSurface = 0;
     const size_t n = std::min(m_worldObbs.size(), m_worldBoxes.size());
     for (size_t k = 0; k < n; k++) {
         const WorldColBox& ab = m_worldBoxes[k];
@@ -2247,7 +2249,7 @@ float GameWorld::RayCast(float ax, float ay, float az, float bx, float by, float
             if (disc < 0.0f) continue;
             const float t = (-bq - std::sqrt(disc)) / dd;
             if (t >= 0.0f && t < best) {
-                best = t; if (kind) *kind = 2;
+                best = t; if (kind) *kind = 2; if (surface) *surface = 0;
                 const float q[3] = {ax + d[0] * t - s.x, ay + d[1] * t - s.y, az + d[2] * t - s.z};   // out from the centre
                 const float ql = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
                 if (hitNz) *hitNz = ql > 1e-9f ? std::fabs(q[2]) / ql : 0.0f;

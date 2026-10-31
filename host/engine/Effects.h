@@ -26,6 +26,9 @@ public:
     void Gas(const float p[3]);   // a tear gas cloud puff
     void Smoke(const float p[3], float dark);
     void Spray(const float p[3], uint32_t rgb);   // a paint / foam puff from the spray can or extinguisher
+    // The heli_dust fx system (effects.fxp) held at const time t (0..1) at p for dt seconds: prim 0 "normal" dust,
+    // 1 "sand", 2 "water". acc carries the part-particle emission between frames.
+    void HeliDust(const float p[3], float t, int prim, float dt, float& acc);
     void Fire(const float p[3]);
     void Explosion(const float p[3]);
     // CExplosion fx systems: 0 explosion_tiny, 1 _small, 2 _medium, 3 _large, 4 _molotov.
@@ -45,7 +48,8 @@ public:
     bool TraceInfo(int slot, float* life, float* radius, int* alpha) const;
 
 private:
-    struct Puff { float p[3], v[3]; float age, life, size0, size1; uint32_t rgb; float alpha; bool spark; };
+    // ring: a heli_dust particle (FX friction 0.985, unseen for its first half, then growing to size1 and fading)
+    struct Puff { float p[3], v[3]; float age, life, size0, size1; uint32_t rgb; float alpha; bool spark; bool ring; };
     struct Trace { bool exists = false; float a[3], b[3]; float createMs, lifeMs, radius; int alpha; };
     std::vector<Puff> m_puffs;
     Trace m_traces[16];

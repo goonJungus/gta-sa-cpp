@@ -150,7 +150,9 @@ public:
     // spheres). Returns the fraction of the way to the first hit, 1 if clear
     // (the camera's CWorld::ProcessLineOfSight).
     // hitN (optional) receives the unit surface normal at the hit, facing back along the segment.
-    float RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind = nullptr, float* hitNz = nullptr, float* hitN = nullptr) const;
+    // surface (optional) receives the hit triangle's surfinfo.dat id (0 for boxes and spheres).
+    float RayCast(float ax, float ay, float az, float bx, float by, float bz, int* kind = nullptr, float* hitNz = nullptr, float* hitN = nullptr,
+                  int* surface = nullptr) const;
 
     // Sphere vs the world's COL (boxes, spheres, triangles): the deepest-free
     // way to ask CCollision::ProcessColModels about one probe sphere. Returns
