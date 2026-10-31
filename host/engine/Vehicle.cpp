@@ -346,6 +346,18 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
                 else { std::memset(nd.base, 0, sizeof(nd.base)); nd.base[0] = nd.base[5] = nd.base[10] = nd.base[15] = 1.0f; }
             }
     }
+    static const char* kDoor[4] = {"door_lf", "door_rf", "door_lr", "door_rr"};
+    for (size_t i = 0; i < w.frames.size(); i++)
+        for (int k = 0; k < 4; k++) {
+            if (w.frames[i].name != kDoor[k]) continue;
+            VehicleModel::Door& d = vm.doors[k];
+            d.found = true;
+            for (int c = 0; c < 3; c++) d.hinge[c] = w.frames[i].m[9 + c];
+            d.openAngle = (k % 2 == 0 ? -0.5f : 0.5f) * 3.14159265f;
+            const int p = w.frames[i].parent;
+            if (p >= 0 && (size_t)p < i) std::memcpy(d.base, glob[(size_t)p].data(), sizeof(d.base));
+            else { std::memset(d.base, 0, sizeof(d.base)); d.base[0] = d.base[5] = d.base[10] = d.base[15] = 1.0f; }
+        }
     for (size_t i = 0; i < w.frames.size(); i++)
         if (w.frames[i].name == "ped_frontseat") {   // the dummy sits on the passenger side; the driver mirrors it
             vm.seatFound = true;
@@ -399,6 +411,7 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         if (fr >= 0 && (size_t)fr < glob.size()) std::memcpy(p.m, glob[(size_t)fr].data(), sizeof(p.m));
         else { std::memset(p.m, 0, sizeof(p.m)); p.m[0] = p.m[5] = p.m[10] = p.m[15] = 1.0f; }
         for (int k = 0; k < 3; k++) if (vm.nodes[k].found && name == (k == 0 ? "misc_a" : k == 1 ? "misc_b" : "misc_c")) p.node = k;
+        for (int k = 0; k < 4; k++) if (vm.doors[k].found && name == kDoor[k]) p.door = k;
         vm.parts.push_back(p);
     }
     {
@@ -480,6 +493,17 @@ void Vehicles::Draw(D3DRenderer& r) {
             if (p.node >= 0) {   // a turret part follows its (rotated) frame
                 float nm[16];
                 if (NodeMatrix((size_t)(&c - m_cars.data()), p.node, nm)) { dev->SetTransform(D3DTS_WORLD, reinterpret_cast<D3DMATRIX*>(nm)); r.DrawMesh(p.mesh); continue; }
+            }
+            if (p.door >= 0 && c.doorRatio[p.door] > 0.0f) {   // an open door: rotation about Z at its hinge
+                const VehicleModel::Door& d = vm.doors[p.door];
+                const float a = c.doorRatio[p.door] * d.openAngle, ca = std::cos(a), sa = std::sin(a);
+                const float loc[16] = {ca, sa, 0, 0, -sa, ca, 0, 0, 0, 0, 1, 0, d.hinge[0], d.hinge[1], d.hinge[2], 1};
+                float g[16];
+                Mul(loc, d.base, g);
+                Mul(g, body, &out._11);
+                dev->SetTransform(D3DTS_WORLD, &out);
+                r.DrawMesh(p.mesh);
+                continue;
             }
             Mul(p.m, body, &out._11);
             dev->SetTransform(D3DTS_WORLD, &out);

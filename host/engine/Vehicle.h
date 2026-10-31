@@ -44,6 +44,7 @@ struct VehiclePart {
     float m[16] = {};                 // part frame -> car, D3D row vectors
     bool wheel = false;
     int node = -1;                    // misc_a / misc_b / misc_c (0..2) when the part hangs on a turret frame
+    int door = -1;                    // door_lf / door_rf / door_lr / door_rr (0..3) when the part is a side door
 };
 
 struct VehicleModel {
@@ -64,6 +65,10 @@ struct VehicleModel {
     // The misc_a, misc_b and misc_c frames (eCarNodes CAR_MISC_A..C): tank turret, barrel and muzzle, fire truck nozzle.
     struct Node { bool found = false; int parent = -1; float local[16] = {}; float base[16] = {}; };
     Node nodes[3];
+    // The side doors (CAutomobile m_doors DOOR_LEFT_FRONT..DOOR_RIGHT_REAR): CDoor::UpdateFrameMatrix swings the
+    // frame about its own Z through ratio * openAngle (left -pi/2, right +pi/2), replacing its rotation, keeping its hinge.
+    struct Door { bool found = false; float base[16] = {}; float hinge[3] = {}; float openAngle = 0.0f; };
+    Door doors[4];
 };
 
 struct VehicleInstance {
@@ -81,6 +86,7 @@ struct VehicleInstance {
     float vx = 0.0f, vy = 0.0f;       // world velocity, m/s (speed is its part along the nose)
     bool hasRot = false;              // a recorded playback owns the orientation: rot is right, forward, up (CMatrix)
     float rot[9] = {};
+    float doorRatio[4] = {0, 0, 0, 0};   // CDoor::Open angle ratio per side door: 0 shut, 1 fully open
 };
 
 class Vehicles {

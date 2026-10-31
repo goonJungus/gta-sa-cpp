@@ -93,7 +93,7 @@ Source: CVehicle, CAutomobile, CBike, CBmx, CBoat, CPlane, CHeli, CTrain, CTrail
 - [ ] Real suspension and wheel physics from handling.cfg (CAutomobile::ProcessControl, wheel contact, brakes, tractions, gearbox, nitro, hydraulics) (w 5)
 - [ ] Vehicle to vehicle and vehicle to world collision response and deformation (CDamageManager, panels, bonnet, boot, doors) (w 4)
 - [ ] Doors open, break off; wheels fall off; flat tyres; windows break; bouncing panels (w 3)
-- [~] Enter and exit: F plays the driver-door open, get-in and get-out animation (CTaskComplexEnterCar/LeaveCar), CJ sliding up to the door and blending between the door and the seat (CTaskUtilityLineUpPedWithCar), low-car variants; door offset from the get-in clip's root travel. No walk-around to the far door, jacking, dragging out, door-mesh swing, seat shuffle or passengers yet; bikes still mount instantly (w 4)
+- [~] Enter and exit: F plays the driver-door open, get-in and get-out animation (CTaskComplexEnterCar/LeaveCar), CJ sliding up to the door and blending between the door and the seat (CTaskUtilityLineUpPedWithCar), low-car variants; door offset from the get-in clip's root travel; the driver door mesh swings open and shut with the sequence (CDoor about its hinge Z, left -pi/2, right +pi/2). No walk-around to the far door, jacking, dragging out, door physics or damage, seat shuffle or passengers yet; bikes still mount instantly (w 4)
 - [ ] Bikes, mopeds, quad bikes, BMX and bicycles with riders, lean, wheelie, fall off, pedalling (w 3)
 - [ ] Boats: buoyancy, propeller, enter and drive, jet skis, water wake (w 3)
 - [ ] Planes: flight model, landing gear, take-off, stall, crash, plane banners and trails (w 3)

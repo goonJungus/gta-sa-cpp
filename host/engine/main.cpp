@@ -3845,10 +3845,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         float sp[3]; bool low = false;
                         const bool ok = g_vehicles.SeatWorld((size_t)g_vehTransCar, sp, &low);
                         if (!ok || c.wrecked || c.removed || c.health <= 0.0f) {   // car gone: bail out on foot
-                            g_cj.CancelVehTransition(); g_vehTransCar = -1;
+                            g_cj.CancelVehTransition(); g_vehTransCar = -1; c.doorRatio[0] = 0.0f;
                             velZ = 0.0f; onGround = true; g_audio.EngineStop(); g_radio.Tune(-1);
                         } else {
                             g_cj.SetSeat(sp, c.heading + 1.5707963f);
+                            c.doorRatio[0] = g_cj.VehDoorRatio();   // driver door swings with the sequence, shut when done
                             float door[2]; g_cj.VehDoorOffset(door);
                             const float ch = std::cos(c.heading), sh = std::sin(c.heading);
                             const float doorX = sp[0] + door[0] * ch - door[1] * sh;   // seat + offset in car space

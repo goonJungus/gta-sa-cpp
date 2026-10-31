@@ -137,6 +137,19 @@ void PlayerPed::StartExitCar(bool lowCar) {
     else { LeaveVehicle(); m_vehTrans = VehTrans::None; }   // no clip: just pop out
 }
 
+// CTaskSimpleCarOpenDoorFromOutside opens the door with the open clip; it stays open while CJ climbs in and
+// CTaskSimpleCarCloseDoorFromInside pulls it shut as he settles. Getting out pushes it open and shuts it behind him.
+float PlayerPed::VehDoorRatio() const {
+    float r = 0.0f;
+    switch (m_vehTrans) {
+    case VehTrans::EnterOpen: r = m_vehApproach * 2.0f; break;
+    case VehTrans::EnterGetIn: r = (1.0f - m_vehFrac) / 0.35f; break;
+    case VehTrans::ExitGetOut: { const float p = 1.0f - m_vehFrac; r = std::min(p / 0.2f, (1.0f - p) / 0.3f); break; }
+    case VehTrans::None: break;
+    }
+    return r < 0.0f ? 0.0f : (r > 1.0f ? 1.0f : r);
+}
+
 void PlayerPed::CancelVehTransition() {
     if (m_vehTrans == VehTrans::None) return;
     m_vehTrans = VehTrans::None;

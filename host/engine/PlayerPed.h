@@ -171,6 +171,7 @@ public:
     float VehApproachFrac() const { return m_vehApproach; }  // 0 at CJ's start spot, 1 at the door
     float VehTransFrac() const { return m_vehFrac; }         // 0 at the door, 1 at the seat
     void VehDoorOffset(float out[2]) const { out[0] = m_vehDoor[0]; out[1] = m_vehDoor[1]; }   // seat->door, car space (x right, y fwd)
+    float VehDoorRatio() const;            // driver door CDoor::Open ratio: 0 shut, 1 open
     void SetSeat(const float pos[3], float noseYaw) { m_seatPos[0] = pos[0]; m_seatPos[1] = pos[1]; m_seatPos[2] = pos[2]; m_seatYaw = noseYaw; }
     void SeatPlacement(float out[3]) const { for (int i = 0; i < 3; i++) out[i] = m_seatPos[i]; }
     bool Driveby() const { return m_seated && m_dbClip != nullptr; }
