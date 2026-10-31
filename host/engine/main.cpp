@@ -4134,18 +4134,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     }
                     // look right / left (E / Q): a helicopter's tail rotor
                     const float skid = ((RawGameKey('E') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('Q') & 0x8000) ? 1.0f : 0.0f);
-                    if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid)))
+                    static bool s_prevGear = false;   // the pad's R3 (2): a plane's landing gear
+                    const bool gearDown = (RawGameKey('2') & 0x8000) != 0, gearJust = gearDown && !s_prevGear;
+                    s_prevGear = gearDown;
+                    if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
                                         [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
                                         [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });
                     const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
                     if (getenv("GTA_CARDBG") && frame % 10 == 0)
-                        Log("CARDBG f%d pos %.2f %.2f %.2f hdg %.1f spd %.2f km/h %.1f gear %d gas %.2f brk %.2f comp %.2f %.2f %.2f %.2f up %.2f %.2f %.2f wheels %d hp %.0f dmg %d%d%d%d%d%d/%d%d%d%d%d%d%d doors %.2f %.2f %.2f %.2f fly %zu",
+                        Log("CARDBG f%d pos %.2f %.2f %.2f hdg %.1f spd %.2f km/h %.1f gear %d gas %.2f brk %.2f comp %.2f %.2f %.2f %.2f up %.2f %.2f %.2f wheels %d hp %.0f dmg %d%d%d%d%d%d/%d%d%d%d%d%d%d doors %.2f %.2f %.2f %.2f fly %zu air gear %.2f prop %.3f rotor %.3f",
                             frame, c.x, c.y, c.z, c.heading * 57.29578f, c.speed, c.speed * 3.6f, c.phys.gear, c.phys.gas, c.phys.brake,
                             c.phys.compPrev[0], c.phys.compPrev[1], c.phys.compPrev[2], c.phys.compPrev[3], c.rot[6], c.rot[7], c.rot[8], c.phys.numContactWheels, c.health,
                             c.doorStatus[0], c.doorStatus[1], c.doorStatus[2], c.doorStatus[3], c.doorStatus[4], c.doorStatus[5],
                             c.panelStatus[0], c.panelStatus[1], c.panelStatus[2], c.panelStatus[3], c.panelStatus[4], c.panelStatus[5], c.panelStatus[6],
-                            c.doorAngle[0], c.doorAngle[1], c.doorAngle[2], c.doorAngle[3], g_vehicles.FlyingCount());
+                            c.doorAngle[0], c.doorAngle[1], c.doorAngle[2], c.doorAngle[3], g_vehicles.FlyingCount(),
+                            c.phys.gearStatus, c.phys.planePropSpeed, c.phys.rotorSpeed);
                     if (worldReady) g_world.DynVehicle(c.x, c.y, c.z, c.vx, c.vy, 1.3f, 1500.0f);
                     if (const VehicleInfo* vi = g_vehicles.Info(c.model)) {
                         const HandlingData* hd = g_vehicles.Handling(vi->handling);

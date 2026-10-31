@@ -236,8 +236,11 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             if (line == "end") { cars = false; continue; }
             if (!cars) continue;
             std::vector<std::string> f;
+            // CFileLoader::LoadLine turns commas into spaces and LoadVehicleObject sscanfs the words: the dodo's
+            // line is missing a comma and still loads
+            for (char& ch : line) if (ch == ',') ch = ' ';
             std::stringstream ss(line);
-            for (std::string s; std::getline(ss, s, ',');) f.push_back(Trim(s));
+            for (std::string s; ss >> s;) f.push_back(s);
             if (f.size() < 11) continue;   // boats stop after the flags (no wheel fields)
             VehicleInfo v;
             v.id = std::atoi(f[0].c_str());
@@ -573,14 +576,20 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         constexpr int kN = VehicleModel::kMoveNodes;
         static const char* kBikeNode[kN] = {"forks_front", "forks_rear", "handlebars", "wheel_front", "wheel_rear", "chainset", "pedal_r", "pedal_l",
                                             "boat_rudder", "boat_rearflap_left", "boat_rearflap_right", "static_prop", "moving_prop", "static_prop2", "moving_prop2",
-                                            "static_rotor", "moving_rotor", "static_rotor2", "moving_rotor2"};
+                                            "static_rotor", "moving_rotor", "static_rotor2", "moving_rotor2",
+                                            "rudder", "elevator_l", "elevator_r", "aileron_l", "aileron_r", "gear_l", "gear_r"};
         for (size_t i = 0; i < w.frames.size(); i++)
             for (int k = 0; k < kN; k++)
                 if (w.frames[i].name == kBikeNode[k]) { vm.bikeNodes[k].found = true; vm.bikeNodes[k].frame = (int)i; }
         vm.isBike = vm.bikeNodes[3].found && vm.bikeNodes[4].found;
-        for (int k = 8; k < 15; k++) vm.isBoat = vm.isBoat || vm.bikeNodes[k].found;
-        for (int k = 15; k < kN; k++) vm.isHeli = vm.isHeli || vm.bikeNodes[k].found;
-        for (int k = 0; k < kN && (vm.isBike || vm.isBoat || vm.isHeli); k++) {
+        {
+            std::string t = vm.info.type;
+            for (char& ch : t) ch = (char)std::tolower((unsigned char)ch);
+            vm.isPlane = t == "plane";
+        }
+        for (int k = 8; k < 15 && !vm.isPlane; k++) vm.isBoat = vm.isBoat || vm.bikeNodes[k].found;
+        for (int k = 15; k < 19; k++) vm.isHeli = vm.isHeli || vm.bikeNodes[k].found;
+        for (int k = 0; k < kN && (vm.isBike || vm.isBoat || vm.isHeli || vm.isPlane); k++) {
             VehicleModel::BikeNode& bn = vm.bikeNodes[k];
             if (!bn.found) continue;
             FrameMatrix(w.frames[(size_t)bn.frame].m, bn.local);
@@ -685,7 +694,7 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             }
             if (f == vm.doors[k].frame && f != fr) { p.door = k; std::memcpy(p.doorLocal, rel, sizeof(rel)); }
         }
-        for (int k = 0; k < 5 && fr >= 0 && (vm.isBike || vm.isBoat || vm.isHeli) && p.bikeNode < 0; k++) {   // under a bike's, boat's or heli's moving frame (the nearest)
+        for (int k = 0; k < 5 && fr >= 0 && (vm.isBike || vm.isBoat || vm.isHeli || vm.isPlane) && p.bikeNode < 0; k++) {   // under a moving frame (the nearest)
             float rel[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             int f = fr;
             bool hit = false;
@@ -821,6 +830,7 @@ void Vehicles::Draw(D3DRenderer& r) {
         if (vm.isBike) BikeFrameMatrices(c, vm, bikeNodes);   // CBike::PreRender
         else if (vm.isBoat) BoatFrameMatrices(c, vm, bikeNodes);   // CBoat::PreRender
         else if (vm.isHeli) HeliFrameMatrices(c, vm, bikeNodes);   // CHeli::PreRender
+        else if (vm.isPlane) PlaneFrameMatrices(c, vm, bikeNodes);   // CPlane::PreRender
         // CBoat::PreRender fades the still propellers out and the blurred ones in as they spin up
         const float propSpeed = std::min(1.0f, c.phys.engineSpeed * (32.0f / 6.2831855f));
         D3DMATRIX out;
@@ -842,7 +852,8 @@ void Vehicles::Draw(D3DRenderer& r) {
             if (vm.isBoat && (p.bikeNode == 11 || p.bikeNode == 13) && propSpeed >= 0.6f) continue;
             if (vm.isBoat && (p.bikeNode == 12 || p.bikeNode == 14) && propSpeed < 0.6f) continue;
             if (vm.isHeli && (p.bikeNode == 16 || p.bikeNode == 18)) continue;   // CHeli::Render: the blurred rotors at alpha 0
-            if ((vm.isBike || vm.isBoat || vm.isHeli) && p.bikeNode >= 0) Mul(p.bikeLocal, bikeNodes[p.bikeNode], pc);
+            if (vm.isPlane && (p.bikeNode == 12 || p.bikeNode == 14)) continue;   // CPlane::PreRender: likewise the propellers
+            if ((vm.isBike || vm.isBoat || vm.isHeli || vm.isPlane) && p.bikeNode >= 0) Mul(p.bikeLocal, bikeNodes[p.bikeNode], pc);
             else PartToCar(c, vm, p, pc);
             Mul(pc, body, &out._11);
             dev->SetTransform(D3DTS_WORLD, &out);
