@@ -850,6 +850,12 @@ bool Vehicles::ColBounds(size_t i, float mn[3], float mx[3]) const {
     return true;
 }
 
+void Vehicles::Frame(size_t i, float r[3], float f[3], float u[3]) const {
+    V3 a(1, 0, 0), b(0, 1, 0), c(0, 0, 1);
+    if (i < m_cars.size()) CarFrame(m_cars[i], a, b, c);
+    r[0] = a.x; r[1] = a.y; r[2] = a.z; f[0] = b.x; f[1] = b.y; f[2] = b.z; u[0] = c.x; u[1] = c.y; u[2] = c.z;
+}
+
 bool Vehicles::BurstTyre(size_t i, int wheel) {
     if (i >= m_cars.size() || wheel < 0 || wheel > 3) return false;
     VehicleInstance& c = m_cars[i];

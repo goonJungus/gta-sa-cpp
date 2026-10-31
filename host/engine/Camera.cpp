@@ -235,3 +235,187 @@ PlayerCamera::Output PlayerCamera::Update(const Input& in) {
     out.nearClip = kNearClip;
     return out;
 }
+
+namespace {
+
+constexpr float kPi = 3.14159265f;
+
+// CARCAM_SET (0x8cc600), one row per CarCamera::Kind: [0] height mult, [1] base distance, [2] height
+// offset, [3] min distance mult, [4] lag distance, [5] alpha ease (pow per step), [6] max alpha step,
+// [7] -, [8] speed damping (pow per step), [9] max beta / alpha speed, [10] swing per side speed,
+// [11] max swing per step, [12] pad input scale, [13] max up angle, [14] max down angle.
+constexpr float kCarCamSet[6][15] = {
+    {1.3f, 1.0f, 0.4f, 10.0f, 15.0f, 0.5f, 1.0f, 1.0f, 0.85f, 0.2f, 0.075f, 0.05f, 0.8f, 0.785398f, 1.55334f},
+    {1.1f, 1.0f, 0.1f, 10.0f, 11.0f, 0.5f, 1.0f, 1.0f, 0.85f, 0.2f, 0.075f, 0.05f, 0.75f, 0.785398f, 1.55334f},
+    {1.1f, 1.0f, 0.2f, 10.0f, 15.0f, 0.05f, 0.05f, 0.0f, 0.9f, 0.05f, 0.01f, 0.05f, 1.0f, 0.174533f, 1.22173f},
+    {1.1f, 3.5f, 0.2f, 10.0f, 25.0f, 0.5f, 1.0f, 1.0f, 0.75f, 0.1f, 0.005f, 0.2f, 1.0f, 1.55334f, 1.55334f},
+    {1.3f, 1.0f, 0.4f, 10.0f, 15.0f, 0.5f, 1.0f, 0.0f, 0.9f, 0.05f, 0.005f, 0.05f, 1.0f, 0.349066f, 1.22173f},
+    {1.1f, 1.0f, 0.2f, 10.0f, 5.0f, 0.5f, 1.0f, 1.0f, 0.75f, 0.1f, 0.005f, 0.2f, 1.0f, 0.785398f, 1.55334f},
+};
+// CCamera::CamControl car zoom per m_nCarZoom 1..3 and arrPos (0x8cc3e0 / 0x8cc3f4 / 0x8cc408).
+constexpr float kCarZoom[3][5] = {{-1.0f, -0.2f, -3.2f, 0.05f, -2.41f}, {1.0f, 1.4f, 0.65f, 1.9f, 6.49f}, {6.0f, 6.0f, 15.9f, 15.9f, 15.0f}};
+// ZmOne / ZmTwo / ZmThree alpha offsets (0x8cc41c / 0x8cc430 / 0x8cc444): how far the view looks down.
+constexpr float kCarZoomAlpha[3][5] = {{0.08f, 0.08f, 0.15f, 0.08f, 0.08f}, {0.07f, 0.08f, 0.3f, 0.08f, 0.08f}, {0.055f, 0.05f, 0.15f, 0.06f, 0.08f}};
+
+void FrontOf(float beta, float alpha, float f[3]) {
+    const float ca = std::cos(alpha);
+    f[0] = -std::cos(beta) * ca; f[1] = -std::sin(beta) * ca; f[2] = std::sin(alpha);
+}
+float WrapNear(float a, float ref) {
+    if (a > ref + kPi) a -= 2.0f * kPi; else if (a < ref - kPi) a += 2.0f * kPi;
+    return a;
+}
+
+}  // namespace
+
+PlayerCamera::Output CarCamera::Update(const Input& in) {
+    PlayerCamera::Output out;
+    const float ts = in.dt * 50.0f;
+    const float* s = kCarCamSet[std::clamp(in.kind, 0, 5)];
+    const int ap = std::clamp(in.arrPos, 0, 4), zi = std::clamp(m_zoom, 1, 3) - 1;
+    float T[3] = {in.pos[0], in.pos[1], in.pos[2]};
+
+    // CCamera::CamControl: the zoom eases 0.12 per step.
+    const float zoomBase = kCarZoom[zi][ap];
+    if (m_zoomSmoothed < -1e8f) m_zoomSmoothed = zoomBase;
+    else m_zoomSmoothed = m_zoomSmoothed < zoomBase ? std::min(zoomBase, m_zoomSmoothed + 0.12f * ts) : std::max(zoomBase, m_zoomSmoothed - 0.12f * ts);
+    float dist = m_zoomSmoothed + s[1] + 2.0f * std::fabs(in.colMin[1]);
+    float alphaOff = kCarZoomAlpha[zi][ap];
+    const float height = in.colMax[2];
+    if (in.kind == kHeli) {   // a helicopter is looked at from above its rotor
+        for (int k = 0; k < 3; k++) T[k] += 0.6f * in.up[k] * height;
+    } else {
+        const float lift = height * s[0] - s[2];   // tall vehicles: look at a higher point from further back
+        if (lift > 0.0f) { T[2] += lift; dist += lift; alphaOff += 0.3f / dist * lift; }
+    }
+    float lag = s[4];
+    if (m_zoom == 1 && (in.kind == kCar || in.kind == kBike)) lag *= 0.65f;
+    lag = std::max(lag, dist);
+
+    // FOV: widens past 0.4 m per step forwards, relaxing back at pow(0.98, ts).
+    const float fwdSpeed = in.mv[0] * in.fwd[0] + in.mv[1] * in.fwd[1] + in.mv[2] * in.fwd[2];
+    if (in.reset) m_fov = 70.0f;
+    else {
+        if ((in.kind == kCar || in.kind == kBike) && fwdSpeed > 0.4f) m_fov += (fwdSpeed - 0.4f) * ts;
+        if (m_fov > 70.0f) m_fov = (m_fov - 70.0f) * std::pow(0.98f, ts) + 70.0f;
+        m_fov = std::clamp(m_fov, 70.0f, 100.0f);
+    }
+    const float heading = std::atan2(-in.fwd[0], in.fwd[1]);
+    if (in.reset) {
+        m_beta = heading - 0.5f * kPi;
+        m_betaSpeed = m_alphaSpeed = 0.0f;
+        float f[3];
+        FrontOf(m_beta, 0.0f, f);
+        for (int k = 0; k < 3; k++) { m_hist[0][k] = T[k] - lag * f[k]; m_hist[1][k] = T[k] - dist * f[k]; }
+        m_alpha = -alphaOff;
+        m_mouseHold = 0.0f;
+        m_colDist = -1.0f;
+    }
+
+    // The view from the lag point decides where the camera wants to be.
+    float front[3] = {T[0] - m_hist[0][0], T[1] - m_hist[0][1], T[2] - m_hist[0][2]};
+    {
+        const float l = std::sqrt(front[0] * front[0] + front[1] * front[1] + front[2] * front[2]);
+        if (l > 1e-5f) for (float& v : front) v /= l; else FrontOf(m_beta, m_alpha, front);
+    }
+    const float h1[3] = {T[0] - m_hist[1][0], T[1] - m_hist[1][1], T[2] - m_hist[1][2]};
+    const float hist1Dist = std::sqrt(h1[0] * h1[0] + h1[1] * h1[1] + h1[2] * h1[2]);
+    float cur = std::atan2(-front[0], front[1]) - 0.5f * kPi;
+    if (cur < -kPi) cur += 2.0f * kPi;
+    float want = cur;
+    if (std::sqrt(in.mv[0] * in.mv[0] + in.mv[1] * in.mv[1]) > 0.02f) want = std::atan2(-in.mv[0], in.mv[1]) - 0.5f * kPi;
+    want = WrapNear(want, cur);
+    // Swing behind the travel direction, faster the more the vehicle moves across the view.
+    const float along = in.mv[0] * front[0] + in.mv[1] * front[1] + in.mv[2] * front[2];
+    const float perp[3] = {in.mv[0] - along * front[0], in.mv[1] - along * front[1], in.mv[2] - along * front[2]};
+    const float swingF = std::min(1.0f, ts * s[10] * std::sqrt(perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]));
+    const float swingMax = ts * s[11];
+    const float nb = WrapNear(cur + std::clamp((want - cur) * swingF, -swingMax, swingMax), m_beta);
+    const float betaTarget = (nb - m_beta) / std::max(ts, 1.0f);
+
+    // Vertical: follow the lag point's slope, looking down by the zoom's alpha offset.
+    float alphaTarget = std::asin(std::clamp(front[2], -1.0f, 1.0f)) - alphaOff;
+    float maxUp = s[13];
+    const float mv2 = in.mv[0] * in.mv[0] + in.mv[1] * in.mv[1] + in.mv[2] * in.mv[2];
+    const bool grounded = in.kind == kBike ? in.wheelsOnGround > 3 : in.kind == kPlane ? in.wheelsOnGround > 0 : in.kind != kHeli;
+    if (mv2 < 0.04f && grounded) {   // slow: never look up from under the edge of the vehicle
+        float side[3] = {in.fwd[1], -in.fwd[0], 0.0f};
+        const float sl = std::sqrt(side[0] * side[0] + side[1] * side[1]);
+        if (sl > 1e-5f) { side[0] /= sl; side[1] /= sl; }
+        float upv[3] = {side[1] * in.fwd[2] - side[2] * in.fwd[1], side[2] * in.fwd[0] - side[0] * in.fwd[2], side[0] * in.fwd[1] - side[1] * in.fwd[0]};
+        const float ul = std::sqrt(upv[0] * upv[0] + upv[1] * upv[1] + upv[2] * upv[2]);
+        if (ul > 1e-5f) for (float& v : upv) v /= ul;
+        if (upv[0] * front[0] + upv[1] * front[1] + upv[2] * front[2] > 0.0f) {
+            const float hgt = (T[2] - in.pos[2]) - in.colMin[2];   // plus the height above the road
+            const float rel = m_beta - (heading - 0.5f * kPi);
+            const float a = std::asin(std::fabs(std::sin(rel)));
+            const float edge = a <= std::atan2(in.colMax[0], -in.colMin[1]) ? (1.5f - in.colMin[1]) / std::cos(a)
+                                                                              : (1.2f + in.colMax[0]) / std::cos(0.5f * kPi - a);
+            maxUp = std::atan2(hgt, edge * 1.2f) + std::atan2(in.fwd[2], std::sqrt(in.fwd[0] * in.fwd[0] + in.fwd[1] * in.fwd[1])) * std::cos(rel);
+            const float spin = in.tv[0] * in.fwd[0] + in.tv[1] * in.fwd[1] + in.tv[2] * in.fwd[2];
+            if (in.kind == kCar && in.wheelsOnGround > 1 && std::fabs(spin) < 0.05f)
+                maxUp += std::atan2(in.right[2], std::sqrt(in.right[0] * in.right[0] + in.right[1] * in.right[1])) * std::cos(rel + 0.5f * kPi);
+        }
+    }
+    maxUp = std::max(maxUp, -s[14]);
+    alphaTarget = std::clamp(alphaTarget, -s[14], maxUp);
+    const float alphaStepMax = ts * s[6];
+    const float alphaStep = std::clamp((alphaTarget - m_alpha) * (1.0f - std::pow(s[5], ts)), -alphaStepMax, alphaStepMax);
+
+    // Mouse look moves the angles itself and keeps control for 50 steps after it stops.
+    float padBeta = 0.0f, padAlpha = 0.0f;
+    bool mouse = false;
+    if (in.lookYaw != 0.0f || in.lookPitch != 0.0f) {
+        padBeta = in.lookYaw; padAlpha = in.lookPitch;
+        m_betaSpeed = m_alphaSpeed = 0.0f;
+        alphaTarget = m_alpha;
+        m_mouseHold = 50.0f;
+        mouse = true;
+    } else if (m_mouseHold > 0.0f) {
+        m_betaSpeed = m_alphaSpeed = 0.0f;
+        alphaTarget = m_alpha;
+        m_mouseHold = std::max(0.0f, m_mouseHold - ts);
+        mouse = true;
+    }
+    const float damp = std::pow(s[8], ts);
+    const float bTarget = std::clamp(betaTarget, -s[9], s[9]);
+    m_betaSpeed = damp * m_betaSpeed + (1.0f - damp) * bTarget;
+    if (std::fabs(m_betaSpeed) < 1e-4f) m_betaSpeed = 0.0f;
+    m_beta += mouse ? padBeta : ts * m_betaSpeed;
+    while (m_beta > kPi) m_beta -= 2.0f * kPi;   // ClipBeta
+    while (m_beta < -kPi) m_beta += 2.0f * kPi;
+
+    if (!mouse && in.kind <= kBike && alphaTarget < m_alpha && dist <= hist1Dist && in.wheelsOnGround > 1)
+        padAlpha += (alphaTarget - m_alpha) * 0.075f;   // settle down onto the slope
+    m_alphaSpeed = damp * m_alphaSpeed + (1.0f - damp) * padAlpha;
+    const float aMax = padAlpha > 0.0f ? s[9] * 0.5f : s[9];
+    m_alphaSpeed = std::clamp(m_alphaSpeed, -aMax, aMax);
+    if (std::fabs(m_alphaSpeed) < 1e-4f) m_alphaSpeed = 0.0f;
+    if (mouse) { alphaTarget += padAlpha; m_alpha += padAlpha; }
+    else { alphaTarget += ts * m_alphaSpeed; m_alpha += alphaStep; }
+    if (m_alpha > maxUp) { m_alpha = maxUp; m_alphaSpeed = 0.0f; }
+    else if (m_alpha < -s[14]) { m_alpha = -s[14]; m_alphaSpeed = 0.0f; }
+
+    FrontOf(m_beta, m_alpha, out.dir);
+    float eye[3];
+    for (int k = 0; k < 3; k++) eye[k] = T[k] - dist * out.dir[k];
+    {
+        float hd[3];
+        FrontOf(m_beta, alphaTarget + alphaOff, hd);
+        for (int k = 0; k < 3; k++) { m_hist[0][k] = T[k] - lag * hd[k]; m_hist[1][k] = T[k] - dist * hd[k]; }
+    }
+
+    // CCamera::CameraColDetAndReact: pulled in at once in front of what is hit, easing back out.
+    float allowed = dist;
+    if (in.ray) {
+        const float f = in.ray(T, eye);
+        if (f < 1.0f) allowed = std::max(0.3f, f * dist - 0.3f);
+    }
+    if (m_colDist < 0.0f || allowed < m_colDist) m_colDist = allowed;
+    else m_colDist += Approach(4.0f, in.dt) * (allowed - m_colDist);
+    const float use = std::min(m_colDist, dist);
+    for (int k = 0; k < 3; k++) out.eye[k] = T[k] - use * out.dir[k];
+    out.nearClip = use < 3.0f ? 0.15f : 0.5f;   // CCamera::ImproveNearClip
+    out.fovScale = std::tan(m_fov * 0.5f * kPi / 180.0f) / std::tan(35.0f * kPi / 180.0f);
+    return out;
+}

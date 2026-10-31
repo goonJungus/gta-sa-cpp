@@ -241,6 +241,8 @@ public:
     void PedHitReaction(size_t i, const float pedCentre[3], bool overBonnet);
     // The car's COL bounding box in car space (the body extents when the model has no COL).
     bool ColBounds(size_t i, float mn[3], float mx[3]) const;
+    // The car's matrix: right, forward and up.
+    void Frame(size_t i, float r[3], float f[3], float u[3]) const;
     // The nearest car within `range` metres of a point, or -1.
     // Ray against the car bodies; returns the car index or -1, *t is the distance along dir.
     // With tyre, the tyres count too (CWorld::bIncludeCarTyres): *tyre is the eCarWheel struck, else -1.

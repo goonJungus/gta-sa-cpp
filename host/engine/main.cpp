@@ -102,6 +102,9 @@ static TimeCycleHour g_tcNow;  // this frame's timecyc sample
 static bool g_startThirdPerson = false;   // --third
 static CameraShake g_shake;
 PlayerCamera g_playerCam;          // on-foot camera views (V)
+CarCamera g_carCam;                // in-vehicle chase camera (V zooms)
+static int g_carCamCar = -1;       // the car g_carCam last followed
+static float g_carCamYaw = 0.0f, g_carCamPitch = 0.0f;   // the view it handed back
 static bool g_hideCjHead = false;         // first-person view
 static float g_nearClip = 0.5f;
 static float g_fovDeg = 70.0f;           // vertical FOV in use (rewrite can change it)
@@ -4085,8 +4088,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             const int camStyle = g_menu.Settings().cameraStyle;
             bool vDown = (GameKey('V') & 0x8000) != 0;
             if (vDown && !prevV) {
-                g_playerCam.Cycle();
-                Log("CAMERA: %s", PlayerCamera::ViewName(camStyle, g_playerCam.View()));
+                if (g_driveCar >= 0) { g_carCam.Cycle(); Log("CAMERA: car zoom %d", g_carCam.Zoom()); }
+                else {
+                    g_playerCam.Cycle();
+                    Log("CAMERA: %s", PlayerCamera::ViewName(camStyle, g_playerCam.View()));
+                }
             }
             prevV = vDown;
 
@@ -4095,7 +4101,52 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             float dirX = cosf(yaw) * cp, dirY = sinf(yaw) * cp, dirZ = sp;
             g_hideCjHead = false;
             float nearClip = 0.5f;
-            if (cjReady && !scripted && !flyover) {
+            if (g_driveCar < 0) g_carCamCar = -1;
+            if (cjReady && !scripted && !flyover && g_driveCar >= 0) {   // CCam::Process_FollowCar_SA
+                const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
+                CarCamera::Input ki;
+                ki.dt = dt;
+                const VehicleInfo* vi = g_vehicles.Info(c.model);
+                const std::string vt = vi ? vi->type : "car";
+                if (c.model == 441 || c.model == 464 || c.model == 564 || c.model == 594) ki.kind = CarCamera::kRc;
+                else if (vt == "bike" || vt == "bmx") { ki.kind = CarCamera::kBike; ki.arrPos = 1; }
+                else if (vt == "quad") ki.kind = CarCamera::kBike;
+                else if (vt == "heli") { ki.kind = CarCamera::kHeli; ki.arrPos = 2; }
+                else if (vt == "plane") { ki.kind = CarCamera::kPlane; ki.arrPos = 4; }
+                else if (vt == "boat") { ki.kind = CarCamera::kBoat; ki.arrPos = 3; }
+                ki.pos[0] = c.x; ki.pos[1] = c.y; ki.pos[2] = c.z;
+                g_vehicles.Frame((size_t)g_driveCar, ki.right, ki.fwd, ki.up);
+                if (c.phys.active) for (int k = 0; k < 3; k++) { ki.mv[k] = c.phys.mv[k]; ki.tv[k] = c.phys.tv[k]; }
+                else { ki.mv[0] = c.vx / 50.0f; ki.mv[1] = c.vy / 50.0f; }
+                g_vehicles.ColBounds((size_t)g_driveCar, ki.colMin, ki.colMax);
+                ki.wheelsOnGround = c.phys.active ? c.phys.numContactWheels : 4;
+                ki.reset = g_carCamCar != g_driveCar;
+                if (!ki.reset) {   // what the mouse / stick did to the view this frame
+                    float dy = yaw - g_carCamYaw;
+                    while (dy > 3.14159265f) dy -= 6.2831853f;
+                    while (dy < -3.14159265f) dy += 6.2831853f;
+                    ki.lookYaw = std::fabs(dy) > 1e-6f ? dy : 0.0f;
+                    ki.lookPitch = std::fabs(pitch - g_carCamPitch) > 1e-6f ? pitch - g_carCamPitch : 0.0f;
+                }
+                if (worldReady && !g_devNoClip)
+                    ki.ray = [](const float a[3], const float b[3]) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]); };
+                const PlayerCamera::Output co = g_carCam.Update(ki);
+                g_carCamCar = g_driveCar;
+                yaw = g_carCam.Yaw(); pitch = std::clamp(g_carCam.Pitch(), -1.5f, 1.5f);
+                while (yaw > 3.14159265f) yaw -= 6.28318531f;
+                while (yaw < -3.14159265f) yaw += 6.28318531f;
+                g_carCamYaw = yaw; g_carCamPitch = pitch;
+                g_camFovScale = co.fovScale;
+                if (getenv("GTA_CAMDBG") && frame % 10 == 0)
+                    Log("CARCAM f%d zoom %d eye %.2f %.2f %.2f dir %.2f %.2f %.2f yaw %.1f car %.1f fovScale %.3f", frame, g_carCam.Zoom(), co.eye[0], co.eye[1], co.eye[2],
+                        co.dir[0], co.dir[1], co.dir[2], yaw * 57.29578f, c.heading * 57.29578f, co.fovScale);
+                D3DMATRIX view = MatrixLookAt(co.eye[0], co.eye[1], co.eye[2], co.eye[0] + co.dir[0], co.eye[1] + co.dir[1], co.eye[2] + co.dir[2], 0, 0, 1);
+                g_renderer.SetViewMatrix(view);
+                g_lastView = view;
+                camPosX = co.eye[0]; camPosY = co.eye[1]; camPosZ = co.eye[2];
+                for (int i = 0; i < 3; i++) { g_aimEye[i] = co.eye[i]; g_aimDir[i] = co.dir[i]; }
+                nearClip = co.nearClip;
+            } else if (cjReady && !scripted && !flyover) {
                 PlayerCamera::Input ci;
                 ci.dt = dt;
                 ci.style = camStyle;
@@ -4248,8 +4299,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
             float wantFov = (g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f) + s_fovKick;
             if (scmRun && g_sg.cam.active && g_sg.cam.cutscene && g_sg.cam.fov > 1.0f) wantFov = g_sg.cam.fov;   // the cutscene's own FOV
-            if (g_camFovScale != 1.0f)   // the aim camera's weapon zoom
-                wantFov = 2.0f * atanf(tanf(wantFov * 3.14159265f / 360.0f) * g_camFovScale) * 360.0f / 3.14159265f;
+            if (g_camFovScale != 1.0f)   // the aim camera's weapon zoom, the car camera's speed widening
+                wantFov = 2.0f * atanf(tanf(wantFov * 3.14159265f / 360.0f) * g_camFovScale) * 180.0f / 3.14159265f;
             if (nearClip != g_nearClip || wantFov != g_fovDeg) {   // first person needs a near plane at the eyes
                 g_nearClip = nearClip;
                 g_fovDeg = wantFov;

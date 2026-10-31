@@ -81,3 +81,50 @@ private:
     float m_eyeZ = 0.0f;
     bool m_eyeValid = false;
 };
+
+// In-vehicle chase camera, CCam::Process_FollowCar_SA. It looks at the vehicle
+// from the zoom distance (CCamera::m_fCarZoomSmoothed + CARCAM_SET + twice the
+// COL box's rear length) and swings in behind the direction of travel: a lag
+// point 15 m back along last frame's view stands in for the camera history, and
+// the beta / alpha speeds chase it (CARCAM_SET rates, damped by pow(0.85, ts)).
+// Mouse look moves the angles directly and holds them for a second. Fast
+// driving widens the FOV up to 100 degrees.
+class CarCamera {
+public:
+    // CARCAM_SET rows (0x8cc600).
+    enum Kind { kCar = 0, kBike = 1, kHeli = 2, kPlane = 3, kBoat = 4, kRc = 5 };
+
+    struct Input {
+        float dt = 0.0f;
+        int kind = kCar;
+        int arrPos = 0;                 // CCamera::GetArrPosForVehicleType: 0 car, 1 bike, 2 heli, 3 boat, 4 plane
+        float pos[3] = {0, 0, 0};       // the vehicle
+        float right[3] = {1, 0, 0}, fwd[3] = {0, 1, 0}, up[3] = {0, 0, 1};
+        float mv[3] = {0, 0, 0};        // m_vecMoveSpeed, metres per 1/50 s
+        float tv[3] = {0, 0, 0};        // m_vecTurnSpeed
+        float colMin[3] = {-1, -2.5f, -0.5f}, colMax[3] = {1, 2.5f, 1};   // COL bounding box
+        int wheelsOnGround = 4;
+        float lookYaw = 0.0f, lookPitch = 0.0f;   // mouse / stick look this frame (radians)
+        bool reset = false;                       // just got in: start behind the vehicle
+        std::function<float(const float a[3], const float b[3])> ray;
+    };
+
+    // V: zoom 1 -> 2 -> 3 (CCamera::m_nCarZoom).
+    void Cycle() { m_zoom = m_zoom % 3 + 1; }
+    int Zoom() const { return m_zoom; }
+
+    PlayerCamera::Output Update(const Input& in);
+    // The view as yaw / pitch (the on-foot convention), for whoever takes over next.
+    float Yaw() const { return m_beta + 3.14159265f; }
+    float Pitch() const { return m_alpha; }
+
+private:
+    int m_zoom = 2;                     // CCamera::m_nCarZoom
+    float m_zoomSmoothed = -1e9f;       // m_fCarZoomSmoothed
+    float m_beta = 0.0f, m_alpha = 0.0f;           // m_fHorizontalAngle / m_fVerticalAngle
+    float m_betaSpeed = 0.0f, m_alphaSpeed = 0.0f;
+    float m_fov = 70.0f;
+    float m_hist[2][3] = {};            // m_avecTargetHistoryPos[0] (lag point), [1] (camera distance)
+    float m_mouseHold = 0.0f;           // timesteps the mouse keeps control (0xb70118)
+    float m_colDist = -1.0f;
+};
