@@ -416,6 +416,27 @@ PlayerCamera::Output CarCamera::Update(const Input& in) {
     const float use = std::min(m_colDist, dist);
     for (int k = 0; k < 3; k++) out.eye[k] = T[k] - use * out.dir[k];
     out.nearClip = use < 3.0f ? 0.15f : 0.5f;   // CCamera::ImproveNearClip
+    if (in.look != kLookAhead) {   // the follow camera keeps running underneath; these only move the view
+        float src[3], from[3] = {T[0], T[1], T[2]};
+        if (in.look == kLookBehind) {   // CCam::LookBehind: 15.5 m out in front, a little above
+            for (int k = 0; k < 3; k++) src[k] = T[k] + 15.5f * (in.fwd[k] + (k == 2 ? 0.2f : 0.0f));
+        } else {   // CCam::LookLeft / LookRight: 9 m to the other side at the follow height
+            const bool right = in.look == kLookRight;
+            const float a = std::atan2(in.fwd[1], in.fwd[0]) + (right ? 0.5f : -0.5f) * kPi;
+            src[0] = in.pos[0] + 9.0f * std::cos(a); src[1] = in.pos[1] + 9.0f * std::sin(a);
+            const float top = in.pos[2] + (right ? in.colMin[0] : in.colMax[0]) * in.right[2] + in.colMax[2] * in.up[2] + 0.1f;
+            src[2] = std::max(out.eye[2], top);
+            for (int k = 0; k < 3; k++) from[k] = in.pos[k];
+        }
+        if (in.ray) {   // CameraColDetAndReact
+            const float f = in.ray(from, src);
+            if (f < 1.0f) for (int k = 0; k < 3; k++) src[k] = from[k] + (src[k] - from[k]) * std::max(0.05f, f - 0.05f);
+        }
+        float d[3] = {in.pos[0] - src[0], in.pos[1] - src[1], in.pos[2] - src[2]};
+        const float l = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (l > 1e-4f) for (int k = 0; k < 3; k++) { out.dir[k] = d[k] / l; out.eye[k] = src[k]; }
+        out.nearClip = 0.15f;
+    }
     out.fovScale = std::tan(m_fov * 0.5f * kPi / 180.0f) / std::tan(35.0f * kPi / 180.0f);
     return out;
 }

@@ -88,11 +88,13 @@ private:
 // point 15 m back along last frame's view stands in for the camera history, and
 // the beta / alpha speeds chase it (CARCAM_SET rates, damped by pow(0.85, ts)).
 // Mouse look moves the angles directly and holds them for a second. Fast
-// driving widens the FOV up to 100 degrees.
+// driving widens the FOV up to 100 degrees. Looking left / right / behind
+// puts the camera 9 m to the side or 15.5 m in front for as long as it is held.
 class CarCamera {
 public:
     // CARCAM_SET rows (0x8cc600).
     enum Kind { kCar = 0, kBike = 1, kHeli = 2, kPlane = 3, kBoat = 4, kRc = 5 };
+    enum Look { kLookAhead = 0, kLookLeft, kLookRight, kLookBehind };
 
     struct Input {
         float dt = 0.0f;
@@ -106,6 +108,7 @@ public:
         int wheelsOnGround = 4;
         float lookYaw = 0.0f, lookPitch = 0.0f;   // mouse / stick look this frame (radians)
         bool reset = false;                       // just got in: start behind the vehicle
+        int look = kLookAhead;                    // CCam::LookLeft / LookRight / LookBehind
         std::function<float(const float a[3], const float b[3])> ray;
     };
 

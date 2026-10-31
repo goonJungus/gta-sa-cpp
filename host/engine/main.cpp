@@ -3432,14 +3432,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const bool eKey = (GameKey('E') & 0x8000) != 0, qKey = (GameKey('Q') & 0x8000) != 0;
                         if (eKey && !s_prevE) g_cj.NextGun();
                         if (qKey && !s_prevQ) g_cj.PrevGun();
-                        if (!g_wheelOpen) {
+                        if (!g_wheelOpen && g_driveCar < 0) {   // in a car the wheel tunes the radio
                             for (; g_wheelSteps < 0; g_wheelSteps++) g_cj.NextGun();
                             for (; g_wheelSteps > 0; g_wheelSteps--) g_cj.PrevGun();
                         }
                         s_prevE = eKey; s_prevQ = qKey;
                     }
                     const int s_wheelNotch = g_wheelOpen ? g_wheelSteps : 0;   // the open wheel scrolls inside a category
-                    g_wheelSteps = 0;   // unused notches never pile up
+                    if (g_driveCar < 0) g_wheelSteps = 0;   // unused notches never pile up
                     // Q: a tap cycles the guns, holding it brings up the weapon wheel.
                     static float s_qHeld = 0.0f;
                     if (nextKey) {
@@ -4012,14 +4012,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     }
                 }
                 if (g_driveCar >= 0 && !g_menu.IsOpen()) {
-                    static bool s_prevQ = false, s_prevE = false;   // Q and E change the radio station
-                    const bool qd = (RawGameKey('Q') & 0x8000) != 0, ed = (RawGameKey('E') & 0x8000) != 0;
-                    if ((qd && !s_prevQ) || (ed && !s_prevE)) {
-                        g_radio.Step(ed && !s_prevE ? 1 : -1);
+                    if (g_wheelSteps) {   // the mouse wheel changes the radio station (up: next)
+                        g_radio.Step(g_wheelSteps > 0 ? 1 : -1);
+                        g_wheelSteps = 0;
                         g_radioStation = g_radio.Station();
                         if (g_hudReady) g_hud.ShowMessage(g_radio.StationName(g_radioStation), 2.5f);
                     }
-                    s_prevQ = qd; s_prevE = ed;
                     const float th = (RawGameKey('W') & 0x8000) ? 1.0f : 0.0f;
                     const float br = (RawGameKey('S') & 0x8000) ? 1.0f : 0.0f;
                     const float st = ((RawGameKey('D') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('A') & 0x8000) ? 1.0f : 0.0f);
@@ -4121,6 +4119,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_vehicles.ColBounds((size_t)g_driveCar, ki.colMin, ki.colMax);
                 ki.wheelsOnGround = c.phys.active ? c.phys.numContactWheels : 4;
                 ki.reset = g_carCamCar != g_driveCar;
+                if (!g_menu.IsOpen()) {   // Q / E look left / right, both or the middle button look behind
+                    const bool ql = (RawGameKey('Q') & 0x8000) != 0, er = (RawGameKey('E') & 0x8000) != 0;
+                    ki.look = (ql && er) || (RawGameKey(VK_MBUTTON) & 0x8000) ? CarCamera::kLookBehind : ql ? CarCamera::kLookLeft : er ? CarCamera::kLookRight : CarCamera::kLookAhead;
+                }
                 if (!ki.reset) {   // what the mouse / stick did to the view this frame
                     float dy = yaw - g_carCamYaw;
                     while (dy > 3.14159265f) dy -= 6.2831853f;
