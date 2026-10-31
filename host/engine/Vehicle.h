@@ -146,7 +146,9 @@ struct VehicleModel {
     // 24 gear_l, 25 gear_r (ePlaneNodes 16..22)
     static constexpr int kMoveNodes = 26;
     BikeNode bikeNodes[kMoveNodes];
-    bool isBike = false, isBoat = false, isHeli = false, isPlane = false;
+    bool isBike = false, isBoat = false, isHeli = false, isPlane = false, isTrailer = false;
+    float hookup[3] = {0, 0, 0};      // the hookup dummy (DUMMY_TRAILER_ATTACH): where a trailer hangs on its tractor
+    bool hookupFound = false;
     float swingArmLength = 0.0f;      // CBike::m_fSwingArmLength: forks_rear to the rear wheel
     // The DFF's own collision model (CColModel): body spheres and boxes, and its bounding box.
     // piece: the car part the surface belongs to (eVehicleCollisionComponent: 1 bonnet, 2 boot, 3 front bumper,
@@ -167,6 +169,12 @@ struct VehicleModel {
     float suspStart[4][3] = {}, suspEnd[4][3] = {};
     float suspSpring[4] = {}, suspLine[4] = {};   // m_aSuspensionSpringLength / m_aSuspensionLineLength
     float wheelSize[4] = {0.7f, 0.7f, 0.7f, 0.7f};   // GetSizeOfWheel: tyre diameter
+    float frontHeight = 0.0f;         // m_fFrontHeightAboveRoad: the body origin over the road at rest
+    // CTrailer::SetupSuspensionLines: two support legs at the nose (lines from the box's top front corners down),
+    // and misc_a's height (m_fHeight), the legs' frame drawn no higher than it was modelled
+    bool trailerLegs = false;
+    float supportStart[2][3] = {}, supportEnd[2][3] = {};
+    float legHeight = 0.0f;
     bool suspReady = false;
 };
 
@@ -229,6 +237,12 @@ struct CarPhys {
     // landing gear key this frame (the pad's R3)
     float planePropSpeed = 0.0f, gearStatus = 0.0f;
     bool inGear = false;
+    float inGunUpDown = 0.0f;         // the pad's special control up (+1) / down (-1): a tow truck's hoist
+    // CTrailer: the legs' extension (m_fTrailerTowedRatio: 1 down, 0 wound up), the least of it that holds
+    // (m_fTrailerTowedRatio2) and each leg line's hit (m_supportRatios, m_supportCPs)
+    float supportExt = 1.0f, supportMin = 1.0f;
+    float supportRatio[2] = {1, 1};
+    float supportPt[2][3] = {}, supportN[2][3] = {};
 };
 
 // The world as the car physics sees it: CWorld::ProcessLineOfSight for the suspension lines and
@@ -283,6 +297,10 @@ struct VehicleInstance {
     // 1 rear; axis picks which two matrix entries the rotation drives; rot and vel are m_vecRotation / m_vecPos.
     struct BouncingPanel { int bumper = -1; int axis = 0; float limit = 0.0f; float rot[3] = {0, 0, 0}, vel[3] = {0, 0, 0}; };
     BouncingPanel panels[3];
+    // m_pTowingVehicle / m_pVehicleBeingTowed as car indices (-1 none), and a tow truck's or tractor's hoist
+    // (m_wMiscComponentAngle: 0 raised .. 20000 lowered)
+    int towedBy = -1, towing = -1;
+    int hoist = 0;
     CarPhys phys;
 };
 
@@ -347,8 +365,13 @@ public:
     // leanFwd: a bike rider's weight, -1 back .. 1 forward (the pad's steer up / down).
     // skid: look right (+1) / left (-1), a helicopter's tail rotor.
     // gear: the landing gear key went down this frame.
+    // gunUpDown: the special control up (+1) / down (-1), a tow truck's hoist.
     bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd = 0.0f,
-                    float skid = 0.0f, bool gear = false);
+                    float skid = 0.0f, bool gear = false, float gunUpDown = 0.0f);
+    bool IsTrailer(int model) const;          // CTrailer (vehicles.ide type trailer)
+    // CTrailer::SetTowLink(cab, true): the trailer is put on the cab's tow bar (ATTACH_TRAILER_TO_CAB).
+    bool AttachTrailer(size_t trailer, size_t cab);
+    void DetachTrailer(size_t trailer) { BreakTowLink(trailer); }
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
     void ProcessAbandoned(float dt, int skip, const VehicleWorld& world);
     bool UsesCarPhysics(int model) const;
@@ -394,7 +417,8 @@ public:
     // space), the car's move speed (per 1/50 s) and the rectangle's centre when a windscreen falls out.
     std::function<void(const float* corner, const float* fwd, const float* right, const float* vel, const float* centre)> onWindscreenShatter;
     void WindscreenShatters(size_t ci);
-    int Nearest(float x, float y, float range) const;
+    // enterable: only cars a ped can sit in (not trailers, which have no seat).
+    int Nearest(float x, float y, float range, bool enterable = false) const;
     // Body extents of a loaded model: y range and the lowest z. False when the model is not loaded.
     bool ModelBounds(int id, float* minY, float* maxY, float* minZ) const;
     // The driver's seat (ped_frontseat, or its passenger-side twin) of car i in the world, and whether the car sits low.
@@ -411,7 +435,8 @@ public:
 private:
     VehicleModel* Model(D3DRenderer& r, int id);
     void SetupSuspension(VehicleModel& vm, const HandlingData& h);
-    void CarStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
+    // collide false: ProcessControl only (the caller moves the car with CarCollision afterwards).
+    void CarStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world, bool collide = true);
     void CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world, bool lines = true);
     void BoatInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player);
     void BoatStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
@@ -438,6 +463,26 @@ private:
     void BmxSway(VehicleInstance& c);
     void SyncFromPhys(VehicleInstance& c, const VehicleModel& vm);
     void Activate(VehicleInstance& c);
+    // The model and handling of a car model, its suspension set up; false when either is missing.
+    bool Lookup(int model, VehicleModel*& vm, const HandlingData*& h);
+    // One time step of car i, then of the car it tows (so the link sees both moved alike), and the end of the
+    // frame for the towed chain.
+    void StepVehicle(size_t i, float ts, bool player, const VehicleWorld& world);
+    void SyncTowed(size_t i, float dt);
+    bool TowedChainStepped(size_t i, int skip) const;
+    // Tow links (TowPhysics.cpp): CVehicle / CAutomobile / CTrailer GetTowHitchPos, GetTowBarPos (world points;
+    // other is the car at the far end, -1 none), SetTowLink, BreakTowLink, UpdateTractorLink, UpdateTrailerLink,
+    // the CAutomobile::ProcessControl link block, CTrailer::ScanForTowLink and CAutomobile::TowTruckControl.
+    bool TowHitchPos(size_t i, bool check, int other, float out[3]);
+    bool TowBarPos(size_t i, bool check, int other, float out[3]);
+    bool SetTowLink(size_t towed, size_t tractor, bool place, float ts);
+    void BreakTowLink(size_t towed);
+    void TractorLink(size_t tractor, bool settle, bool fix, float ts);
+    void TrailerLink(size_t towed, bool settle, bool fix, float ts);
+    void TowLinks(size_t towed, float ts);
+    void ScanForTowLink(size_t trailer, float ts);
+    void ScanTrailers(float ts);
+    void TowTruckControl(size_t i, float ts);
     // A component (0..5 eDoors, 6..12 6 + ePanels, 13 a wheel) of car ci comes off as a flying object (collision type
     // 0 bumper, 1 wheel, 2 door, 3 bonnet, 4 boot, 5 panel). Call before its state hides it.
     void SpawnFlying(size_t ci, int comp, int type, int wheel = 0);

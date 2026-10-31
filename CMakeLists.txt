@@ -92,6 +92,7 @@ if(WIN32)
         host/engine/BikePhysics.cpp
         host/engine/BoatPhysics.cpp
         host/engine/FlightPhysics.cpp
+        host/engine/TowPhysics.cpp
         host/engine/VehicleLights.cpp
         host/engine/CarGenerators.cpp
         host/engine/Script.cpp

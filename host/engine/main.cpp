@@ -162,7 +162,8 @@ static bool ScriptedKey(int vk) {
         if (g_scriptFrame >= a && g_scriptFrame <= b)
             for (const char* k = keys; k < p; k++) {
                 const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '`' ? VK_OEM_3 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON : *k == '%' ? VK_CONTROL
-                               : *k == '>' ? VK_UP : *k == '<' ? VK_DOWN : toupper((unsigned char)*k);
+                               : *k == '>' ? VK_UP : *k == '<' ? VK_DOWN : *k == '{' ? VK_NUMPAD8 : *k == '}' ? VK_NUMPAD2
+                               : toupper((unsigned char)*k);
                 if (want == vk) return true;
             }
         if (*p == ';') p++;
@@ -2529,6 +2530,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
             if (DevKeyPressed('B') && g_vehicles.Ready() && g_vehicles.ModelCount() > 0) {   // dev: spawn the next car ahead of CJ
                 static const int s_devModel = getenv("GTA_VEHMODEL") ? atoi(getenv("GTA_VEHMODEL")) : 0;   // dev: always spawn this model id
+                const char* devPlus = getenv("GTA_VEHMODEL") ? std::strchr(getenv("GTA_VEHMODEL"), '+') : nullptr;
+                if (devPlus && g_driveCar >= 0) {   // dev: in a car, B hangs the "+" model on it instead
+                    const VehicleInstance& cab = g_vehicles.Car((size_t)g_driveCar);
+                    const int ti = g_vehicles.Spawn(g_renderer, atoi(devPlus + 1), cab.x, cab.y - 8.0f, cab.z, cab.heading);
+                    if (ti >= 0 && g_vehicles.AttachTrailer((size_t)ti, (size_t)g_driveCar) && getenv("GTA_TRAILERSCAN")) g_vehicles.DetachTrailer((size_t)ti);
+                    if (ti >= 0) Log("DEV: trailer %d at %.1f %.1f %.1f towed by %d", ti, g_vehicles.Car((size_t)ti).x, g_vehicles.Car((size_t)ti).y, g_vehicles.Car((size_t)ti).z, g_vehicles.Car((size_t)ti).towedBy);
+                } else {
                 const int id = s_devModel ? s_devModel : g_vehicles.IdAt(g_vehSpawnIdx++ % g_vehicles.ModelCount());
                 float fx = playerX - camPosX, fy = playerY - camPosY;   // away from the camera, along the view
                 const float fl = std::sqrt(fx * fx + fy * fy);
@@ -2553,6 +2561,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (const char* ty = getenv("GTA_CARTYRES"); ty && ci >= 0)   // dev: "flrlfrrr" wheel states (0 ok, 1 burst, 2 missing)
                     for (int k = 0; k < 4 && ty[k]; k++) g_vehicles.Car((size_t)ci).wheelStatus[k] = (uint8_t)(ty[k] - '0');
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
+                // dev: GTA_VEHMODEL "cab+trailer" puts the second model on the first one's tow bar; GTA_TRAILERSCAN
+                // leaves it there unhooked (for the trailer's own scan, or a tow truck's hoist, to pick up)
+                if (const char* plus = devPlus; plus && ci >= 0 && !getenv("GTA_TOWLATER")) {   // GTA_TOWLATER: wait for the in-car B
+                    const int ti = g_vehicles.Spawn(g_renderer, atoi(plus + 1), sx, sy - 8.0f, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(fy, fx) - 1.57079633f);
+                    if (ti >= 0 && g_vehicles.AttachTrailer((size_t)ti, (size_t)ci) && getenv("GTA_TRAILERSCAN")) g_vehicles.DetachTrailer((size_t)ti);
+                    if (ti >= 0) Log("DEV: trailer %d at %.1f %.1f %.1f towed by %d", ti, g_vehicles.Car((size_t)ti).x, g_vehicles.Car((size_t)ti).y, g_vehicles.Car((size_t)ti).z, g_vehicles.Car((size_t)ti).towedBy);
+                }
+                }
             }
             if (DevKeyPressed('K') && g_peds.Ready()) {   // dev: a pedestrian ahead of CJ
                 float fx = playerX - camPosX, fy = playerY - camPosY;
@@ -3897,6 +3913,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 g_vehicles.CollisionDamage(dt, g_driveCar);
                 if (worldReady) g_vehicles.UpdateFlying(dt, CarWorld());
             }
+            if (getenv("GTA_CARDBG") && frame % 25 == 0)
+                for (size_t ti = 0; g_vehicles.Ready() && ti < g_vehicles.Count(); ti++) {
+                    const VehicleInstance& tv = g_vehicles.Car(ti);
+                    if (tv.towedBy < 0 && tv.towing < 0 && !g_vehicles.IsTrailer(tv.model) && tv.hoist == 0) continue;
+                    Log("TOW f%d car %zu model %d at %.2f %.2f %.2f hdg %.1f speed %.2f towedBy %d towing %d hoist %d legs %.3f/%.3f %.3f", frame, ti, tv.model,
+                        tv.x, tv.y, tv.z, tv.heading * 57.29578f, tv.speed, tv.towedBy, tv.towing, tv.hoist, tv.phys.supportExt, tv.phys.supportRatio[0], tv.phys.supportRatio[1]);
+                }
             if (getenv("GTA_CARDBG") && frame % 10 == 0)
                 for (size_t pi = 0; g_peds.Ready() && pi < g_peds.Count(); pi++)
                     Log("CARDBG f%d ped %zu pos %.2f %.2f %.2f alive %d flying %d clip %s", frame, pi, g_peds.X(pi), g_peds.Y(pi), g_peds.Z(pi),
@@ -3961,7 +3984,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const bool fJust = fDown && !s_prevF;
                 s_prevF = fDown;
                 if (fJust && g_driveCar < 0 && g_vehTransCar < 0 && g_vehGoToCar < 0) {
-                    const int n = g_vehicles.Nearest(playerX, playerY, 6.5f);
+                    const int n = g_vehicles.Nearest(playerX, playerY, 6.5f, true);
                     const int tm = n >= 0 && g_trains.CarriageOfCar(n) >= 0 ? g_vehicles.Car((size_t)n).model : 0;
                     const bool trainCab = tm == 537 || tm == 538 || tm == 449;   // the freight and streak engines and the tram have a cab
                     if (n >= 0 && (tm == 0 || trainCab) && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) {
@@ -4166,7 +4189,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const bool gearDown = (RawGameKey('2') & 0x8000) != 0, gearJust = gearDown && !s_prevGear;
                     s_prevGear = gearDown;
                     const bool onRails = g_trains.CarriageOfCar(g_driveCar) >= 0 && !g_vehicles.Car((size_t)g_driveCar).derailed;   // UpdateTrains drives it
-                    if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust)))
+                    // the special control up / down (VEHICLE_TURRETUP / DOWN: num 8 / num 2), a tow truck's hoist
+                    const float gunUpDown = ((RawGameKey(VK_NUMPAD8) & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey(VK_NUMPAD2) & 0x8000) ? 1.0f : 0.0f);
+                    if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust, gunUpDown)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
                                         [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
                                         [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });

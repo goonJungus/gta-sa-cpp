@@ -34,6 +34,10 @@ bool g_alreadySkidding = false;
 constexpr float kBurstTyreMod = 0.13f;                // fBurstTyreMod (0x8D34B4)
 constexpr float kBurstSpeedMax = 0.3f;                // fBurstSpeedMax
 constexpr float kWheelDamageEffect = 0.5f;            // CDamageManager::ResetDamageStatusAndWheelDamage
+constexpr float kTrailerSuspensionForce = 1.5f;       // CTrailer::m_fTrailerSuspensionForce (0x8D3464)
+constexpr float kTrailerDampingForce = 0.1f;          // CTrailer::m_fTrailerDampingForce (0x8D3468)
+constexpr float kTrailerTowedMinRatio = 0.9f;         // TRAILER_TOWED_MINRATIO (0x8D346C)
+constexpr float kSupportRetract = 0.002f, kSupportExtend = 0.002f, kSupportWaitExtend = 0.0005f;   // 0x871C14..1C
 
 bool FrontDrive(char d) { return d == 'F' || d == '4'; }
 bool RearDrive(char d) { return d == 'R' || d == '4'; }
@@ -211,6 +215,27 @@ void Vehicles::SetupSuspension(VehicleModel& vm, const HandlingData& h) {
         vm.suspSpring[i] = h.suspUpper - h.suspLower;
         vm.suspLine[i] = vm.suspStart[i][2] - vm.suspEnd[i][2];
     }
+    vm.frontHeight = (1.0f - 1.0f / (h.suspForce * 4.0f)) * vm.suspSpring[0] + vm.wheelSize[0] / 2.0f - vm.suspStart[0][2];
+    if (vm.isTrailer && vm.info.id != 606 && vm.info.id != 607 && vm.colFound) {   // CTrailer::SetupSuspensionLines (not the baggage carts)
+        float mn[3], mx[3];
+        std::memcpy(mn, vm.colMin, sizeof(mn)); std::memcpy(mx, vm.colMax, sizeof(mx));
+        mn[2] = std::min(mn[2], vm.suspEnd[0][2]);
+        for (int k = 0; k < 2; k++) {
+            vm.supportStart[k][0] = vm.supportEnd[k][0] = k == 0 ? mn[0] : -mn[0];
+            vm.supportStart[k][1] = vm.supportEnd[k][1] = mx[1];
+            vm.supportStart[k][2] = mx[2];
+        }
+        // the legs share the weight with the wheels by their distance from the middle; the nose rests at the
+        // height the springs settle the wheels at under that share
+        const float legY = std::fabs(vm.supportStart[0][1]);
+        const float wheelY = (std::fabs(vm.suspStart[0][1]) + std::fabs(vm.suspStart[1][1])) * 0.5f;
+        const float weight = legY / (wheelY + legY);
+        vm.frontHeight = vm.suspSpring[0] * (1.0f - weight / (h.suspForce * 4.0f)) + vm.wheelSize[0] / 2.0f - vm.suspStart[0][2];
+        const float endZ = vm.supportStart[0][2] - (vm.supportStart[0][2] + vm.frontHeight) / (1.0f - (1.0f - weight) / (kTrailerSuspensionForce * 2.0f));
+        vm.supportEnd[0][2] = vm.supportEnd[1][2] = endZ;
+        vm.legHeight = vm.nodes[0].found ? vm.nodes[0].local[14] : 0.0f;
+        vm.trailerLegs = true;
+    }
     vm.probes = vm.colSpheres;
     for (const VehicleModel::ColBox& bx : vm.colBoxes) {   // fill each box with a row or grid of spheres
         float half[3], mid[3];
@@ -238,8 +263,9 @@ void Vehicles::SetupSuspension(VehicleModel& vm, const HandlingData& h) {
 }
 
 // One CAutomobile::ProcessControl at time step ts, then CPhysical::ProcessCollision.
-void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world) {
+void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world, bool collide) {
     CarPhys& p = c.phys;
+    const size_t self = (size_t)(&c - m_cars.data());
     Body b = Load(c, h);
     const Transmission& tr = h.trans;
     p.burnout = false;
@@ -267,11 +293,21 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         else { gas = gasInput; brake = 0.0f; }
         p.gas = gas; p.brake = brake;
         p.steerAngle = h.steeringLock * 0.0174532925f * std::copysign(p.rawSteer * p.rawSteer, p.rawSteer);
+    } else if (c.towedBy >= 0) {   // ProcessAI, STATUS_IS_TOWED: rolling free behind the tractor
+        p.handbrake = false;
+        p.brake = 0.0f; p.steerAngle = 0.0f; p.gas = 0.0f;
     } else {   // ProcessAI, STATUS_ABANDONED
         p.brake = Len2(b.mv) < 0.01f ? 0.2f : 0.0f;
         p.handbrake = false;
         p.steerAngle = 0.0f;
         p.gas = 0.0f;
+    }
+
+    const int hoistPrev = c.hoist;
+    if (player && (c.model == 525 || c.model == 531)) {   // CAutomobile::ProcessControl: the tow truck's and tractor's hoist
+        Store(b, c);
+        TowTruckControl(self, ts);
+        b = Load(c, h);
     }
 
     // CPhysical::ProcessControl: ApplyFriction, ApplyGravity, ApplyAirResistance
@@ -346,6 +382,46 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
                     b.ApplyTurnForce(b.up * (side * roll * b.turnMass), b.right * vm.colMax[0]);
                     b.ApplyMoveForce(-r * (roll * b.mass * side));
                 }
+            }
+        }
+    }
+    if (vm.trailerLegs) {   // CTrailer::ProcessSuspension: the support legs carry the nose of a trailer left standing
+        V3 lp[2], ls[2];
+        bool touch[2] = {false, false};
+        for (int k = 0; k < 2; k++) {
+            if (!(p.supportRatio[k] < p.supportMin && p.supportMin > 0.1f)) continue;
+            touch[k] = true;
+            const V3 down = -b.up;
+            lp[k] = V3(p.supportPt[k]) - b.pos;
+            V3 n(p.supportN[k]);
+            if (Dot(down, n) > 0.0f) n = -n;
+            // ApplySpringCollisionAlt with the leg's spring, the line scaled to the extension
+            const float limit = (1.0f - p.supportRatio[k] / p.supportMin) * (std::min(ts, 3.0f) * b.mass) * kTrailerSuspensionForce * 0.016f;
+            b.ApplyForce(n * limit, lp[k]);
+            ls[k] = b.Speed(lp[k]);
+            const V3 dir = p.supportN[k][2] > 0.35f ? -V3(p.supportN[k]) : down;
+            // ApplySpringDampening
+            const float speedAlong = Dot(ls[k], dir);
+            const float pointAlong = Dot(b.Speed(lp[k]), dir);
+            const float dts = std::clamp(std::min(ts, 3.0f) * kTrailerDampingForce, -kDampingLimitInFrame, kDampingLimitInFrame);
+            float ds = -(dts * speedAlong);
+            if (ds > 0.0f && ds + pointAlong > 0.0f) ds = pointAlong >= 0.0f ? 0.0f : -pointAlong;
+            else if (ds < 0.0f && ds + pointAlong < 0.0f) ds = pointAlong <= 0.0f ? 0.0f : -pointAlong;
+            float force = b.MassAt(lp[k] - b.ComW(), dir) * ds;
+            force = std::min(force, std::fabs(limit) * kDampingLimitOfSpringForce);
+            b.ApplyForce(dir * force, lp[k]);
+        }
+        if (c.towedBy < 0) {   // standing, the feet grip like locked wheels (ProcessCarWheelPair front left / rear left, brake 1000)
+            const float traction = h.tractionMult * 0.004f * 0.25f;
+            for (int k = 0; k < 2; k++) {
+                const int w = k;   // the leg borrows that wheel's ground contact
+                if (!touch[k] || p.wheelCounts[w] <= 0.0f) continue;
+                const V3 n(p.colN[w]);
+                const V3 wf = Norm(b.fwd - n * Dot(b.fwd, n));
+                const V3 wr = Norm(Cross(wf, n));
+                int state = p.wheelState[w];
+                ProcessWheel(b, h, p, wf, wr, ls[k], lp[k], std::max(1, p.numContactWheels), 0.0f, 1000.0f * 2.0f * h.brakeBias,
+                             kRoadAdhesion * traction * 2.0f * h.tractionBias, w, &state, ts, false);
             }
         }
     }
@@ -439,9 +515,30 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
 
     for (int i = 0; i < 4; i++) { p.compPrev[i] = p.comp[i]; p.comp[i] = 1.0f; }
     Store(b, c);
+    if (c.towedBy >= 0) TowLinks(self, ts);
+    else if (c.towing >= 0 && ((size_t)c.towing >= m_cars.size() || m_cars[(size_t)c.towing].towedBy != (int)self)) c.towing = -1;
+    {   // CAutomobile::ProcessControl: with no gas, a crawl under 0.0045 per step on any axis stops dead once a wheel was down
+        const bool slow = std::fabs(c.phys.mv[0]) < 0.0045f && std::fabs(c.phys.mv[1]) < 0.0045f && std::fabs(c.phys.mv[2]) < 0.0045f;
+        const bool towStill = c.towedBy < 0 || Len2(V3(m_cars[(size_t)c.towedBy].phys.mv)) == 0.0f;
+        const bool wheelDown = p.compPrev[0] < 1.0f || p.compPrev[1] < 1.0f || p.compPrev[2] < 1.0f || p.compPrev[3] < 1.0f;
+        if ((p.gas == 0.0f || c.wrecked) && slow && !((heli || plane) && p.flyAccel != 0.0f) && c.hoist == hoistPrev && towStill && wheelDown) {
+            std::fill(c.phys.mv, c.phys.mv + 3, 0.0f);
+            c.phys.tv[2] = 0.0f;
+        }
+    }
+    if (vm.trailerLegs) {   // CTrailer::ProcessControl: the legs wind up once hitched, down again when left
+        float& ext = p.supportExt;
+        if (c.towedBy >= 0 && ext > 0.0f) ext = std::max(ext - ts * kSupportRetract, 0.0f);
+        else if (c.towedBy < 0 && ext < 1.0f) {
+            ext = std::min(ext + ts * (ext <= 0.1f ? kSupportWaitExtend : kSupportExtend), 1.0f);
+            p.fakePhysics = 0;
+        }
+        p.supportMin = c.towedBy >= 0 && ext < kTrailerTowedMinRatio ? kTrailerTowedMinRatio : ext;
+        p.supportRatio[0] = p.supportRatio[1] = p.supportMin;
+    }
     if (heli) { HeliFlyingCarStuff(c, h, ts, player, world); HeliRotors(c, ts); }
     if (plane) PlaneFlyingCarStuff(c, vm, h, ts, player, world);
-    CarCollision(c, vm, h, ts, world);
+    if (collide) CarCollision(c, vm, h, ts, world);
 }
 
 // CPhysical::ProcessCollision for a car against the world: move by the speeds, find where the suspension
@@ -475,6 +572,18 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
         }
         const float frac = std::min(p.comp[i], 1.0f);   // the tyre sits on the hit, or hangs at the line's end
         p.wheelZ[i] = vm.suspStart[i][2] - frac * vm.suspLine[i] + vm.wheelSize[i] / 2.0f;
+    }
+    for (int k = 0; k < 2 && lines && vm.trailerLegs; k++) {   // CTrailer::ProcessEntityCollision: the support lines
+        const V3 a = b.pos + b.Rot(V3(vm.supportStart[k])), e = b.pos + b.Rot(V3(vm.supportEnd[k]));
+        float n[3] = {0, 0, 1};
+        const float f = world.line(&a.x, &e.x, n);
+        if (f < p.supportRatio[k]) {
+            V3 nn(n);
+            if (Dot(nn, e - a) > 0.0f) nn = -nn;
+            p.supportRatio[k] = f;
+            (a + (e - a) * f).To(p.supportPt[k]);
+            nn.To(p.supportN[k]);
+        }
     }
     // The body spheres against the world
     struct Contact { V3 point, normal; float depth; int piece; };
@@ -577,8 +686,62 @@ void Vehicles::SyncFromPhys(VehicleInstance& c, const VehicleModel& vm) {
     (void)vm;
 }
 
+bool Vehicles::Lookup(int model, VehicleModel*& vm, const HandlingData*& h) {
+    auto mi = m_models.find(model);
+    const VehicleInfo* info = Info(model);
+    h = info ? Handling(info->handling) : nullptr;
+    if (mi == m_models.end() || !h) return false;
+    vm = &mi->second;
+    if (!vm->suspReady) { if (UsesBikePhysics(model)) SetupBikeSuspension(*vm, *h); else SetupSuspension(*vm, *h); }
+    return true;
+}
+
+void Vehicles::StepVehicle(size_t i, float ts, bool player, const VehicleWorld& world) {
+    VehicleInstance& c = m_cars[i];
+    VehicleModel* vm = nullptr;
+    const HandlingData* h = nullptr;
+    if (!Lookup(c.model, vm, h)) return;
+    if (UsesBikePhysics(c.model)) { BikeStep(c, *vm, *h, ts, player, world); return; }
+    if (UsesBoatPhysics(c.model)) { BoatStep(c, *vm, *h, ts, player, world); return; }
+    // the car and the chain it tows: every ProcessControl (the links among them) first, then every move, as the
+    // world's two passes do
+    size_t chain[8];
+    VehicleModel* vms[8];
+    const HandlingData* hs[8];
+    int n = 0;
+    chain[0] = i; vms[0] = vm; hs[0] = h; n = 1;
+    for (int prev = (int)i, t = c.towing; n < 8 && t >= 0 && (size_t)t < m_cars.size() && m_cars[(size_t)t].towedBy == prev; prev = t, t = m_cars[(size_t)t].towing) {
+        if (!Lookup(m_cars[(size_t)t].model, vms[n], hs[n]) || UsesBikePhysics(m_cars[(size_t)t].model) || UsesBoatPhysics(m_cars[(size_t)t].model)) break;
+        chain[n++] = (size_t)t;
+    }
+    for (int k = 0; k < n; k++) CarStep(m_cars[chain[k]], *vms[k], *hs[k], ts, k == 0 && player, world, false);
+    for (int k = 0; k < n; k++) CarCollision(m_cars[chain[k]], *vms[k], *hs[k], ts, world);
+}
+
+void Vehicles::SyncTowed(size_t i, float dt) {
+    for (int k = 0, prev = (int)i, t = m_cars[i].towing; k < 8 && t >= 0 && (size_t)t < m_cars.size() && m_cars[(size_t)t].towedBy == prev; k++) {
+        VehicleInstance& tc = m_cars[(size_t)t];
+        auto mi = m_models.find(tc.model);
+        if (mi == m_models.end()) break;
+        SyncFromPhys(tc, mi->second);
+        tc.wheelSpin += tc.speed * dt / std::max(0.2f, mi->second.wheelSize[0] / 2.0f);
+        prev = t; t = tc.towing;
+    }
+}
+
+// A towed car is stepped with the car at the head of its chain: true when that one runs this frame (the player's
+// car, or an abandoned one still awake).
+bool Vehicles::TowedChainStepped(size_t i, int skip) const {
+    int head = (int)i;
+    for (int k = 0; k < 8 && m_cars[(size_t)head].towedBy >= 0 && (size_t)m_cars[(size_t)head].towedBy < m_cars.size(); k++) head = m_cars[(size_t)head].towedBy;
+    if (head == (int)i) return false;
+    if (head == skip) return true;
+    const VehicleInstance& hc = m_cars[(size_t)head];
+    return hc.phys.active && !hc.removed && !hc.hasRot && hc.phys.fakePhysics < 10;
+}
+
 bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd,
-                          float skid, bool gear) {
+                          float skid, bool gear, float gunUpDown) {
     if (i >= m_cars.size() || !world.line || !world.sphere) return false;
     VehicleInstance& c = m_cars[i];
     const bool bike = UsesBikePhysics(c.model), boat = UsesBoatPhysics(c.model), heli = UsesHeliPhysics(c.model), plane = UsesPlanePhysics(c.model);
@@ -593,30 +756,31 @@ bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float st
     if (!vm.suspReady) { if (bike) SetupBikeSuspension(vm, *h); else SetupSuspension(vm, *h); }
     CarPhys& p = c.phys;
     Activate(c);
+    if (c.towedBy >= 0) BreakTowLink(i);   // CAutomobile::ProcessControl: a driver at the wheel (STATUS_PLAYER) ends the tow
     p.inAccel = accel; p.inBrake = brake; p.inSteer = steer; p.handbrake = handbrake; p.inLeanFwd = leanFwd; p.inSkid = skid; p.inGear = gear;
+    p.inGunUpDown = gunUpDown;
     p.fakePhysics = 0;
     const float total = dt * 50.0f;
     const int steps = std::clamp((int)std::ceil(total), 1, 8);
     if (boat) BoatInputs(c, *h, total, true);
     if (heli) HeliInputs(c, true);
     if (plane) PlaneInputs(c, *h, total, true);
-    for (int k = 0; k < steps; k++) {
-        if (bike) BikeStep(c, vm, *h, total / (float)steps, true, world);
-        else if (boat) BoatStep(c, vm, *h, total / (float)steps, true, world);
-        else CarStep(c, vm, *h, total / (float)steps, true, world);
-    }
+    for (int k = 0; k < steps; k++) StepVehicle(i, total / (float)steps, true, world);
     if (bike && (vm.info.type == "bmx" || vm.info.type == "BMX")) BmxSway(c);
     SyncFromPhys(c, vm);
     c.wheelSpin += c.speed * dt / std::max(0.2f, vm.wheelSize[0] / 2.0f);
+    SyncTowed(i, dt);
     return true;
 }
 
 void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
     if (!world.line || !world.sphere) return;
+    ScanTrailers(dt * 50.0f);
     for (size_t i = 0; i < m_cars.size(); i++) {
         VehicleInstance& c = m_cars[i];
         CarPhys& p = c.phys;
         if ((int)i == skip || !p.active || c.removed || c.hasRot || p.fakePhysics >= 10) continue;
+        if (c.towedBy >= 0 && TowedChainStepped(i, skip)) continue;   // stepped behind its tractor
         auto mi = m_models.find(c.model);
         const VehicleInfo* info = Info(c.model);
         const HandlingData* h = info ? Handling(info->handling) : nullptr;
@@ -629,11 +793,7 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         if (boat) BoatInputs(c, *h, total, false);
         if (UsesHeliPhysics(c.model)) HeliInputs(c, false);
         if (UsesPlanePhysics(c.model)) PlaneInputs(c, *h, total, false);
-        for (int k = 0; k < steps; k++) {
-            if (bike) BikeStep(c, vm, *h, total / (float)steps, false, world);
-            else if (boat) BoatStep(c, vm, *h, total / (float)steps, false, world);
-            else CarStep(c, vm, *h, total / (float)steps, false, world);
-        }
+        for (int k = 0; k < steps; k++) StepVehicle(i, total / (float)steps, false, world);
         // CAutomobile::ProcessControl, STATUS_ABANDONED: once the averaged speeds stay tiny the car sleeps
         for (int a = 0; a < 3; a++) { p.avgForce[a] = (p.avgForce[a] + p.mv[a]) / 2.0f; p.avgTorque[a] = (p.avgTorque[a] + p.tv[a]) / 2.0f; }
         const float fl = 0.003f * total, tl = 0.0009f * total;
@@ -646,17 +806,12 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         }
         SyncFromPhys(c, vm);
         c.wheelSpin += c.speed * dt / std::max(0.2f, vm.wheelSize[0] / 2.0f);
+        SyncTowed(i, dt);
     }
 }
 
 namespace {
 
-// A car's matrix: the simulated one, else the heading's (a parked car the simulation has not touched).
-void CarFrame(const VehicleInstance& c, V3& right, V3& fwd, V3& up) {
-    if (c.phys.active || c.hasRot) { right = V3(&c.rot[0]); fwd = V3(&c.rot[3]); up = V3(&c.rot[6]); return; }
-    const float cs = std::cos(c.heading), sn = std::sin(c.heading);
-    right = V3(cs, sn, 0); fwd = V3(-sn, cs, 0); up = V3(0, 0, 1);
-}
 
 }   // namespace
 
@@ -681,6 +836,9 @@ void Vehicles::CarCarCollisions(float dt) {
             Entry& ea = cars[a];
             Entry& eb = cars[bI];
             if (!ea.awake && !eb.awake) continue;   // two cars at rest stay at rest
+            // a tractor and its trailer overlap at the coupling (CTrailer::ProcessEntityCollision drops the pair's
+            // triangles; the bodies here are all spheres and boxes, so the pair is skipped)
+            if (m_cars[ea.i].towing == (int)eb.i || m_cars[eb.i].towing == (int)ea.i) continue;
             const float reach = ea.vm->probeRadius + eb.vm->probeRadius;
             if (Len2(ea.pos - eb.pos) > reach * reach) continue;
             VehicleInstance& ca = m_cars[ea.i];

@@ -68,6 +68,13 @@ inline void Store(const Body& b, VehicleInstance& c) {
     b.mv.To(c.phys.mv); b.tv.To(c.phys.tv); b.fmv.To(c.phys.fmv); b.ftv.To(c.phys.ftv);
 }
 
+// A car's matrix: the simulated one, else the heading's (a parked car the simulation has not touched).
+inline void CarFrame(const VehicleInstance& c, V3& right, V3& fwd, V3& up) {
+    if (c.phys.active || c.hasRot) { right = V3(&c.rot[0]); fwd = V3(&c.rot[3]); up = V3(&c.rot[6]); return; }
+    const float cs = std::cos(c.heading), sn = std::sin(c.heading);
+    right = V3(cs, sn, 0); fwd = V3(-sn, cs, 0); up = V3(0, 0, 1);
+}
+
 // Row-vector rotations (rows: right, forward, up), as CMatrix::SetRotateX / SetRotateY / SetRotateZ.
 inline void RotX(float a, float m[16]) { const float c = std::cos(a), s = std::sin(a); const float r[16] = {1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1}; std::memcpy(m, r, sizeof(r)); }
 inline void RotY(float a, float m[16]) { const float c = std::cos(a), s = std::sin(a); const float r[16] = {c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1}; std::memcpy(m, r, sizeof(r)); }

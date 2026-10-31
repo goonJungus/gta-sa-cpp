@@ -375,6 +375,15 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
         return true;
     }
     case 0x0119: { VehicleInstance* v = car(c.I(0)); c.result = !v || v->removed || v->wrecked || v->health <= 0.0f; return true; }   // IS_CAR_DEAD
+    case 0x07AB: { VehicleInstance* v = car(c.I(0)); c.result = v && car(c.I(1)) && v->towedBy == c.I(1) - 1; return true; }   // IS_TRAILER_ATTACHED_TO_CAB
+    case 0x07AC: {   // DETACH_TRAILER_FROM_CAB
+        VehicleInstance* v = car(c.I(0));
+        if (v && car(c.I(1)) && v->towedBy == c.I(1) - 1) cars->DetachTrailer((size_t)c.I(0) - 1);
+        return true;
+    }
+    case 0x0893:   // ATTACH_TRAILER_TO_CAB
+        if (car(c.I(0)) && car(c.I(1))) cars->AttachTrailer((size_t)c.I(0) - 1, (size_t)c.I(1) - 1);
+        return true;
     case 0x0175: if (VehicleInstance* v = carAlive(c.I(0))) v->heading = c.F(1) * 3.14159265f / 180.0f; return true;   // SET_CAR_HEADING
     case 0x01C3: case 0x099A: case 0x067F: return true;   // MARK_CAR_AS_NO_LONGER_NEEDED, SET_CAR_COLLISION, FORCE_CAR_LIGHTS
     case 0x060E: c.result = IsPlaybackGoingOn(c.I(0)); return true;           // IS_PLAYBACK_GOING_ON_FOR_CAR

@@ -171,9 +171,18 @@ int DamageComp(const std::string& n, bool* damaged) {
 }
 
 // CAutomobile::PreRender: the rhino and swat van turret (misc_a yaws about Z by the vertical doom angle, misc_b pitches
-// about X by the horizontal one) and the fire truck nozzle (misc_a pitches about X, then yaws about Z). The rotation
-// replaces the frame's own and keeps its position.
-bool TurretRot(int model, int node, float doomV, float doomH, float r[9]) {
+// about X by the horizontal one), the fire truck nozzle (misc_a pitches about X, then yaws about Z) and the tow truck's
+// and tractor's hoist (misc_a pitches about X, 0.4 rad (0x8D3144) when fully lowered). The rotation replaces the
+// frame's own and keeps its position.
+bool TurretRot(const VehicleInstance& c, int node, float r[9]) {
+    const int model = c.model;
+    if ((model == 525 || model == 531) && node == 0) {
+        const float a = (float)c.hoist * 0.4f / 20000.0f, ca = std::cos(a), sa = std::sin(a);
+        const float rx[9] = {1, 0, 0, 0, ca, sa, 0, -sa, ca};
+        std::memcpy(r, rx, sizeof(rx));
+        return true;
+    }
+    const float doomV = c.doomV, doomH = c.doomH;
     const float cv = std::cos(doomV), sv = std::sin(doomV), ch = std::cos(doomH), sh = std::sin(doomH);
     const float rz[9] = {cv, sv, 0, -sv, cv, 0, 0, 0, 1};
     const float rx[9] = {1, 0, 0, 0, ch, sh, 0, -sh, ch};
@@ -188,16 +197,22 @@ bool TurretRot(int model, int node, float doomV, float doomH, float r[9]) {
 }
 
 // Frame (car space) of a turret node: local frame with the turret rotation, on top of its parent.
-void NodeCarSpace(const VehicleModel& vm, int model, int node, float doomV, float doomH, float out[16]) {
+void NodeCarSpace(const VehicleModel& vm, const VehicleInstance& c, int node, float out[16]) {
     const VehicleModel::Node& nd = vm.nodes[node];
     float loc[16];
     std::memcpy(loc, nd.local, sizeof(loc));
     float r[9];
-    if (TurretRot(model, node, doomV, doomH, r))
+    if (TurretRot(c, node, r))
         for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) loc[i * 4 + j] = r[i * 3 + j];
+    if (vm.trailerLegs && node == 0 && vm.supportStart[0][1] != 0.0f) {   // CTrailer::PreRender: the legs follow their extension
+        const float ext = std::min((c.phys.supportRatio[0] + c.phys.supportRatio[1]) * 0.5f, c.phys.supportExt);
+        const float travel = ext * (vm.supportEnd[0][2] - vm.supportStart[0][2]);
+        const float along = loc[13] / vm.supportStart[0][1];
+        loc[14] = std::min((travel + vm.supportStart[0][2]) * along - (1.0f - along) * vm.frontHeight, vm.legHeight);
+    }
     if (nd.parent >= 0 && vm.nodes[nd.parent].found) {
         float pm[16];
-        NodeCarSpace(vm, model, nd.parent, doomV, doomH, pm);
+        NodeCarSpace(vm, c, nd.parent, pm);
         Mul(loc, pm, out);
     } else Mul(loc, nd.base, out);
 }
@@ -209,10 +224,9 @@ bool Vehicles::NodeMatrix(size_t i, int node, float out[16]) const {
     const VehicleInstance& c = m_cars[i];
     auto it = m_models.find(c.model);
     if (it == m_models.end() || !it->second.nodes[node].found) return false;
-    float cs[16];
-    NodeCarSpace(it->second, c.model, node, c.doomV, c.doomH, cs);
-    const float co = std::cos(c.heading), sn = std::sin(c.heading);
-    const float body[16] = {co, sn, 0, 0, -sn, co, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
+    float cs[16], body[16];
+    NodeCarSpace(it->second, c, node, cs);
+    BodyMatrix(i, body);
     Mul(cs, body, out);
     return true;
 }
@@ -503,6 +517,11 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         if (p >= 0 && (size_t)p < i) Mul(local, glob[(size_t)p].data(), glob[i].data());
         else std::memcpy(glob[i].data(), local, sizeof(local));
     }
+    for (size_t i = 0; i < w.frames.size(); i++)
+        if (w.frames[i].name == "hookup") {
+            vm.hookupFound = true;
+            for (int c = 0; c < 3; c++) vm.hookup[c] = glob[i][12 + (size_t)c];
+        }
     static const char* kWheelDummy[4] = {"wheel_lf_dummy", "wheel_rf_dummy", "wheel_lb_dummy", "wheel_rb_dummy"};
     for (size_t i = 0; i < w.frames.size(); i++)
         for (int k = 0; k < 4; k++)
@@ -586,6 +605,7 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             std::string t = vm.info.type;
             for (char& ch : t) ch = (char)std::tolower((unsigned char)ch);
             vm.isPlane = t == "plane";
+            vm.isTrailer = t == "trailer";
         }
         for (int k = 8; k < 15 && !vm.isPlane; k++) vm.isBoat = vm.isBoat || vm.bikeNodes[k].found;
         for (int k = 15; k < 19; k++) vm.isHeli = vm.isHeli || vm.bikeNodes[k].found;
@@ -951,11 +971,11 @@ void Vehicles::PartToCar(const VehicleInstance& c, const VehicleModel& vm, const
     Mul(g, d.base, out);
 }
 
-int Vehicles::Nearest(float x, float y, float range) const {
+int Vehicles::Nearest(float x, float y, float range, bool enterable) const {
     int best = -1;
     float bd = range * range;
     for (size_t i = 0; i < m_cars.size(); i++) {
-        if (m_cars[i].removed) continue;
+        if (m_cars[i].removed || (enterable && IsTrailer(m_cars[i].model))) continue;
         const float dx = m_cars[i].x - x, dy = m_cars[i].y - y, d = dx * dx + dy * dy;
         if (d < bd) { bd = d; best = (int)i; }
     }
