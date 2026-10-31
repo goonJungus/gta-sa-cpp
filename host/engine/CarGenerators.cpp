@@ -18,13 +18,41 @@ int GenRand(int n) { g_genRng = g_genRng * 1664525u + 1013904223u; return n > 0 
 }  // namespace
 
 void CarGenerators::Init(const std::vector<BinIplCarGen>& gens) {
+    std::vector<Gen> script(m_gens.begin() + (std::ptrdiff_t)m_iplCount, m_gens.end());
     m_gens.clear();
     for (const BinIplCarGen& g : gens) {
         Gen e;
         e.file = g;
         m_gens.push_back(e);
     }
+    m_iplCount = m_gens.size();
+    m_gens.insert(m_gens.end(), script.begin(), script.end());
     m_generateClose = 120;
+}
+
+int CarGenerators::CreateScript(float x, float y, float z, float angleDeg, int model, int colour1, int colour2, bool forceSpawn,
+                                int alarmChance, int doorLockChance, int minDelay, int maxDelay) {
+    if (model != -1 && (model < 400 || model > 611)) return -1;   // MODEL_LANDSTAL .. the last vehicle
+    Gen e;
+    e.file.x = x; e.file.y = y; e.file.z = z;
+    e.file.angle = angleDeg * 3.14159265f / 180.0f;
+    e.file.modelId = model;
+    e.file.colour1 = colour1; e.file.colour2 = colour2;
+    e.file.flags = forceSpawn ? 1u : 0u;   // bHighPriority; the script's never ignore the population limit
+    e.file.alarmChance = alarmChance; e.file.doorLockChance = doorLockChance;
+    e.file.minDelay = minDelay; e.file.maxDelay = maxDelay;
+    e.count = 0;                            // CCarGenerator::Setup
+    m_gens.push_back(e);
+    return (int)(m_gens.size() - m_iplCount - 1);
+}
+
+void CarGenerators::SwitchScript(int handle, int count, uint32_t nowMs) {
+    if (handle < 0 || (size_t)handle >= m_gens.size() - m_iplCount) return;
+    Gen& g = m_gens[m_iplCount + (size_t)handle];
+    if (count == 0) { g.count = 0; return; }   // SwitchOff
+    g.count = count <= 100 ? count : -1;        // SwitchOn, then the count
+    g.nextGenMs = nowMs + 4;                    // CalcNextGen
+    if (std::getenv("GTA_CARDBG")) std::fprintf(stderr, "[CARGEN] script %d on (%d): model %d at %.1f %.1f %.1f\n", handle, count, g.file.modelId, g.file.x, g.file.y, g.file.z);
 }
 
 void CarGenerators::Process(Vehicles& v, D3DRenderer& r, const float player[3], const float playerVel[2], int hour, uint32_t nowMs,
@@ -52,7 +80,7 @@ void CarGenerators::Process(Vehicles& v, D3DRenderer& r, const float player[3], 
     }
     const bool night = hour >= 21 || hour < 7;   // CClock::ClockHoursInRange(21, 7)
     for (Gen& g : m_gens) {
-        if (g.car >= 0 || nowMs < g.nextGenMs) continue;
+        if (g.car >= 0 || nowMs < g.nextGenMs || g.count == 0) continue;
         // CheckIfWithinRangeOfAnyPlayers
         const float rx = player[0] - g.file.x, ry = player[1] - g.file.y;
         if (std::fabs(player[2] - g.file.z) > 50.0f) continue;
@@ -103,6 +131,7 @@ void CarGenerators::Process(Vehicles& v, D3DRenderer& r, const float player[3], 
         if (GenRand(100) < g.file.doorLockChance) c.locked = true;    // CARLOCK_LOCKED
         g.car = n;
         m_parked++;
+        // m_nGenerateCount is never counted down: retail compares the unsigned count with a signed -1.
         if (std::getenv("GTA_CARDBG")) std::fprintf(stderr, "[CARGEN] model %d at %.1f %.1f %.1f (spot %.1f, %.0f m away)\n", model, c.x, c.y, c.z, g.file.z, d);
     }
     if (m_generateClose > 0) m_generateClose--;

@@ -24,6 +24,7 @@ class Peds;
 class Pickups;
 class EntryExit;
 class Vehicles;
+class CarGenerators;
 
 // The camera the script placed (CCamera in fixed mode). main applies it over the player camera.
 struct ScriptCamera {
@@ -46,6 +47,7 @@ public:
     ScmMachine* scm = nullptr;
     Peds* peds = nullptr;
     Vehicles* cars = nullptr;
+    CarGenerators* carGens = nullptr;   // CTheCarGenerators: the script's parked cars
     Trains* trains = nullptr;           // the trains on the track nodes (the game loop runs them)
     bool RandomTrainsOff() const { return m_randomTrainsOff; }
     D3DRenderer* r = nullptr;

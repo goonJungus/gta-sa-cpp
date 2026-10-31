@@ -3,6 +3,8 @@
 
 #include "ScriptGame.h"
 
+#include "CarGenerators.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -919,7 +921,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     }
     // ---- plain switches with no game effect yet -------------------------------------------
     case 0x042C: case 0x030D: case 0x0997: case 0x01F0: case 0x0111: case 0x06CF: case 0x0746: case 0x0180:   // totals, wanted, death state, timer bars, relationship, mission flag
-    case 0x014C: case 0x0914: case 0x0929: case 0x07D3: case 0x0884: case 0x0928: case 0x08E8: case 0x0363: case 0x03B7: case 0x090F:
+    case 0x0914: case 0x0929: case 0x07D3: case 0x0884: case 0x0928: case 0x08E8: case 0x0363: case 0x03B7: case 0x090F:
     case 0x06C8: case 0x09B4: case 0x0814: case 0x08CA: case 0x0767: case 0x0874: case 0x076A: case 0x09B7: case 0x04F8: case 0x0827:
     case 0x016C: case 0x016D: case 0x02FA: case 0x0A17:
         return true;
@@ -932,8 +934,14 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0A03: c.result = false; return true;                                                // IS_GANG_WAR_FIGHTING_GOING_ON
     case 0x0623: Stats::Set(c.I(0), Stats::Get(c.I(0)) + (float)c.I(1)); return true;       // INCREMENT_INT_STAT
     case 0x0625: Stats::Set(c.I(0), Stats::Get(c.I(0)) - (float)c.I(1)); return true;       // DECREMENT_INT_STAT
-    case 0x014B: c.Out(12, 0); return true;                                                   // CREATE_CAR_GENERATOR: parked car spawns are not run
-    case 0x09E2: c.Out(13, 0); return true;                                                   // CREATE_CAR_GENERATOR_WITH_PLATE
+    case 0x014B: case 0x09E2: {   // CREATE_CAR_GENERATOR(x y z angle model c1 c2 force alarm lock min max) (_WITH_PLATE: + plate)
+        // the plate text is not used: number plates are not drawn
+        const int h = carGens ? carGens->CreateScript(c.F(0), c.F(1), c.F(2), c.F(3), c.I(4), c.I(5), c.I(6), c.I(7) != 0,
+                                                      c.I(8), c.I(9), c.I(10), c.I(11)) : -1;
+        c.Out(c.op == 0x09E2 ? 13 : 12, h);
+        return true;
+    }
+    case 0x014C: if (carGens) carGens->SwitchScript(c.I(0), c.I(1), nowMs ? nowMs() : 0); return true;   // SWITCH_CAR_GENERATOR
     case 0x0926: c.Out(1, 0); return true;                                                    // GET_NUMBER_OF_INSTANCES_OF_STREAMED_SCRIPT
     case 0x08AB: c.result = true; return true;                                                // HAS_STREAMED_SCRIPT_LOADED
     case 0x0A40: c.Out(4, ++m_markers); return true;                                          // CREATE_USER_3D_MARKER
