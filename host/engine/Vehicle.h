@@ -232,6 +232,7 @@ struct CarPhys {
     // CAutomobile::ProcessBuoyancy: m_fBuoyancyConstant (from the handling, sinking lower while it drowns; 0 = not
     // yet set), bIsDrowning and bTouchingWater
     float buoyancyConst = 0.0f;
+    bool smokeEjector = false, prevGearKey = false;   // CPlane::m_bSmokeEjectorEnabled (Cropduster, Stuntplane)
     bool drowning = false, touchingWater = false;
     float sprintLean = 0.0f;          // m_fSprintLeanAngle: the frame rocks under a sprinting rider
     // CHeli: the pad (ProcessControlInputs: m_fAccelerationBreakStatus, m_fSteeringUpDown, m_fSteeringLeftRight,

@@ -4012,6 +4012,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const int wr = WeatherRegionAt(playerX, playerY);   // 0 LA, 1 SF, 2 LV, 3 desert, 4 countryside
                 g_vehicles.plateDesign = wr == 0 ? 2 : wr == 2 || wr == 3 ? 1 : 0;
             }
+            if (g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).phys.smokeEjector) {   // CPlane::PreRender: the smoke ejector
+                const VehicleInstance& sc = g_vehicles.Car((size_t)g_driveCar);
+                float m[16];
+                g_vehicles.BodyMatrix((size_t)g_driveCar, m);
+                const float l[3] = {0.0f, sc.model == 512 ? -0.5f : -5.0f, sc.model == 512 ? -0.5f : 0.0f};
+                const float sp[3] = {m[12] + m[4] * l[1] + m[8] * l[2], m[13] + m[5] * l[1] + m[9] * l[2], m[14] + m[6] * l[1] + m[10] * l[2]};
+                g_fx.Spray(sp, sc.model == 512 ? 0xFFFFFFu : 0xFF0000u);   // the Cropduster sprays white, the Stuntplane smokes red
+            }
             if (cjReady) g_cj.SetInDrowningVehicle(g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).phys.drowning);
             g_vehicles.UpdateDamage(dt, g_driveCar, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p, bool rocket) { (rocket ? g_aircraftBooms : g_carBooms).push_back({p[0], p[1], p[2]}); });

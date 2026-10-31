@@ -254,7 +254,11 @@ bool Vehicles::UsesPlanePhysics(int model) const {
 // throttle on accelerate / brake, and the landing gear key folds the gear away once every wheel is off the ground.
 void Vehicles::PlaneInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player) {
     CarPhys& p = c.phys;
-    if (!player) { p.flyAccel = 0.0f; return; }
+    if (!player) { p.flyAccel = 0.0f; p.smokeEjector = false; return; }   // CPlane::ProcessControl: no driver, no smoke
+    // CPlane::ProcessControl: the landing gear key turns the Cropduster's spray and the Stuntplane's smoke on and off
+    if ((c.model == 512 || c.model == 513) && p.inGear && !p.prevGearKey) p.smokeEjector = !p.smokeEjector;
+    p.prevGearKey = p.inGear;
+    if (!c.engineOn) p.smokeEjector = false;
     p.flyLeftRight = std::clamp(p.flyLeftRight + (p.inSteer - p.flyLeftRight) * ts * 0.2f, -1.0f, 1.0f);
     p.flyUpDown = std::clamp(p.flyUpDown + (-p.inLeanFwd - p.flyUpDown) * ts * 0.2f, -1.0f, 1.0f);   // steer up: nose down
     const float skidPad = c.model == MODEL_VORTEX ? p.inSteer : p.inSkid;   // the Vortex: the steering, not the look keys
