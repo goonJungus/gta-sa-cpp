@@ -175,15 +175,25 @@ bool Vehicles::UsesHeliPhysics(int model) const {
 }
 
 // CHeli::ProcessControlInputs (keyboard): collective on accelerate / brake, pitch on steer up / down, roll on
-// steer left / right, the tail rotor on look left / right. A burning heli loses its lift.
-void Vehicles::HeliInputs(VehicleInstance& c, bool player) {
+// steer left / right, the tail rotor on look left / right. Holding the horn (upright) flies the hover assist: no
+// tail rotor, and pitch and roll set against the drift along the level forward and side (by the pitch / roll
+// stabilities, at most 2 either way). A burning heli loses its lift and swings its tail.
+void Vehicles::HeliInputs(VehicleInstance& c, const HandlingData& h, bool player) {
     CarPhys& p = c.phys;
     if (!player) { p.flyAccel = p.flyUpDown = p.flyLeftRight = p.flySkid = 0.0f; return; }
     p.flyAccel = p.inAccel - p.inBrake;
     p.flyUpDown = std::clamp(-p.inLeanFwd, -1.0f, 1.0f);       // steer up (num 8) is the stick forward: nose down
     p.flyLeftRight = std::clamp(-p.inSteer, -1.0f, 1.0f);
     p.flySkid = std::clamp(p.inSkid, -1.0f, 1.0f);
-    if (c.health < 250.0f) p.flyAccel = -0.1f;
+    if (p.inHorn && c.rot[8] > 0.0f) {
+        p.flySkid = 0.0f;
+        const V3 right(&c.rot[0]), fwd(&c.rot[3]), mv(p.mv);
+        const V3 levelFwd = Norm(Cross(V3(0.0f, 0.0f, 1.0f), right));
+        const V3 levelSide = Norm(Cross(fwd, V3(0.0f, 0.0f, 1.0f)));
+        p.flyUpDown = std::clamp(Dot(levelFwd, mv) * h.fly.pitchStab, -2.0f, 2.0f);
+        p.flyLeftRight = std::clamp(Dot(levelSide, mv) * h.fly.rollStab, -2.0f, 2.0f);
+    }
+    if (c.health < 250.0f) { p.flyAccel = -0.1f; p.flySkid += 0.5f; }
 }
 
 // CHeli::ProcessFlyingCarStuff, at the end of each CAutomobile::ProcessControl: the player's rotor winds up to

@@ -4311,7 +4311,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const float gunLR = ((RawGameKey(VK_NUMPAD6) & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey(VK_NUMPAD4) & 0x8000) ? 1.0f : 0.0f);
                         static bool s_hornWas = false;
                         const bool hornNow = ((RawGameKey('H') | RawGameKey(VK_CAPITAL)) & 0x8000) != 0;
-                        g_vehicles.SetHydraulicPad((size_t)g_driveCar, gunLR, hornNow && !s_hornWas, (RawGameKey('2') & 0x8000) != 0);
+                        g_vehicles.SetHydraulicPad((size_t)g_driveCar, gunLR, hornNow && !s_hornWas, (RawGameKey('2') & 0x8000) != 0, hornNow);
                         s_hornWas = hornNow;
                     }
                     if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust, gunUpDown)))

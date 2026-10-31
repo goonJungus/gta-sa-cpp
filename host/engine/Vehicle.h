@@ -255,6 +255,7 @@ struct CarPhys {
     float inGunUpDown = 0.0f;         // GetCarGunUpDown / 128: VEHICLE_TURRETUP (num 2) +1, TURRETDOWN (num 8) -1
     float inGunLeftRight = 0.0f;      // special control right (+1) / left (-1)
     bool inHornJust = false, inHydJump = false;   // the horn went down this frame; the hydraulic jump key held
+    bool inHorn = false;                          // the horn held (CPad::GetHorn)
     // STATUS_PHYSICS: an AI driver's pedals and steering (CCarCtrl::SteerAICarWithPhysics), radians + left
     bool ai = false, aiHandbrake = false;
     float aiGas = 0.0f, aiBrake = 0.0f, aiSteer = 0.0f;
@@ -424,15 +425,18 @@ public:
     bool AttachTrailer(size_t trailer, size_t cab);
     void DetachTrailer(size_t trailer) { BreakTowLink(trailer); }
     // The driver's hydraulics pad for car i this frame (before ProcessCar): special control left / right, the horn
-    // just pressed (pumps up / drops), the jump key held.
+    // just pressed (pumps up / drops) and held (a heli's hover assist), the jump key held.
     // An AI driver at car i's controls (STATUS_PHYSICS): gas and brake 0..1, steer in radians (+ left). The car is
     // simulated from now on like the player's, with these in place of the pad.
     void SetAIControls(size_t i, float steer, float gas, float brake, bool handbrake);
     void ClearAIControls(size_t i) { if (i < m_cars.size()) m_cars[i].phys.ai = false; }
     // A recorded playback lets go of car i: the simulation takes it on where it is, as it is turned, at its speed.
     void EndPlayback(size_t i);
-    void SetHydraulicPad(size_t i, float leftRight, bool hornJust, bool jump) {
-        if (i < m_cars.size()) { m_cars[i].phys.inGunLeftRight = leftRight; m_cars[i].phys.inHornJust = hornJust; m_cars[i].phys.inHydJump = jump; }
+    void SetHydraulicPad(size_t i, float leftRight, bool hornJust, bool jump, bool horn) {
+        if (i < m_cars.size()) {
+            m_cars[i].phys.inGunLeftRight = leftRight; m_cars[i].phys.inHornJust = hornJust; m_cars[i].phys.inHydJump = jump;
+            m_cars[i].phys.inHorn = horn;
+        }
     }
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
     void ProcessAbandoned(float dt, int skip, const VehicleWorld& world);
@@ -522,7 +526,7 @@ private:
     void BoatFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const;
     // CHeli::ProcessControlInputs (once a frame), CHeli::ProcessFlyingCarStuff + CVehicle::FlyingControl (each step,
     // at the end of CAutomobile::ProcessControl) and CHeli::PreRender's rotors (FlightPhysics.cpp).
-    void HeliInputs(VehicleInstance& c, bool player);
+    void HeliInputs(VehicleInstance& c, const HandlingData& h, bool player);
     void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void HeliRotors(VehicleInstance& c, float ts);
     void HeliFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const;

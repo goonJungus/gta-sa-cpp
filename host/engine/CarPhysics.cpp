@@ -1037,7 +1037,7 @@ bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float st
     const float total = dt * 50.0f;
     const int steps = std::clamp((int)std::ceil(total), 1, 8);
     if (boat) BoatInputs(c, *h, total, true);
-    if (heli) HeliInputs(c, true);
+    if (heli) HeliInputs(c, *h, true);
     if (plane) PlaneInputs(c, *h, total, true);
     for (int k = 0; k < steps; k++) StepVehicle(i, total / (float)steps, true, world);
     if (bike && (vm.info.type == "bmx" || vm.info.type == "BMX")) BmxSway(c);
@@ -1065,7 +1065,7 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         const float total = dt * 50.0f;
         const int steps = std::clamp((int)std::ceil(total), 1, 8);
         if (boat) BoatInputs(c, *h, total, false);
-        if (UsesHeliPhysics(c.model)) HeliInputs(c, false);
+        if (UsesHeliPhysics(c.model)) HeliInputs(c, *h, false);
         if (UsesPlanePhysics(c.model)) PlaneInputs(c, *h, total, false);
         for (int k = 0; k < steps; k++) StepVehicle(i, total / (float)steps, false, world);
         // CAutomobile::ProcessControl, STATUS_ABANDONED: once the averaged speeds stay tiny the car sleeps
