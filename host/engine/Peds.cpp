@@ -488,12 +488,17 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
             a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
             a.vz -= 20.0f * dt;   // 0.008 per 1/50 s step
             const float g = groundAt ? groundAt(a.x, a.y, a.z + 1.0f) : a.z;
-            if (a.vz < 0.0f && g > -1e5f && a.z <= g) { a.z = g; a.vx = a.vy = a.vz = 0.0f; a.flying = false; }
+            if (a.vz < 0.0f && g > -1e5f && a.z <= g) {
+                a.z = g; a.vz = 0.0f;
+                const float sp = std::hypot(a.vx, a.vy), slow = sp - 10.0f * dt;   // skids on its ground friction
+                if (!a.slides || slow <= 0.0f) { a.vx = a.vy = 0.0f; a.flying = a.slides = false; }
+                else { a.vx *= slow / sp; a.vy *= slow / sp; }
+            }
         }
         if (a.dead) {   // lies where it fell, then goes away
             a.deadTime += dt;
             a.animTime += dt;
-            if (groundAt) { const float g = groundAt(a.x, a.y, a.z + 1.0f); if (g > -1e5f) a.z += (g - a.z) * std::min(1.0f, 10.0f * dt); }
+            if (groundAt && !a.flying) { const float g = groundAt(a.x, a.y, a.z + 1.0f); if (g > -1e5f) a.z += (g - a.z) * std::min(1.0f, 10.0f * dt); }
             continue;
         }
         if (a.burning) {   // CTaskComplexOnFire: flee, scream
@@ -705,6 +710,79 @@ bool Peds::WaterHit(size_t i, const float sec[3], float ts) {
     a.vx = mx * 50.0f; a.vy = my * 50.0f; a.vz = mz * 50.0f;
     a.flying = true;
     return true;
+}
+
+int Peds::HitByCar(size_t i, const CarHit& h) {
+    if (i >= m_actors.size() || m_actors[i].dead || m_actors[i].hidden) return 0;
+    Actor& a = m_actors[i];
+    const float cz = a.z + 1.0f;   // the ped's origin, a metre above the feet
+    const float rel[3] = {a.x - h.pos[0], a.y - h.pos[1], cz - h.pos[2]};
+    auto dot = [](const float* u, const float* v) { return u[0] * v[0] + u[1] * v[1] + u[2] * v[2]; };
+    const float speed = std::sqrt(dot(h.mv, h.mv));
+    // CPed::GetLocalDirection(-car speed): 0 front, 1 left, 2 back, 3 right of the ped (our heading 0 faces +x)
+    float ang = std::atan2(-h.mv[1], -h.mv[0]) - a.heading + 0.7853982f;
+    while (ang < 0.0f) ang += 6.2831853f;
+    int dir = ((int)(ang * 57.29578f) / 90) % 4;
+    auto clip = [&](const char* n) { auto c = m_clips.find(n); return c != m_clips.end() ? &c->second : nullptr; };
+    static const char* kKo[4] = {"ko_skid_front", "ko_spin_r", "ko_skid_back", "ko_spin_l"};
+    if (h.di <= 12.0f) {   // knocked over: CEventDamage for 30 with KO_SKID_FRONT + direction
+        if (h.di <= 6.0f) return 0;   // (the struck-from-above case needs the ped's own impact normal; peds have none)
+        a.health -= 30.0f * a.weakness;
+        a.fleeTimer = 8.0f;
+        if (a.health <= 0.0f) { Damage((int)i, 0.0f, true); if (const AnimClip* c = clip(kKo[dir])) a.deathClip = c; }
+        else if (const AnimClip* c = clip(kKo[dir])) { a.hitClip = c; a.hitTime = 0.0f; a.getUp = true; }
+        a.vx = h.mv[0] * 0.75f * 50.0f; a.vy = h.mv[1] * 0.75f * 50.0f; a.vz = 0.0f;
+        a.flying = a.slides = true;
+        return 1;
+    }
+    // Killed: how the car meets the ped picks the throw
+    const float side = dot(rel, h.right), height = dot(rel, h.up);
+    int how = 0;   // 0 plain, 1 over the bonnet, 2 run over, 3 / 4 side-swiped on the left / right
+    bool runOver = false;
+    if (dot(h.mv, h.fwd) >= 0.0f) {
+        if (std::fabs(side) > h.maxX * 0.99f) {
+            how = side <= 0.0f ? 3 : 4;
+            runOver = std::fabs(dot(rel, h.fwd)) < h.maxY * 0.85f;
+        } else {
+            const int r = Rand(4);
+            if ((r != 0 && (height <= 0.1f || r < 2)) || h.big) { how = 2; runOver = true; }
+            else how = 1;
+        }
+    }
+    if (runOver) {   // carried along at 0.9 of the car's speed
+        a.vx = h.mv[0] * 0.9f * 50.0f; a.vy = h.mv[1] * 0.9f * 50.0f; a.vz = 0.0f;
+        a.flying = a.slides = true;
+        if (dir == 1 || dir == 3) dir = 2;
+    } else if (how == 1) {   // up over the bonnet: high enough to clear the car's top in the time it takes to pass
+        float top, len;
+        if (h.fwd[2] < -0.2f) {
+            top = h.pos[2] + h.fwd[2] * h.minY + h.up[2] * h.maxZ;
+            len = h.maxY - h.minY;
+        } else if (h.fwd[2] <= 0.1f) {
+            top = h.pos[2] + h.up[2] * h.maxZ;
+            len = h.maxY;
+        } else {
+            top = h.pos[2] + h.fwd[2] * h.maxY + h.up[2] * h.maxZ;
+            len = h.maxY;
+            if (top - cz > 0.0f) { a.z += (top - cz) * 0.5f; top += (top - cz) * 0.25f; }
+        }
+        const float lift = ((float)Rand(256) * 0.002f + 1.5f) * ((top - (a.z + 1.0f)) / (len / std::max(speed, 1e-4f)));
+        const float inv = speed > 1e-6f ? 1.0f / speed : 0.0f;
+        a.vx = h.mv[0] * inv * lift * 0.2f * 50.0f; a.vy = h.mv[1] * inv * lift * 0.2f * 50.0f; a.vz = lift * 50.0f;
+        a.flying = a.slides = true;
+        dir = dir + 2 > 3 ? dir - 2 : dir + 2;
+    }
+    const int r = Rand(4);
+    const char* death = "ko_skid_front";
+    switch (dir) {
+    case 0: death = how == 3 ? (r < 2 ? "ko_skid_front" : "ko_spin_r") : (how == 4 && r >= 2 ? "ko_spin_l" : "ko_skid_front"); break;
+    case 1: death = "kd_left"; break;
+    case 2: death = how == 3 && r > 1 ? "kd_left" : how == 4 && r > 1 ? "kd_right" : "ko_skid_back"; break;
+    default: death = "kd_right"; break;
+    }
+    Damage((int)i, 0.0f, true);   // CPedDamageResponseCalculator with 1000
+    if (const AnimClip* c = clip(death)) a.deathClip = c;
+    return how == 1 ? 3 : 2;
 }
 
 void Peds::Choke(const float c[3], float radius) {

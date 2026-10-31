@@ -119,6 +119,19 @@ public:
     // step) and then the push rule speed = (jet / 10 - ped) / 10 + jet where the directions agree. secSpeed is the
     // section's speed in metres per 20 ms step. Returns false for a dead ped.
     bool WaterHit(size_t i, const float secSpeed[3], float timeStep);
+    // The car that struck a ped, as CPed::KillPedWithCar reads it: speeds per 1/50 s step, its matrix rows and
+    // COL bounding box. `big` is the handling's IS_BIG model flag (it always runs peds over).
+    struct CarHit {
+        float di = 0.0f;                  // the ped's damage intensity from the collision (mass x speed change)
+        float mv[3] = {}, pos[3] = {}, right[3] = {}, fwd[3] = {}, up[3] = {};
+        float minY = -2.0f, maxX = 1.0f, maxY = 2.0f, maxZ = 1.0f;
+        bool big = false;
+    };
+    // CPed::KillPedWithCar for a non-player ped: past 6 (3 when struck from above) it is knocked down for 30 with
+    // the car's speed x 0.75; past 12 it dies, run over (carried at 0.9 of the car's speed), side-swiped or thrown
+    // up over the bonnet. Returns 0 nothing, 1 knocked down, 2 killed, 3 killed over the bonnet.
+    int HitByCar(size_t i, const CarHit& h);
+    void Shove(size_t i, float x, float y) { if (i < m_actors.size()) { m_actors[i].x = x; m_actors[i].y = y; } }
     // CWorld::SetPedsChoking: peds inside `radius` stagger away from the gas.
     void Choke(const float centre[3], float radius);
     // CFire on a ped (CTaskComplexOnFire): it runs, screams (CTX_GLOBAL_PAIN_ON_FIRE) and burns for
@@ -184,6 +197,7 @@ private:
         float chokeAnim = 0.0f, coughTimer = 0.0f;
         float vx = 0, vy = 0, vz = 0;     // m/s, from CPhysical::ApplyMoveForce (a melee knock-back)
         bool flying = false;              // thrown and not yet landed
+        bool slides = false;              // struck by a car: on landing it skids to a stop instead of stopping dead
         bool getUp = false;               // a knock-down in progress: stands up when the hit clip ends
     };
 

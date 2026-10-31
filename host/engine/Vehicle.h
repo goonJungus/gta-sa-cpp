@@ -216,7 +216,13 @@ public:
     void CollisionDamage(float dt, int playerCar);
     // A ped's upright cylinder (feet at z) against the car bodies: moves (x, y) out of any car it sinks into, so
     // a parked car blocks and a moving one shoves. Returns the car it touched, or -1.
-    int PushPedOut(float* x, float* y, float z, float radius, float height) const;
+    // With pedDI, also the ped's damage intensity from the hardest car that ran into it (CPhysical::ApplyCollision,
+    // car x10 mass against a 70 kg ped) and that car in *hitCar.
+    int PushPedOut(float* x, float* y, float z, float radius, float height, float* pedDI = nullptr, int* hitCar = nullptr) const;
+    // KillPedWithCar's force back on car i from a ped struck at pedCentre.
+    void PedHitReaction(size_t i, const float pedCentre[3], bool overBonnet);
+    // The car's COL bounding box in car space (the body extents when the model has no COL).
+    bool ColBounds(size_t i, float mn[3], float mx[3]) const;
     // The nearest car within `range` metres of a point, or -1.
     // Ray against the car bodies; returns the car index or -1, *t is the distance along dir.
     int Trace(const float* eye, const float* dir, float reach, float* t) const;

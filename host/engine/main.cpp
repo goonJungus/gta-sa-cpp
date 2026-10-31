@@ -3814,6 +3814,33 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
             if (g_vehicles.Ready()) { g_vehicles.CarCarCollisions(dt); g_vehicles.CollisionDamage(dt, g_driveCar); }
             if (getenv("GTA_CARDBG") && frame % 10 == 0)
+                for (size_t pi = 0; g_peds.Ready() && pi < g_peds.Count(); pi++)
+                    Log("CARDBG f%d ped %zu pos %.2f %.2f %.2f alive %d flying %d clip %s", frame, pi, g_peds.X(pi), g_peds.Y(pi), g_peds.Z(pi),
+                        (int)g_peds.Alive(pi), (int)g_peds.Flying(pi), g_peds.ClipName(pi));
+            for (size_t pi = 0; g_vehicles.Ready() && g_peds.Ready() && pi < g_peds.Count(); pi++) {   // peds against the cars
+                if (!g_peds.Alive(pi) || g_peds.Hidden(pi) || g_peds.Flying(pi)) continue;
+                float px = g_peds.X(pi), py = g_peds.Y(pi), di = 0.0f;
+                int hc = -1;
+                if (g_vehicles.PushPedOut(&px, &py, g_peds.Z(pi), 0.35f, 1.8f, &di, &hc) < 0) continue;
+                g_peds.Shove(pi, px, py);
+                if (hc < 0 || g_peds.KnockedDown(pi)) continue;   // m_pEntityIgnoredCollision: one knock per fall
+                const VehicleInstance& vc = g_vehicles.Car((size_t)hc);
+                Peds::CarHit ch;
+                ch.di = di;
+                for (int k = 0; k < 3; k++) {
+                    ch.mv[k] = vc.phys.mv[k]; ch.right[k] = vc.rot[k]; ch.fwd[k] = vc.rot[3 + k]; ch.up[k] = vc.rot[6 + k];
+                }
+                ch.pos[0] = vc.x; ch.pos[1] = vc.y; ch.pos[2] = vc.z;
+                float mn[3], mx[3];
+                if (g_vehicles.ColBounds((size_t)hc, mn, mx)) { ch.minY = mn[1]; ch.maxX = mx[0]; ch.maxY = mx[1]; ch.maxZ = mx[2]; }
+                if (const VehicleInfo* hvi = g_vehicles.Info(vc.model)) if (const HandlingData* hh = g_vehicles.Handling(hvi->handling)) ch.big = (hh->modelFlags & 0x8) != 0;
+                const int how = g_peds.HitByCar(pi, ch);
+                if (how == 0) continue;
+                const float centre[3] = {g_peds.X(pi), g_peds.Y(pi), g_peds.Z(pi) + 1.0f};
+                g_vehicles.PedHitReaction((size_t)hc, centre, how == 3);
+                if (getenv("GTA_CARDBG")) Log("PEDHIT ped %zu car %d di %.1f -> %s", pi, hc, di, how == 1 ? "knocked down" : how == 3 ? "killed over the bonnet" : "killed");
+            }
+            if (getenv("GTA_CARDBG") && frame % 10 == 0)
                 for (size_t i = 0; i < g_vehicles.Count(); i++) {
                     const VehicleInstance& oc = g_vehicles.Car(i);
                     if ((int)i != g_driveCar && oc.phys.active)

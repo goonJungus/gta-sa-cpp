@@ -791,6 +791,38 @@ void Vehicles::CarCarCollisions(float dt) {
         }
 }
 
+void Vehicles::PedHitReaction(size_t i, const float pedCentre[3], bool overBonnet) {
+    if (i >= m_cars.size()) return;
+    VehicleInstance& c = m_cars[i];
+    const VehicleInfo* info = Info(c.model);
+    const HandlingData* h = info ? Handling(info->handling) : nullptr;
+    if (!h || !c.phys.active) return;
+    // CPed::KillPedWithCar's push back on the car: along the flat line to the ped (dipped 0.2 unless the ped went
+    // over the bonnet), scaled by the car's speed that way and its mass up to 1600 kg, at a quarter of the offset.
+    Body b = Load(c, *h);
+    V3 rel = V3(pedCentre) - b.pos;
+    rel -= b.up * Dot(rel, b.up);
+    V3 dir = Norm(rel);
+    const float along = Dot(dir, b.mv);
+    if (!overBonnet) dir.z -= 0.2f;
+    const float m = h->mass;
+    const float f = std::min(1.0f, m / 1600.0f) * std::min(m, 1600.0f) * along * -0.5f;
+    b.ApplyForce(dir * f, rel * 0.25f);
+    Store(b, c);
+    SyncFromPhys(c, m_models[c.model]);
+}
+
+bool Vehicles::ColBounds(size_t i, float mn[3], float mx[3]) const {
+    if (i >= m_cars.size()) return false;
+    auto it = m_models.find(m_cars[i].model);
+    if (it == m_models.end()) return false;
+    const VehicleModel& vm = it->second;
+    if (vm.colFound) { std::memcpy(mn, vm.colMin, sizeof(vm.colMin)); std::memcpy(mx, vm.colMax, sizeof(vm.colMax)); return true; }
+    mn[0] = -vm.bbHalfX; mn[1] = vm.bbMinY; mn[2] = vm.bbMinZ;
+    mx[0] = vm.bbHalfX; mx[1] = vm.bbMaxY; mx[2] = 1.0f;
+    return true;
+}
+
 int Vehicles::Random(int n) {
     m_rng = m_rng * 1664525u + 1013904223u;
     return (int)((m_rng >> 8) % (unsigned)n);
@@ -887,8 +919,9 @@ void Vehicles::CollisionDamage(float dt, int playerCar) {
     }
 }
 
-int Vehicles::PushPedOut(float* x, float* y, float z, float radius, float height) const {
+int Vehicles::PushPedOut(float* x, float* y, float z, float radius, float height, float* pedDI, int* hitCar) const {
     int touched = -1;
+    if (pedDI) *pedDI = 0.0f;
     for (size_t i = 0; i < m_cars.size(); i++) {
         const VehicleInstance& c = m_cars[i];
         if (c.removed) continue;
@@ -914,6 +947,20 @@ int Vehicles::PushPedOut(float* x, float* y, float z, float radius, float height
             const float nx = d > 1e-4f ? dx / d : 1.0f, ny = d > 1e-4f ? dy / d : 0.0f;
             *x += nx * (rr - d); *y += ny * (rr - d);
             touched = (int)i;
+            const VehicleInfo* info = pedDI ? Info(c.model) : nullptr;
+            const HandlingData* h = info ? Handling(info->handling) : nullptr;
+            if (!h || !c.phys.active) continue;
+            // CPhysical::ApplyCollision, car against ped: the car counts ten times its mass (fThisMassFactor 10)
+            const Body b = Load(c, *h);
+            const V3 n(-nx, -ny, 0.0f);   // out of the ped, into the car
+            const V3 dp = V3(p.x + nx * sr, p.y + ny * sr, p.z + hz) - b.pos;
+            const float vCar = Dot(b.Speed(dp), n);
+            const float mCar = 1.0f / (Len2(Cross(dp - b.ComW(), n)) / (10.0f * b.turnMass) + 1.0f / (10.0f * b.mass));
+            const float mPed = 70.0f;
+            const float common = mCar * vCar / (mPed + mCar);
+            if (vCar - common >= 0.0f) continue;
+            const float di = -((common + common * kElasticity) * mPed);   // ped target speed common - (0 - common) e
+            if (di > *pedDI) { *pedDI = di; if (hitCar) *hitCar = (int)i; }
         }
     }
     return touched;
