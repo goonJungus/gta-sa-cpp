@@ -4012,6 +4012,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const int wr = WeatherRegionAt(playerX, playerY);   // 0 LA, 1 SF, 2 LV, 3 desert, 4 countryside
                 g_vehicles.plateDesign = wr == 0 ? 2 : wr == 2 || wr == 3 ? 1 : 0;
             }
+            if (cjReady) g_cj.SetInDrowningVehicle(g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).phys.drowning);
             g_vehicles.UpdateDamage(dt, g_driveCar, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p, bool rocket) { (rocket ? g_aircraftBooms : g_carBooms).push_back({p[0], p[1], p[2]}); });
             {   // CEventKnockOffBike: the rider leaves the bike at its speed, falls, and gets up

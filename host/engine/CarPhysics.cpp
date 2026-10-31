@@ -16,6 +16,50 @@ namespace {
 
 using namespace physics;
 
+// cBuoyancy::ProcessBuoyancy (PreCalcSetup, SimpleCalcBuoyancy with FindWaterLevel and SimpleSumBuoyancyData,
+// CalcBuoyancyForce) for a car: a 3x3 grid over the collision box, each point's depth under the surface (up to the
+// box's height) summed into the immersion and a running average turn point; the lift is immersion x the buoyancy
+// constant, cut back while the car is already rising fast. False when there is no water here or nothing is under.
+bool CarBuoyancy(int model, bool heli, const VehicleModel& vm, const Body& b, float buoyancy, float ts, const VehicleWorld& world,
+                 V3& turnPoint, V3& force) {
+    float level = 0.0f;
+    if (!world.water || !world.water(b.pos.x, b.pos.y, &level)) return false;
+    V3 mn(vm.colMin), mx(vm.colMax);
+    if (model == 417) { mn.y *= 0.4f; mx.y *= 1.15f; }   // the Leviathan
+    else if (heli) { mn.y = -mx.y; mx.z = mn.z * -1.1f; mn.z *= 0.85f; }
+    const V3 half = (mx - mn) * 0.5f;
+    const float scale = (half.z > half.x && half.z > half.y) ? 1.0f / half.z : (half.y > half.x && half.y > half.z) ? 1.0f / half.y : 1.0f / half.x;
+    const V3 norm = half * scale;
+    float immersion = 0.0f, checked = 1.0f;
+    V3 turn;
+    bool inWater = false;
+    for (int ix = 0; ix < 3; ix++)
+        for (int iy = 0; iy < 3; iy++) {
+            V3 pt(mn.x + half.x * (float)ix, mn.y + half.y * (float)iy, 0.0f);
+            const V3 tr = b.Rot(pt);
+            float lv = level;
+            if (!world.water(b.pos.x + tr.x, b.pos.y + tr.y, &lv)) lv = level;
+            pt.z = lv - (tr.z + b.pos.z);
+            if (pt.z < mn.z) continue;   // COMPLETELY_ABOVE_WATER
+            pt.z = std::min(pt.z, mx.z);
+            const float d = std::fabs(pt.z - mn.z);
+            immersion += d;
+            const V3 cur(pt.x * norm.x, pt.y * norm.y, (pt.z + mn.z) * norm.z * 0.5f);
+            const float nc = 1.0f / checked;
+            turn = cur * (nc * d) + turn * (1.0f - nc);
+            checked += 1.0f;
+            inWater = true;
+        }
+    if (!inWater) return false;
+    immersion /= 9.0f * (mx.z - mn.z);
+    turnPoint = b.Rot(turn);
+    const float lift = immersion * buoyancy * ts;
+    force = V3(0.0f, 0.0f, lift);
+    const float rising = b.mass * b.mv.z;
+    if (rising > lift * 4.0f) force.z = std::max(0.0f, lift - rising);
+    return true;
+}
+
 constexpr float kRoadAdhesion = 4.5f;   // surface.dat Rubber (wheelbase) on Road
 constexpr float kBodyAdhesion = 3.0f;   // surface.dat Hard (car body) on Road
 constexpr float kDampingLimitInFrame = 0.25f;        // CPhysical::DAMPING_LIMIT_IN_FRAME (0x8CD7A0)
@@ -445,6 +489,51 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         Store(b, c);
         BoatControl(c, vm, h, ts, player, hitWallPrev, world);
         b = Load(c, h);
+    } else {   // CAutomobile::ProcessBuoyancy
+        const float handlingConst = h.mass * 0.8f / (float)std::max(1, h.percentSubmerged);
+        if (p.buoyancyConst <= 0.0f) p.buoyancyConst = handlingConst;
+        V3 turnPoint, force;
+        if (!CarBuoyancy(c.model, heli, vm, b, p.buoyancyConst, ts, world, turnPoint, force)) {
+            p.drowning = false; p.touchingWater = false;
+            p.buoyancyConst = handlingConst;
+        } else {
+            if (plane && b.mv.z < -1.0f && !c.wrecked) { c.health = 0.0f; c.engineStatus = 225; c.burnTime = 5.0f; }   // a plane dived in: BlowUpCar now
+            p.touchingWater = true;
+            const bool vortex = c.model == 539;
+            const float used = b.mass / 125.0f;
+            float fz = force.z / (std::max(0.01f, ts) * used);
+            if (used > p.buoyancyConst) fz *= 1.05f * used / p.buoyancyConst;
+            const float drag = std::pow(std::max(0.5f, 1.0f - fz / 20.0f), ts);
+            if (!vortex || b.up.z <= 0.3f || p.drowning) { b.mv *= drag; b.tv *= drag; }
+            bool rotorKilled = false, done = false;
+            if (heli && p.rotorSpeed > 0.15f) {   // water stops a rotor
+                bool kill = false;
+                if (c.model != 447 && c.model != 417) {
+                    b.ApplyMoveForce(force * -2.0f / std::max(1.0f, fz * 8.0f));
+                    b.tv *= drag;
+                    if (fz <= 0.9f) done = true;
+                    kill = true;
+                }
+                if (!done && (fz > 3.0f || kill)) { p.rotorSpeed = 0.0f; rotorKilled = true; }
+            }
+            if (!done) {
+                b.ApplyMoveForce(force);
+                b.ApplyTurnForce(force, turnPoint);
+                const bool amphibious = c.model == 447 || c.model == 417;   // the Sea Sparrow and the Leviathan float
+                bool anyFree = false;
+                for (float cp : p.compPrev) anyFree = anyFree || cp >= 1.0f;
+                if (amphibious && fz < 3.0f && (b.up.z > -0.5f || fz < 0.6f)) p.drowning = false;
+                else if (vortex && player && b.up.z > 0.3f && !p.drowning) p.drowning = false;
+                else if (rotorKilled || fz >= 1.0f || (fz > 0.6f && anyFree)) {   // under: it sinks, slowly
+                    p.drowning = true;
+                    b.mv.z = std::max(-0.1f, b.mv.z);
+                    if (b.mass * 8.0f / 1250.0f < p.buoyancyConst) p.buoyancyConst -= b.mass * 0.01f / 1250.0f;
+                    if (p.buoyancyConst < b.mass / 125.0f) c.engineOn = false;
+                } else {
+                    p.drowning = false;
+                }
+            }
+        }
     }
 
     // CPhysical::ProcessControl: ApplyFriction, ApplyGravity, ApplyAirResistance

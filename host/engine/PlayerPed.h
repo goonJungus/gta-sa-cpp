@@ -146,6 +146,8 @@ public:
     // STAT_EXERCISE_RATE_*, 10 = one second per second), 0 when he is not exercising.
     int ExerciseRate() const;
     bool Underwater() const { return m_swimming && m_swimState == SwimState::Under; }
+    // CAutomobile::ProcessPedInVehicleBuoyancy: the car CJ sits in is under water (HandlePlayerBreath(true, 1))
+    void SetInDrowningVehicle(bool on) { m_vehicleDrowning = on; }
     bool SwimJumpOut() const { return m_swimming && m_swimState == SwimState::BackToSurface; }
     float SwimSubmerge() const;            // how far below the surface the ped origin rides
     float SwimVelZ() const { return m_swimVelZ; }
@@ -505,6 +507,7 @@ private:
     float m_climbMod = 1.0f;  // GetFatAndMuscleModifier(1): looping climb clip speed
     float m_jumpMod = 1.0f;   // CStats::GetFatAndMuscleModifier(2): jump launch, launch / land clip speed
     float m_breathMax = 1150.0f;   // steps of air; CPlayerPedData::m_fBreath
+    bool m_vehicleDrowning = false;
     bool m_breathInit = false;
     int m_breathLog = 0;
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = 1150.0f, m_damageFlash = 0.0f;

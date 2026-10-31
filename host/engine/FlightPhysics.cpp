@@ -321,7 +321,11 @@ void Vehicles::PlaneFlyingCarStuff(VehicleInstance& c, const VehicleModel& vm, c
     p.planePropSpeed += (target - p.planePropSpeed) * ts * kPropRoc;
     if (!c.engineOn || !(p.planePropSpeed > kPropMin || Len2(V3(p.mv)) > 0.05f)) return;
     Body b = Load(c, h);
-    const bool airborne = p.compPrev[0] == 1.0f && p.compPrev[1] == 1.0f && p.compPrev[2] == 1.0f && p.compPrev[3] == 1.0f;
+    bool airborne = p.compPrev[0] == 1.0f && p.compPrev[1] == 1.0f && p.compPrev[2] == 1.0f && p.compPrev[3] == 1.0f;
+    if (c.model == 460 && p.boatInWater) {   // FlyingControl: a Skimmer sitting in the water idles without thrust
+        const V3 air = b.mv - V3(world.wind) * h.fly.windMult;
+        if (Dot(b.fwd, air) <= 0.2f) airborne = false;
+    }
     const float nozzle = c.model == 520 ? (float)c.hoist * 1.5707964f / 5000.0f : -1.0f;
     if (c.model == 520 && c.hoist >= 3000) {   // HARRIER_NOZZLE_SWITCH_LIMIT: hovering, it flies as a helicopter on the Hunter's flying lines
         const VehicleInfo* hi = Info(425);

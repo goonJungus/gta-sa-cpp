@@ -70,7 +70,7 @@ Source: the retail decomp (CPlayerPed, CStats, CTask*, CWeapon, CClothes, CPlaye
 - [ ] Sleeping, saving at safehouses, time skip, and the save-room camera (w 1)
 - [ ] Ped hit reactions and ragdoll falls from bullets, explosions, cars, fire (CEventDamage, CTaskSimpleHitBy*, fall and get up) (w 3)
 - [x] Choking animation (CTaskSimpleChoking: gas_cwr then idle_tired, cough speech) and burning peds and player (CTaskComplexOnFire flee, scream, damage; CFire on the player, 2333 ms) (w 1)
-- [ ] Drowning and drowning in a car, electrocution, fall to death (w 1)
+- [~] Drowning and drowning in a car, electrocution, fall to death; done: swimming CJ's breath and drowning, cars in water (CAutomobile::ProcessBuoyancy with cBuoyancy::ProcessBuoyancy: the 3x3 box grid, water drag, rotors killed except the Sea Sparrow / Leviathan, bIsDrowning sinking with the buoyancy constant running down and the engine dying, the driver's breath draining as HandlePlayerBreath, a plane diving in blows up); left: electrocution, fall to death, AI peds drowning in cars (w 1)
 - [ ] CPR and medic treat injured peds, paramedic tasks (w 1)
 - [x] Vehicle and object damage from explosions (TriggerExplosion: rel * damage * 1100 on cars, rel * 250 on peds, move force mass / 1400 * rel * visible on props); creeping fire (CFire, CFireManager, CCreepingFire: 60 fires, 32x32 status grid, merge, spread, extinguish in water) (w 3)
 - [x] Explosion types (CExplosion: all 13 eExplosionType with retail radius, visible distance, expiry, 0-3 spawned fires, molotov set-on-fire, car fuel puffs, aircraft secondary blasts, camera shake) (w 1)
