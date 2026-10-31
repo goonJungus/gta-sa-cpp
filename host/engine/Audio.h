@@ -64,6 +64,9 @@ public:
     // top speed in m/s, number of gears. Call every frame while driving, EngineStop on leaving.
     void Engine(int model, float throttle, float speed, float maxSpeed, int numGears, float dt);
     void EngineStop();
+    // CAEVehicleAudioEntity::PlayHornOrSiren for the player's vehicle: the model's horn (bank 74) while
+    // held, the long siren loop, or the short one while the horn is held with the siren on.
+    void HornSiren(int model, bool horn, bool siren, bool fastSiren);
 
     // A streamed music source (the radio): `pull` fills interleaved stereo frames at `rate` Hz and
     // returns how many it wrote, 0 when the track is over. It runs on the mixer thread.
@@ -107,6 +110,7 @@ private:
     std::vector<int16_t> m_musBuf;   // decoded stereo frames not yet played
     double m_musPos = 0.0;
     int m_engModel = -1, m_engAC = 0, m_engCRZ = 0, m_engID = 0;
+    int m_hornVoice = 0, m_hornModel = -1, m_sirenVoice = 0, m_fastSirenVoice = 0;
     float m_engGainAC = 0.0f, m_engGainCRZ = 0.0f, m_engGainID = 0.0f;
     int m_ambCity = 0, m_ambRain = 0, m_ambWindL = 0, m_ambWindR = 0;
     int Rand(int n) { m_rng = m_rng * 1664525u + 1013904223u; return (int)((m_rng >> 8) % (unsigned)n); }

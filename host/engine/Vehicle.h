@@ -188,6 +188,7 @@ struct VehicleInstance {
     uint16_t randomSeed = 0;          // CEntity::m_nRandomSeed (picks the minute its lights come on)
     bool engineOn = false;            // bEngineOn: started by a driver, keeps running when he leaves
     bool hasDriver = false;           // someone at the wheel (brake lights need a foot on the pedal)
+    bool siren = false;               // bSirenOrAlarm: the siren and its light bar
     // CDoor per eDoors (bonnet, boot, lf, rf, lr, rr) while it swings loose: angle, angular speed, eDoorState.
     float doorAngle[6] = {0, 0, 0, 0, 0, 0}, doorAngVel[6] = {0, 0, 0, 0, 0, 0};
     uint8_t doorHit[6] = {0, 0, 0, 0, 0, 0};
@@ -215,6 +216,8 @@ public:
     struct LightEnv { int hour = 12, minute = 0; float foggy = 0.0f, wet = 0.0f; };
     // CVehicle::GetVehicleLightsStatus.
     static bool LightsOn(const VehicleInstance& c, const LightEnv& env);
+    // CVehicle::UsesSiren: emergency vehicles and the law (IsLawEnforcementVehicle), not the rhino.
+    static bool UsesSiren(int model);
     // CVehicle::DoVehicleLights: head and tail light coronas of the cars near the camera.
     void RenderLights(D3DRenderer& r, const float cam[3], const LightEnv& env) const;
 

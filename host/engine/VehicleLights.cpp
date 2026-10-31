@@ -4,6 +4,8 @@
 #define NOMINMAX
 #include "Vehicle.h"
 
+#include <windows.h>
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -36,8 +38,51 @@ bool Vehicles::LightsOn(const VehicleInstance& c, const LightEnv& env) {
            s < env.foggy || s < env.wet;
 }
 
+bool Vehicles::UsesSiren(int model) {
+    switch (model) {
+    case 407: case 416: case 423: return true;      // firetruck, ambulance, mr whoopee
+    case 432: return false;                         // rhino
+    case 427: case 430: case 433: case 490: case 497: case 523: case 528:
+    case 596: case 597: case 598: case 599: case 601: return true;   // IsLawEnforcementVehicle
+    default: return false;
+    }
+}
+
 void Vehicles::RenderLights(D3DRenderer& r, const float cam[3], const LightEnv& env) const {
     std::vector<D3DRenderer::GlowSprite> glow;
+    const uint32_t ms = (uint32_t)GetTickCount();
+    for (const VehicleInstance& c : m_cars) {
+        if (c.siren && !c.removed && !c.wrecked) {
+            // CAutomobile::PreRender light bars: four lamps across the bar, each a quarter cycle (64 ms) behind
+            // the last; a lamp shows colour A for the first 256 ms of every 1024, colour B for the third.
+            int bar = -1;
+            switch (c.model) {
+            case 407: bar = 0; break; case 416: bar = 1; break; case 427: bar = 2; break;
+            case 596: case 597: case 598: bar = 3; break; case 599: bar = 4; break;
+            }
+            static const float kBar[5][3] = {{0.9f, 3.2f, 1.3f}, {0.6f, 0.9f, 1.2f}, {0.55f, 1.1f, 1.4f}, {0.7f, -0.4f, 1.0f}, {0.7f, -0.1f, 1.2f}};
+            // colour B: firetruck yellow, ambulance white, the law blue; colour A is red
+            static const uint32_t kB[5] = {0xffffff00u, 0xffffffffu, 0xff0000ffu, 0xff0000ffu, 0xff0000ffu};
+            if (bar >= 0) {
+                float rt[3], fw[3], up[3];
+                if (c.phys.active || c.hasRot) for (int k = 0; k < 3; k++) { rt[k] = c.rot[k]; fw[k] = c.rot[3 + k]; up[k] = c.rot[6 + k]; }
+                else { const float cs = std::cos(c.heading), sn = std::sin(c.heading); rt[0] = cs; rt[1] = sn; rt[2] = 0; fw[0] = -sn; fw[1] = cs; fw[2] = 0; up[0] = up[1] = 0; up[2] = 1; }
+                for (int i = 0; i < 4; i++) {
+                    const uint32_t ph = ms + (uint32_t)i * 0x40u;
+                    const bool a = (ph & 0x300u) == 0, b = ((ph >> 8) & 3u) == 2;
+                    if (!a && !b) continue;
+                    const float t = (float)i / 3.0f;   // from the left end (-x) to the right (+x)
+                    const float l[3] = {kBar[bar][0] * (2.0f * t - 1.0f), kBar[bar][1], kBar[bar][2]};
+                    float p[3];
+                    for (int k = 0; k < 3; k++) p[k] = (k == 0 ? c.x : k == 1 ? c.y : c.z) + rt[k] * l[0] + fw[k] * l[1] + up[k] * l[2];
+                    float d[3] = {cam[0] - p[0], cam[1] - p[1], cam[2] - p[2]};   // out of the bar's housing
+                    const float dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                    const float pull = dl > 1e-3f ? std::min(0.3f, dl * 0.5f) / dl : 0.0f;
+                    glow.push_back({p[0] + d[0] * pull, p[1] + d[1] * pull, p[2] + d[2] * pull, 0.4f, a ? 0xffff0000u : kB[bar]});
+                }
+            }
+        }
+    }
     for (const VehicleInstance& c : m_cars) {
         if (c.removed || c.wrecked || !c.engineOn) continue;   // bEngineOn gates every light
         const float dx = c.x - cam[0], dy = c.y - cam[1];

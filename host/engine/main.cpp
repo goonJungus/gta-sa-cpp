@@ -4087,6 +4087,21 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (s_driven != g_driveCar && s_driven >= 0 && (size_t)s_driven < g_vehicles.Count()) g_vehicles.Car((size_t)s_driven).hasDriver = false;
                 if (g_driveCar >= 0) { VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar); dc.engineOn = true; dc.hasDriver = true; }
                 s_driven = g_driveCar;
+                // CVehicle::ProcessSirenAndHorn: H or Caps Lock sounds the horn once held three frames (0.1 s); in an
+                // emergency vehicle a shorter tap flips the siren, and the horn with the siren on is the fast siren.
+                static float s_hornHeld = 0.0f;
+                const bool hk = g_driveCar >= 0 && !g_menu.IsOpen() && ((RawGameKey('H') | RawGameKey(VK_CAPITAL)) & 0x8000) != 0;
+                if (g_driveCar >= 0) {
+                    VehicleInstance& hc = g_vehicles.Car((size_t)g_driveCar);
+                    if (!hk && s_hornHeld > 0.0f && s_hornHeld < 0.1f && Vehicles::UsesSiren(hc.model)) hc.siren = !hc.siren;
+                    s_hornHeld = hk ? s_hornHeld + dt : 0.0f;
+                    const bool horn = s_hornHeld >= 0.1f && !hc.wrecked;
+                    const bool siren = hc.siren && !hc.wrecked && hc.model != 423;   // mr whoopee plays his jingle instead
+                    g_audio.HornSiren(hc.model, horn, siren, siren && horn);
+                } else {
+                    s_hornHeld = 0.0f;
+                    g_audio.HornSiren(0, false, false, false);
+                }
             }
 
             // ---- V cycles the camera views (Camera.h) ----

@@ -463,6 +463,21 @@ void Audio::StopMusic() {
     m_musEnded = false;
 }
 
+void Audio::HornSiren(int model, bool horn, bool siren, bool fastSiren) {
+    if (!m_ready) return;
+    const int idx = model - 400;
+    const VehAudioRow* row = idx >= 0 && idx < (int)(sizeof(kVehAudio) / sizeof(kVehAudio[0])) ? &kVehAudio[idx] : nullptr;
+    const bool hornOk = horn && row && row->horn >= 0 && row->horn <= 9;   // the car horns; bikes ring a bell elsewhere
+    if (m_hornVoice && (!hornOk || m_hornModel != model)) { Stop(m_hornVoice); m_hornVoice = 0; }
+    if (hornOk && !m_hornVoice) { m_hornVoice = Play(74, row->horn, 0.6f, 0.0f, row->hornPitch, true); m_hornModel = model; }
+    auto loop = [&](int& v, bool on, int sound) {
+        if (on && !v) v = Play(74, sound, 0.55f, 0.0f, 1.0f, true);
+        else if (!on && v) { Stop(v); v = 0; }
+    };
+    loop(m_fastSirenVoice, fastSiren, 11);           // SND_GENRL_HORN_SIREN_SHORT
+    loop(m_sirenVoice, siren && !fastSiren, 10);     // SND_GENRL_HORN_SIREN_LONG
+}
+
 void Audio::EngineStop() {
     for (int* v : {&m_engAC, &m_engCRZ, &m_engID}) { if (*v) Stop(*v); *v = 0; }
     m_engModel = -1;
