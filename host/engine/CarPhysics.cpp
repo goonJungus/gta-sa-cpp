@@ -50,6 +50,14 @@ enum { WHEEL_NORMAL = 0, WHEEL_SPINNING = 1, WHEEL_SKIDDING = 2, WHEEL_FIXED = 3
 // then on a tyre over its grip loses no further traction (tractionLoss 1).
 bool g_alreadySkidding = false;
 
+// CGeneral::GetRandomNumber for the tyre wobble and the burst-tyre sag.
+unsigned g_physRng = 12345u;
+int RandInt(int n) { g_physRng = g_physRng * 1664525u + 1013904223u; return n > 0 ? (int)((g_physRng >> 8) % (unsigned)n) : 0; }
+float RandRange(float lo, float hi) { return lo + (hi - lo) * (float)RandInt(65536) / 65535.0f; }
+constexpr float kBurstTyreMod = 0.13f;                // fBurstTyreMod (0x8D34B4)
+constexpr float kBurstSpeedMax = 0.3f;                // fBurstSpeedMax
+constexpr float kWheelDamageEffect = 0.5f;            // CDamageManager::ResetDamageStatusAndWheelDamage
+
 // The car as CPhysical sees it for one step: its matrix, the speeds, mass and centre of mass.
 struct Body {
     V3 right, fwd, up, pos;
@@ -89,7 +97,7 @@ bool RearDrive(char d) { return d == 'R' || d == '4'; }
 // CVehicle::ProcessWheel: the tyre's grip pushes back on the speed of its contact patch.
 void ProcessWheel(Body& b, const HandlingData& h, CarPhys& p, const V3& wheelFwd, const V3& wheelRight, const V3& contactSpeed,
                   const V3& contactPoint, int wheelsOnGround, float thrust, float brake, float adhesion, int wheelId, int* wheelState,
-                  float ts) {
+                  float ts, bool burst) {
     float right = 0.0f, fwd = 0.0f;
     const float speedFwd = Dot(wheelFwd, contactSpeed), speedRight = Dot(wheelRight, contactSpeed);
     const bool braking = brake != 0.0f;
@@ -101,7 +109,10 @@ void ProcessWheel(Body& b, const HandlingData& h, CarPhys& p, const V3& wheelFwd
         if (*wheelState == WHEEL_SPINNING && p.player) adhesion *= 1.0f - std::fabs(p.gas) * kAlreadySpinningLoss;
     }
     *wheelState = WHEEL_NORMAL;
-    if (speedRight != 0.0f) right = -(speedRight / (float)wheelsOnGround);
+    if (speedRight != 0.0f) {
+        right = -(speedRight / (float)wheelsOnGround);
+        if (burst) right += std::min(speedFwd, kBurstSpeedMax) * RandRange(-kBurstTyreMod, kBurstTyreMod);   // a flat wobbles
+    }
     if (driving) {
         fwd = thrust;
         right = std::clamp(right, -adhesion, adhesion);
@@ -329,6 +340,14 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         const float wr = 1.0f - vm.suspSpring[i] / vm.suspLine[i];
         p.comp[i] = (p.comp[i] - wr) / (1.0f - wr);
     }
+    {   // CAutomobile::DoBurstAndSoftGroundRatios: a missing wheel never touches, a flat sags now and then
+        const float fwdRatio = std::fabs(Dot(b.mv, b.fwd));
+        for (int i = 0; i < 4; i++) {
+            if (c.wheelStatus[i] == 2) p.comp[i] = 1.0f;
+            else if (c.wheelStatus[i] == 1 && RandInt((int)(fwdRatio * 40.0f) + 98 + 1) < 100)
+                p.comp[i] = std::min(1.0f, p.comp[i] + (vm.suspLine[i] - vm.suspSpring[i]) / vm.suspLine[i] / 4.0f);
+        }
+    }
 
     // ---- CAutomobile::ProcessSuspension ----
     {
@@ -451,7 +470,9 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
                 float adhesion = kRoadAdhesion * pairTraction;
                 if (player) adhesion *= std::min(suspBias * h.suspForce * 4.0f * (1.0f - p.comp[w]), 2.0f);
                 int state = p.wheelState[w];
-                ProcessWheel(b, h, p, wf, wr, cs[w], cp[w], p.numContactWheels, thrust, pairBrake * brakeBias, adhesion * tractionBias, w, &state, ts);
+                const bool burst = c.wheelStatus[w] == 1;
+                ProcessWheel(b, h, p, wf, wr, cs[w], cp[w], p.numContactWheels, thrust, pairBrake * brakeBias,
+                             adhesion * (burst ? kWheelDamageEffect : 1.0f) * tractionBias, w, &state, ts, burst);
                 p.wheelState[w] = drive && p.gas < 0.0f && state == WHEEL_SPINNING ? WHEEL_NORMAL : state;
             }
         }
@@ -821,6 +842,81 @@ bool Vehicles::ColBounds(size_t i, float mn[3], float mx[3]) const {
     mn[0] = -vm.bbHalfX; mn[1] = vm.bbMinY; mn[2] = vm.bbMinZ;
     mx[0] = vm.bbHalfX; mx[1] = vm.bbMaxY; mx[2] = 1.0f;
     return true;
+}
+
+bool Vehicles::BurstTyre(size_t i, int wheel) {
+    if (i >= m_cars.size() || wheel < 0 || wheel > 3) return false;
+    VehicleInstance& c = m_cars[i];
+    if (c.model == 432 || c.wheelStatus[wheel] != 0) return false;   // the rhino runs on tracks
+    c.wheelStatus[wheel] = 1;
+    if (!UsesCarPhysics(c.model)) return true;
+    const VehicleInfo* info = Info(c.model);
+    const HandlingData* h = info ? Handling(info->handling) : nullptr;
+    if (!h) return true;
+    Activate(c);
+    Body b = Load(c, *h);   // the bang shoves the car sideways and twists it a little
+    b.ApplyMoveForce(b.right * (RandRange(-0.03f, 0.03f) * b.mass));
+    b.ApplyTurnForce(b.right * (RandRange(-0.03f, 0.03f) * b.turnMass), b.fwd);
+    Store(b, c);
+    c.phys.fakePhysics = 0;
+    return true;
+}
+
+int Vehicles::Trace(const float* eye, const float* dir, float reach, float* t, int* tyre) const {
+    int best = -1, bestTyre = -1;
+    float bt = reach;
+    if (tyre) *tyre = -1;
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        const VehicleInstance& c = m_cars[i];
+        if (c.removed) continue;
+        auto mi = m_models.find(c.model);
+        if (mi == m_models.end()) continue;
+        const VehicleModel& vm = mi->second;
+        V3 r, f, u;
+        CarFrame(c, r, f, u);
+        const V3 rel = V3(eye) - V3(c.x, c.y, c.z), dw(dir);
+        const float o[3] = {Dot(rel, r), Dot(rel, f), Dot(rel, u)};   // into car space
+        const float d[3] = {Dot(dw, r), Dot(dw, f), Dot(dw, u)};
+        float lo[3], hi[3];
+        if (vm.colFound) for (int k = 0; k < 3; k++) { lo[k] = vm.colMin[k]; hi[k] = vm.colMax[k]; }
+        else { lo[0] = -vm.bbHalfX; hi[0] = vm.bbHalfX; lo[1] = vm.bbMinY; hi[1] = vm.bbMaxY; lo[2] = -vm.rideHeight; hi[2] = 1.5f - vm.rideHeight; }
+        float t0 = 0.0f, t1 = bt;
+        bool ok = true;
+        for (int k = 0; k < 3 && ok; k++) {
+            if (std::fabs(d[k]) < 1e-7f) { if (o[k] < lo[k] || o[k] > hi[k]) ok = false; continue; }
+            float a = (lo[k] - o[k]) / d[k], b = (hi[k] - o[k]) / d[k];
+            if (a > b) std::swap(a, b);
+            t0 = std::max(t0, a); t1 = std::min(t1, b);
+            if (t0 > t1) ok = false;
+        }
+        if (ok && t0 < bt) { bt = t0; best = (int)i; bestTyre = -1; }
+        // CWorld::bIncludeCarTyres: CAutomobile::SetUpWheelColModel puts a sphere of the tyre size on each wheel
+        if (!tyre || c.model == 531 || c.model == 532 || c.model == 571) continue;   // tractor, combine, kart
+        static const int kDummy[4] = {0, 2, 1, 3};   // eCarWheel -> lf, rf, lb, rb dummy
+        for (int w = 0; w < 4; w++) {
+            const int k = kDummy[w];
+            if (!vm.wheelFound[k] || c.wheelStatus[w] == 2) continue;
+            const float wc[3] = {vm.wheelPos[k][0], vm.wheelPos[k][1], c.phys.active ? c.phys.wheelZ[w] : vm.wheelPos[k][2]};
+            const float rad = vm.wheelSize[w] / 2.0f;
+            const float oc[3] = {o[0] - wc[0], o[1] - wc[1], o[2] - wc[2]};
+            const float bq = oc[0] * d[0] + oc[1] * d[1] + oc[2] * d[2];
+            const float cq = oc[0] * oc[0] + oc[1] * oc[1] + oc[2] * oc[2] - rad * rad;
+            const float disc = bq * bq - cq;
+            if (disc < 0.0f) continue;
+            const float tw = -bq - std::sqrt(disc);
+            if (tw < 0.0f || tw >= reach) continue;
+            bool take = tw < bt;
+            if (!take && (int)i == best && bestTyre < 0) {
+                // A shot from the far side through the body still finds the tyre when it crosses steeply enough.
+                const float hitSide = o[0] + d[0] * tw;
+                take = ((d[0] < 0.0f && hitSide > 0.0f) || (d[0] > 0.0f && hitSide < 0.0f)) && std::fabs(d[0]) > 0.5f;
+            }
+            if (take) { bt = tw; best = (int)i; bestTyre = w; }
+        }
+    }
+    if (best >= 0 && t) *t = bt;
+    if (tyre) *tyre = bestTyre;
+    return best;
 }
 
 int Vehicles::Random(int n) {

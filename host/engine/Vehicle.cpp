@@ -642,7 +642,8 @@ void Vehicles::Draw(D3DRenderer& r) {
         }
         if (!vm.wheelMesh) continue;
         for (int k = 0; k < 4; k++) {
-            if (!vm.wheelFound[k]) continue;
+            static const int kSaWheelOf[4] = {0, 2, 1, 3};   // lf, rf, lb, rb -> eCarWheel
+            if (!vm.wheelFound[k] || c.wheelStatus[kSaWheelOf[k]] == 2) continue;   // a wheel that came off
             const float side = (k % 2 == 0) ? -1.0f : 1.0f;   // left wheels are the mirrored model
             const float spin = c.wheelSpin, sc = std::cos(spin), ss = std::sin(spin);
             // Wheel model: x across, spin about x.
@@ -740,37 +741,6 @@ void Vehicles::Step(size_t i, float dt, float throttle, float brake, float steer
         if (g > -1e5f) c.z += (g + ride - c.z) * std::min(1.0f, 12.0f * dt);
     }
     c.wheelSpin += c.speed * dt / std::max(0.2f, mi != m_models.end() ? mi->second.wheelRadius : 0.35f);
-}
-
-int Vehicles::Trace(const float* eye, const float* dir, float reach, float* t) const {
-    int best = -1;
-    float bt = reach;
-    for (size_t i = 0; i < m_cars.size(); i++) {
-        const VehicleInstance& c = m_cars[i];
-        if (c.removed) continue;
-        auto mi = m_models.find(c.model);
-        const float wb = mi != m_models.end() ? mi->second.wheelBase : 2.8f;
-        const float ride = mi != m_models.end() ? mi->second.rideHeight : 0.7f;
-        const float hx = 0.95f, hy = wb * 0.5f + 1.1f, z0 = -ride, z1 = -ride + 1.5f;
-        // into car space: right = (cos h, sin h), nose = (-sin h, cos h)
-        const float cs = std::cos(c.heading), sn = std::sin(c.heading);
-        const float ox = eye[0] - c.x, oy = eye[1] - c.y, oz = eye[2] - c.z;
-        const float o[3] = {ox * cs + oy * sn, -ox * sn + oy * cs, oz};
-        const float d[3] = {dir[0] * cs + dir[1] * sn, -dir[0] * sn + dir[1] * cs, dir[2]};
-        const float lo[3] = {-hx, -hy, z0}, hi[3] = {hx, hy, z1};
-        float t0 = 0.0f, t1 = bt;
-        bool ok = true;
-        for (int k = 0; k < 3 && ok; k++) {
-            if (std::fabs(d[k]) < 1e-7f) { if (o[k] < lo[k] || o[k] > hi[k]) ok = false; continue; }
-            float a = (lo[k] - o[k]) / d[k], b = (hi[k] - o[k]) / d[k];
-            if (a > b) std::swap(a, b);
-            t0 = std::max(t0, a); t1 = std::min(t1, b);
-            if (t0 > t1) ok = false;
-        }
-        if (ok && t0 < bt) { bt = t0; best = (int)i; }
-    }
-    if (best >= 0 && t) *t = bt;
-    return best;
 }
 
 bool Vehicles::Damage(int car, float damage) {

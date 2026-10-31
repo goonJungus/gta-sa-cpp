@@ -174,6 +174,7 @@ struct VehicleInstance {
     uint8_t doorStatus[6] = {0, 0, 0, 0, 0, 0};
     uint8_t panelStatus[7] = {0, 0, 0, 0, 0, 0, 0};
     uint8_t lightStatus[4] = {0, 0, 0, 0};
+    uint8_t wheelStatus[4] = {0, 0, 0, 0};   // eCarWheel order (fl, rl, fr, rr): 0 ok, 1 burst, 2 missing
     CarPhys phys;
 };
 
@@ -225,7 +226,10 @@ public:
     bool ColBounds(size_t i, float mn[3], float mx[3]) const;
     // The nearest car within `range` metres of a point, or -1.
     // Ray against the car bodies; returns the car index or -1, *t is the distance along dir.
-    int Trace(const float* eye, const float* dir, float reach, float* t) const;
+    // With tyre, the tyres count too (CWorld::bIncludeCarTyres): *tyre is the eCarWheel struck, else -1.
+    int Trace(const float* eye, const float* dir, float reach, float* t, int* tyre = nullptr) const;
+    // CAutomobile::BurstTyre: an intact tyre goes flat (and the car is jolted). False if it already was.
+    bool BurstTyre(size_t i, int wheel);
     // Damage a car; returns true when this shot started the burn. Burning cars blow up after a few seconds (true in *exploded).
     bool Damage(int car, float damage);
     // Advance fire and smoke; calls onSmoke(pos, dark), onFire(pos) and onExplode(pos).

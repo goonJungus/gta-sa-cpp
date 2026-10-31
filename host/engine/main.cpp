@@ -2526,6 +2526,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     for (int k = 0; k < 13 && dm[k + (k >= 6)]; k++)
                         (k < 6 ? dc.doorStatus[k] : dc.panelStatus[k - 6]) = (uint8_t)(dm[k + (k >= 6)] - '0');
                 }
+                if (const char* ty = getenv("GTA_CARTYRES"); ty && ci >= 0)   // dev: "flrlfrrr" wheel states (0 ok, 1 burst, 2 missing)
+                    for (int k = 0; k < 4 && ty[k]; k++) g_vehicles.Car((size_t)ci).wheelStatus[k] = (uint8_t)(ty[k] - '0');
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
             }
             if (DevKeyPressed('K') && g_peds.Ready()) {   // dev: a pedestrian ahead of CJ
@@ -5078,12 +5080,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (dummyHit < 0 && g_vehicles.Ready()) {   // cars
                         float vt = 0.0f;
                         const float reach = std::min(range * t, std::max(10.0f, g_cj.GunRange()));
-                        const int vi2 = g_vehicles.Trace(g_aimEye, g_aimDirV, reach, &vt);
+                        int tyre = -1;
+                        const int vi2 = g_vehicles.Trace(g_aimEye, g_aimDirV, reach, &vt, &tyre);
                         if (getenv("GTA_PEDDBG")) Log("CAR SHOT eye %.1f %.1f %.1f dir %.2f %.2f %.2f reach %.1f -> %d car0 %.1f %.1f %.1f cars %zu", g_aimEye[0], g_aimEye[1], g_aimEye[2], g_aimDirV[0], g_aimDirV[1], g_aimDirV[2], reach, vi2, g_vehicles.Count() ? g_vehicles.Car(0).x : 0.f, g_vehicles.Count() ? g_vehicles.Car(0).y : 0.f, g_vehicles.Count() ? g_vehicles.Car(0).z : 0.f, g_vehicles.Count());
                         if (vi2 >= 0 && vi2 != g_driveCar) {
                             for (int i = 0; i < 3; i++) hit[i] = g_aimEye[i] + g_aimDirV[i] * vt;
-                            g_vehicles.Damage(vi2, g_cj.GunDamage() * 3.0f);
-                            Log("CAR HIT %d health %.0f at %.1f", vi2, g_vehicles.Car((size_t)vi2).health, vt);
+                            if (tyre >= 0) {   // CWeapon::DoBulletImpact: a tyre bursts instead of the body taking damage
+                                if (g_vehicles.BurstTyre((size_t)vi2, tyre)) Stats::Increment(Stats::STAT_TIRES_POPPED_WITH_GUNFIRE);
+                                Log("CAR TYRE %d wheel %d at %.1f", vi2, tyre, vt);
+                            } else {
+                                g_vehicles.Damage(vi2, g_cj.GunDamage() * 3.0f);
+                                Log("CAR HIT %d health %.0f at %.1f", vi2, g_vehicles.Car((size_t)vi2).health, vt);
+                            }
                             g_fx.Impact(hit, 0.0f);
                             g_audio.Impact(vt);
                             dummyHit = 0;
@@ -5109,7 +5117,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     float tp = 2.0f, tv = 2.0f, t = 0.0f; bool head = false;
                     int pi2 = -1, vi2 = -1;
                     if (g_peds.Ready()) { pi2 = g_peds.Trace(a, d, len, &t, &head); if (pi2 >= 0) tp = t / len; }
-                    if (g_vehicles.Ready()) { vi2 = g_vehicles.Trace(a, d, len, &t); if (vi2 >= 0 && vi2 != g_driveCar) tv = t / len; else vi2 = -1; }
+                    int tyre = -1;
+                    if (g_vehicles.Ready()) { vi2 = g_vehicles.Trace(a, d, len, &t, &tyre); if (vi2 >= 0 && vi2 != g_driveCar) tv = t / len; else vi2 = -1; }
                     if (getenv("GTA_PEDDBG")) Log("SNIPER STEP %.1f %.1f %.1f len %.1f ped %d tp %.2f car %d tv %.2f world %.2f", a[0], a[1], a[2], len, pi2, tp, vi2, tv, tw);
                     float hit[3];
                     const float tmin = std::min(tp, std::min(tv, tw));
@@ -5128,7 +5137,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         return true;
                     }
                     if (tmin == tv) {
-                        g_vehicles.Damage(vi2, (float)dmg * 3.0f);
+                        if (tyre >= 0) { if (g_vehicles.BurstTyre((size_t)vi2, tyre)) Stats::Increment(Stats::STAT_TIRES_POPPED_WITH_GUNFIRE); }
+                        else g_vehicles.Damage(vi2, (float)dmg * 3.0f);
                         Log("SNIPER HIT car %d health %.0f", vi2, g_vehicles.Car((size_t)vi2).health);
                         g_fx.Impact(hit, 0.0f);
                         g_audio.Impact(len * tmin);
