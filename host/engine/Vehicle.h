@@ -69,6 +69,8 @@ struct VehiclePart {
     bool wheel = false;
     int node = -1;                    // misc_a / misc_b / misc_c (0..2) when the part hangs on a turret frame
     int door = -1;                    // 0..3 when the part hangs under a side door hinge (door_lf_dummy .. door_rr_dummy)
+    int comp = -1;                    // a damageable component: 0..5 eDoors (bonnet, boot, doors), 6..12 6 + ePanels
+    bool damagedMesh = false;         // the component's _dam stand-in (shown once it is damaged)
     float doorLocal[16] = {};         // part frame -> door hinge frame
 };
 
@@ -96,8 +98,10 @@ struct VehicleModel {
     struct Door { bool found = false; int frame = -1; float base[16] = {}; float hinge[3] = {}; float openAngle = 0.0f; };
     Door doors[4];
     // The DFF's own collision model (CColModel): body spheres and boxes, and its bounding box.
-    struct ColSphere { float c[3]; float r; };
-    struct ColBox { float lo[3], hi[3]; };
+    // piece: the car part the surface belongs to (eVehicleCollisionComponent: 1 bonnet, 2 boot, 3 front bumper,
+    // 4 rear bumper, 5..8 doors lf rf lr rr, 9..12 wings, 19 windscreen, 0 none)
+    struct ColSphere { float c[3]; float r; uint8_t piece = 0; };
+    struct ColBox { float lo[3], hi[3]; uint8_t piece = 0; };
     std::vector<ColSphere> colSpheres;
     std::vector<ColBox> colBoxes;
     std::vector<ColSphere> probes;    // what touches the world: the spheres, plus each box filled with spheres
@@ -136,6 +140,7 @@ struct CarPhys {
     bool player = false;              // STATUS_PLAYER (else STATUS_ABANDONED)
     float damageIntensity = 0.0f;     // strongest impact this frame (m_fDamageIntensity)
     int damager = -1;                 // the car behind that impact, -1 the world (m_pDamageEntity)
+    int piece = 0;                    // the part of the car that took it (m_nPieceType, eVehicleCollisionComponent)
     float impactPos[3] = {0, 0, 0}, impactNormal[3] = {0, 0, 0};   // m_vecLastCollisionPosn, m_vecLastCollisionImpactVelocity
 };
 
@@ -164,6 +169,11 @@ struct VehicleInstance {
     bool hasRot = false;              // a recorded playback owns the orientation: rot is right, forward, up (CMatrix)
     float rot[9] = {};
     float doorRatio[4] = {0, 0, 0, 0};   // CDoor::Open angle ratio per side door: 0 shut, 1 fully open
+    // CDamageManager: door / bonnet / boot states (eDoors) and panel states (ePanels: wings lf rf lr rr,
+    // windscreen, front bumper, rear bumper), ePanelDamageState 0 ok .. 4 missing; smashed lights.
+    uint8_t doorStatus[6] = {0, 0, 0, 0, 0, 0};
+    uint8_t panelStatus[7] = {0, 0, 0, 0, 0, 0, 0};
+    uint8_t lightStatus[4] = {0, 0, 0, 0};
     CarPhys phys;
 };
 
@@ -235,6 +245,9 @@ private:
     void CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);
     void SyncFromPhys(VehicleInstance& c, const VehicleModel& vm);
     void Activate(VehicleInstance& c);
+    int Random(int n);
+    void ApplyComponentDamage(VehicleInstance& c, int comp, float intensity);
+    void DamageComponents(VehicleInstance& c, const HandlingData& h, float di);
 
     bool m_ready = false;
     std::string m_dir;

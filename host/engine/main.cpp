@@ -2520,7 +2520,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const float side = (float)(s_carSlot++ % 3 - 1) * 3.2f;
                 const float sx = playerX + fx * 5.0f + fy * side, sy = playerY + fy * 5.0f - fx * side;
                 const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
-                g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(fy, fx) - 1.57079633f);
+                const int ci = g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(fy, fx) - 1.57079633f);
+                if (const char* dm = getenv("GTA_CARDAMAGE"); dm && ci >= 0) {   // dev: "dddddd/ppppppp" door and panel states
+                    VehicleInstance& dc = g_vehicles.Car((size_t)ci);
+                    for (int k = 0; k < 13 && dm[k + (k >= 6)]; k++)
+                        (k < 6 ? dc.doorStatus[k] : dc.panelStatus[k - 6]) = (uint8_t)(dm[k + (k >= 6)] - '0');
+                }
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
             }
             if (DevKeyPressed('K') && g_peds.Ready()) {   // dev: a pedestrian ahead of CJ
@@ -3812,8 +3817,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 for (size_t i = 0; i < g_vehicles.Count(); i++) {
                     const VehicleInstance& oc = g_vehicles.Car(i);
                     if ((int)i != g_driveCar && oc.phys.active)
-                        Log("CARDBG f%d car %zu pos %.2f %.2f %.2f hdg %.1f v %.2f %.2f up %.2f rest %d hp %.0f", frame, i, oc.x, oc.y, oc.z,
-                            oc.heading * 57.29578f, oc.vx, oc.vy, oc.rot[8], oc.phys.fakePhysics, oc.health);
+                        Log("CARDBG f%d car %zu pos %.2f %.2f %.2f hdg %.1f v %.2f %.2f up %.2f rest %d hp %.0f dmg %d%d%d%d%d%d/%d%d%d%d%d%d%d", frame, i, oc.x, oc.y, oc.z,
+                            oc.heading * 57.29578f, oc.vx, oc.vy, oc.rot[8], oc.phys.fakePhysics, oc.health,
+                            oc.doorStatus[0], oc.doorStatus[1], oc.doorStatus[2], oc.doorStatus[3], oc.doorStatus[4], oc.doorStatus[5],
+                            oc.panelStatus[0], oc.panelStatus[1], oc.panelStatus[2], oc.panelStatus[3], oc.panelStatus[4], oc.panelStatus[5], oc.panelStatus[6]);
                 }
             g_vehicles.UpdateDamage(dt, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p) { g_carBooms.push_back({p[0], p[1], p[2]}); });
@@ -3985,9 +3992,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                         [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });
                     const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
                     if (getenv("GTA_CARDBG") && frame % 10 == 0)
-                        Log("CARDBG f%d pos %.2f %.2f %.2f hdg %.1f spd %.2f km/h %.1f gear %d gas %.2f brk %.2f comp %.2f %.2f %.2f %.2f up %.2f %.2f %.2f wheels %d hp %.0f",
+                        Log("CARDBG f%d pos %.2f %.2f %.2f hdg %.1f spd %.2f km/h %.1f gear %d gas %.2f brk %.2f comp %.2f %.2f %.2f %.2f up %.2f %.2f %.2f wheels %d hp %.0f dmg %d%d%d%d%d%d/%d%d%d%d%d%d%d",
                             frame, c.x, c.y, c.z, c.heading * 57.29578f, c.speed, c.speed * 3.6f, c.phys.gear, c.phys.gas, c.phys.brake,
-                            c.phys.compPrev[0], c.phys.compPrev[1], c.phys.compPrev[2], c.phys.compPrev[3], c.rot[6], c.rot[7], c.rot[8], c.phys.numContactWheels, c.health);
+                            c.phys.compPrev[0], c.phys.compPrev[1], c.phys.compPrev[2], c.phys.compPrev[3], c.rot[6], c.rot[7], c.rot[8], c.phys.numContactWheels, c.health,
+                            c.doorStatus[0], c.doorStatus[1], c.doorStatus[2], c.doorStatus[3], c.doorStatus[4], c.doorStatus[5],
+                            c.panelStatus[0], c.panelStatus[1], c.panelStatus[2], c.panelStatus[3], c.panelStatus[4], c.panelStatus[5], c.panelStatus[6]);
                     if (worldReady) g_world.DynVehicle(c.x, c.y, c.z, c.vx, c.vy, 1.3f, 1500.0f);
                     if (const VehicleInfo* vi = g_vehicles.Info(c.model)) {
                         const HandlingData* hd = g_vehicles.Handling(vi->handling);

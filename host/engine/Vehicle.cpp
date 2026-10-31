@@ -116,13 +116,13 @@ void ParseVehicleCol(const std::vector<uint8_t>& b, size_t o, size_t end, Vehicl
             const uint32_t offS = u32(p + 0x54), offB = u32(p + 0x58);
             for (uint16_t k = 0; k < ns; k++) {
                 const size_t q = p + 4 + offS + (size_t)k * 20;
-                if (q + 16 > p + sz) break;
-                vm.colSpheres.push_back({{f32(q), f32(q + 4), f32(q + 8)}, f32(q + 12)});
+                if (q + 20 > p + sz) break;
+                vm.colSpheres.push_back({{f32(q), f32(q + 4), f32(q + 8)}, f32(q + 12), b[q + 17]});   // CColSurface: material, piece
             }
             for (uint16_t k = 0; k < nb; k++) {
                 const size_t q = p + 4 + offB + (size_t)k * 28;
-                if (q + 24 > p + sz) break;
-                vm.colBoxes.push_back({{f32(q), f32(q + 4), f32(q + 8)}, {f32(q + 12), f32(q + 16), f32(q + 20)}});
+                if (q + 28 > p + sz) break;
+                vm.colBoxes.push_back({{f32(q), f32(q + 4), f32(q + 8)}, {f32(q + 12), f32(q + 16), f32(q + 20)}, b[q + 25]});
             }
             vm.colFound = true;
             return;
@@ -136,6 +136,19 @@ void ParseVehicleCol(const std::vector<uint8_t>& b, size_t o, size_t end, Vehicl
 bool HiddenPart(const std::string& n) {
     return n.find("_dam") != std::string::npos || n.find("_vlo") != std::string::npos ||
            n.find("_lo") != std::string::npos || n.compare(0, 5, "extra") == 0 || n.empty();
+}
+
+// The damageable component a part belongs to (CDamageManager::GetCarNodeIndexFromDoor / FromPanel): its
+// `<node>_ok` mesh shows while intact, `<node>_dam` once damaged. -1 for other parts.
+int DamageComp(const std::string& n, bool* damaged) {
+    static const char* kComp[13] = {"bonnet", "boot", "door_lf", "door_rf", "door_lr", "door_rr",
+                                    "wing_lf", "wing_rf", "wing_lr", "wing_rr", "windscreen", "bump_front", "bump_rear"};
+    for (int k = 0; k < 13; k++) {
+        const std::string c = kComp[k];
+        if (n == c + "_ok") { *damaged = false; return k; }
+        if (n == c + "_dam") { *damaged = true; return k; }
+    }
+    return -1;
 }
 
 // CAutomobile::PreRender: the rhino and swat van turret (misc_a yaws about Z by the vertical doom angle, misc_b pitches
@@ -455,7 +468,9 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         const int fr = at ? at->frame : -1;
         const std::string name = fr >= 0 && (size_t)fr < w.frames.size() ? w.frames[(size_t)fr].name : std::string();
         const bool wheel = name == "wheel";
-        if (!wheel && HiddenPart(name)) continue;
+        bool damagedMesh = false;
+        const int comp = DamageComp(name, &damagedMesh);
+        if (!wheel && comp < 0 && HiddenPart(name)) continue;
         // Paint areas are marked with fixed material colours (green, pink, cyan, magenta); the rest of the car
         // keeps its material colour, white under a texture.
         const uint32_t mc = dm.materialColor & 0x00FFFFFFu;
@@ -483,6 +498,7 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         }
         VehiclePart p;
         p.mesh = mesh;
+        p.comp = comp; p.damagedMesh = damagedMesh;
         {
             const float oy = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][13] : 0.0f, oz = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][14] : 0.0f;
             const float ox = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][12] : 0.0f;
@@ -599,6 +615,11 @@ void Vehicles::Draw(D3DRenderer& r) {
             r.UpdateMeshVertices(pp.mesh, vv.data(), (uint32_t)vv.size());
         }
         for (const VehiclePart& p : vm.parts) {
+            if (p.comp >= 0) {   // CAutomobile::SetComponentVisibility: intact, damaged or gone
+                const int st = p.comp < 6 ? c.doorStatus[p.comp] : c.panelStatus[p.comp - 6];
+                const bool dam = p.comp < 6 ? (st == 2 || st == 3) : (st != 0);
+                if (st == 4 || (p.comp >= 6 && st == 3) || dam != p.damagedMesh) continue;
+            }
             if (p.node >= 0) {   // a turret part follows its (rotated) frame
                 float nm[16];
                 if (NodeMatrix((size_t)(&c - m_cars.data()), p.node, nm)) { dev->SetTransform(D3DTS_WORLD, reinterpret_cast<D3DMATRIX*>(nm)); r.DrawMesh(p.mesh); continue; }

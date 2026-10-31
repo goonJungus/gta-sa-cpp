@@ -266,7 +266,7 @@ void Vehicles::SetupSuspension(VehicleModel& vm, const HandlingData& h) {
             for (int iy = 0; iy < ny; iy++)
                 for (int iz = 0; iz < nz; iz++) {
                     auto at = [&](int a, int n, int idx) { return n == 1 ? mid[a] : bx.lo[a] + r + (2.0f * half[a] - 2.0f * r) * (float)idx / (float)(n - 1); };
-                    vm.probes.push_back({{at(0, nx, ix), at(1, ny, iy), at(2, nz, iz)}, r});
+                    vm.probes.push_back({{at(0, nx, ix), at(1, ny, iy), at(2, nz, iz)}, r, bx.piece});
                 }
     }
     if (vm.probes.empty()) {   // no COL: a row of spheres along the body
@@ -504,7 +504,7 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
         p.wheelZ[i] = vm.suspStart[i][2] - frac * vm.suspLine[i] + vm.wheelSize[i] / 2.0f;
     }
     // The body spheres against the world
-    struct Contact { V3 point, normal; float depth; };
+    struct Contact { V3 point, normal; float depth; int piece; };
     Contact contacts[64];
     int count = 0;
     for (const VehicleModel::ColSphere& s : vm.probes) {
@@ -515,10 +515,11 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
         const V3 q(pt);
         const float depth = s.r - Len(centre - q);
         if (depth <= 0.0f) continue;
-        contacts[count++] = {q, V3(nm), depth};
+        contacts[count++] = {q, V3(nm), depth, s.piece};
     }
     float maxImpact = 0.0f;
     V3 impactPos, impactNormal;
+    int impactPiece = 0;
     if (count) {
         V3 addMove, addTurn;
         int accepted = 0;
@@ -541,7 +542,7 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
             move *= 0.8f;
             addTurn += Cross(d - comW, move) / b.turnMass;
             accepted++;
-            if (impact > maxImpact) { maxImpact = impact; impactPos = ct.point; impactNormal = ct.normal; }
+            if (impact > maxImpact) { maxImpact = impact; impactPos = ct.point; impactNormal = ct.normal; impactPiece = ct.piece; }
             // ApplyFriction with the body's grip on the road, split over the contacts
             float friction = kBodyAdhesion / (float)count;
             if (b.up.z > 0.3f && Len2(b.mv) < 0.02f && Len2(b.tv) < 0.01f) friction = 0.0f;
@@ -575,7 +576,7 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
         b.pos += shift;
     }
     if (maxImpact > p.damageIntensity) {
-        p.damageIntensity = maxImpact; p.damager = -1;
+        p.damageIntensity = maxImpact; p.damager = -1; p.piece = impactPiece;
         impactPos.To(p.impactPos); impactNormal.To(p.impactNormal);
     }
     Store(b, c);
@@ -681,7 +682,7 @@ void Vehicles::CarCarCollisions(float dt) {
         if (!mi->second.suspReady) SetupSuspension(mi->second, *h);
         cars.push_back({i, &mi->second, h, V3(c.x, c.y, c.z), c.phys.active && c.phys.fakePhysics < 10});
     }
-    struct Contact { V3 point, normal; float depth; };   // the normal points from B to A
+    struct Contact { V3 point, normal; float depth; int pieceA, pieceB; };   // the normal points from B to A
     std::vector<Contact> contacts;
     for (size_t a = 0; a < cars.size(); a++)
         for (size_t bI = a + 1; bI < cars.size(); bI++) {
@@ -706,10 +707,11 @@ void Vehicles::CarCarCollisions(float dt) {
                     const float l = std::sqrt(l2);
                     const V3 n = d / l;
                     const float depth = rr - l;
-                    contacts.push_back({pb + n * (sb.r - depth * 0.5f), n, depth});
+                    contacts.push_back({pb + n * (sb.r - depth * 0.5f), n, depth, sa.piece, sb.piece});
                 }
             }
             if (contacts.empty()) continue;
+            const bool bWasAwake = eb.awake;
             Activate(ca); Activate(cb);
             ca.phys.fakePhysics = 0; cb.phys.fakePhysics = 0;
             ea.awake = eb.awake = true;
@@ -717,6 +719,7 @@ void Vehicles::CarCarCollisions(float dt) {
             const float count = (float)contacts.size();
             float maxA = 0.0f, maxB = 0.0f;
             V3 hitA, hitB, nA0, nB0;
+            int pieceA = 0, pieceB = 0;
             for (const Contact& ct : contacts) {
                 // CPhysical::ApplyCollision(entity, colPoint, thisDI, entityDI), the free-body branch (mass factors 1)
                 V3 dA = ct.point - A.pos, dB = ct.point - B.pos;
@@ -740,8 +743,10 @@ void Vehicles::CarCarCollisions(float dt) {
                 }
                 A.ApplyForce(fA, dA);
                 B.ApplyForce(fB, dB);
-                if (diA > maxA) { maxA = diA; hitA = ct.point; nA0 = ct.normal; }
-                if (diB > maxB) { maxB = diB; hitB = ct.point; nB0 = -ct.normal; }
+                if (diA > maxA) { maxA = diA; hitA = ct.point; nA0 = ct.normal; pieceA = ct.pieceA; }
+                // SetDamagedPieceRecord hands the struck car the striker's piece (m_nPieceTypeA); a car that is
+                // simulating meets the striker again in its own pass, with its own piece.
+                if (diB > maxB) { maxB = diB; hitB = ct.point; nB0 = -ct.normal; pieceB = bWasAwake ? ct.pieceB : ct.pieceA; }
                 // ApplyFriction(entity, adhesion / points, colPoint): a moving car's grip scales with the blow
                 float friction = kBodyAdhesion / count;
                 if (Len2(A.mv) > 0.02f || Len2(A.tv) > 0.01f) friction *= diA;
@@ -774,16 +779,85 @@ void Vehicles::CarCarCollisions(float dt) {
             ea.pos = A.pos; eb.pos = B.pos;
             Store(A, ca); Store(B, cb);
             if (maxA > ca.phys.damageIntensity) {
-                ca.phys.damageIntensity = maxA; ca.phys.damager = (int)eb.i;
+                ca.phys.damageIntensity = maxA; ca.phys.damager = (int)eb.i; ca.phys.piece = pieceA;
                 hitA.To(ca.phys.impactPos); nA0.To(ca.phys.impactNormal);
             }
             if (maxB > cb.phys.damageIntensity) {
-                cb.phys.damageIntensity = maxB; cb.phys.damager = (int)ea.i;
+                cb.phys.damageIntensity = maxB; cb.phys.damager = (int)ea.i; cb.phys.piece = pieceB;
                 hitB.To(cb.phys.impactPos); nB0.To(cb.phys.impactNormal);
             }
             SyncFromPhys(ca, *ea.vm);
             SyncFromPhys(cb, *eb.vm);
         }
+}
+
+int Vehicles::Random(int n) {
+    m_rng = m_rng * 1664525u + 1013904223u;
+    return (int)((m_rng >> 8) % (unsigned)n);
+}
+
+// CDamageManager::ApplyDamage(component, intensity): past 150 (after the group's scale) the part gets one step
+// worse: doors, bonnet and boot go bashed, then bashed and loose, then (1 in 9) fall off; panels go loose, bashed,
+// then (1 in 9, windscreen 1 in 3) come away; a wing hit also smashes that light. comp is tComponent (5..17).
+void Vehicles::ApplyComponentDamage(VehicleInstance& c, int comp, float intensity) {
+    static const float kGroupMult[6] = {2.5f, 1.25f, 3.2f, 1.4f, 2.5f, 2.8f};   // panel, wheel, door, bonnet, boot, light
+    int group, rel;
+    if (comp == 5) { group = 3; rel = 0; }
+    else if (comp == 6) { group = 4; rel = 1; }
+    else if (comp >= 7 && comp <= 10) { group = 2; rel = comp - 5; }
+    else if (comp >= 11 && comp <= 14) { group = 5; rel = comp - 11; }
+    else if (comp >= 15 && comp <= 17) { group = 0; rel = comp - 11; }
+    else return;
+    intensity *= kGroupMult[group];
+    if (comp == 15) intensity *= 0.6f;
+    if (intensity <= 150.0f) return;
+    auto progressPanel = [&](int panel) {
+        uint8_t& st = c.panelStatus[panel];
+        if (st == 2) {
+            if (Random(panel == 4 ? 3 : 9) != 0) return;
+            st = 3;
+        } else if (st < 3) st++;
+    };
+    if (group == 2 || group == 3 || group == 4) {   // ProgressDoorDamage
+        uint8_t& st = c.doorStatus[rel];
+        if (st == 0 || st == 1) { st = 2; if (rel >= 2) c.doorRatio[rel - 2] = 0.0f; }   // slammed shut
+        else if (st == 2) st = 3;
+        else if (st == 3 && Random(9) == 0) st = 4;
+    } else if (group == 5) {
+        c.lightStatus[rel] = 1;
+        progressPanel(rel);
+    } else progressPanel(rel);
+}
+
+// CAutomobile::VehicleDamage's part damage: the struck piece takes four times the knock; a front bumper hit
+// also reaches the wings, then the bonnet and windscreen once the bumper is gone soft, a rear one the boot.
+void Vehicles::DamageComponents(VehicleInstance& c, const HandlingData& h, float di) {
+    const float hit = di * 4.0f;
+    const V3 right(&c.rot[0]);
+    switch (c.phys.piece) {
+    case 1: ApplyComponentDamage(c, 5, hit); break;
+    case 2: ApplyComponentDamage(c, 6, hit); break;
+    case 3: {
+        ApplyComponentDamage(c, 16, hit);
+        auto it = m_models.find(c.model);
+        const float halfW = it != m_models.end() && it->second.colMax[0] > 0.0f ? it->second.colMax[0] : 1.0f;
+        const float localDir = Dot(V3(c.phys.impactPos) - V3(c.x, c.y, c.z), right) / halfW;
+        const float dirRight = Dot(V3(c.phys.impactNormal), right);
+        if (localDir > 0.7f || (localDir > 0.5f && dirRight < -0.5f && h.mass * 0.35f < di)) ApplyComponentDamage(c, 12, hit);
+        else if (localDir > -0.7f || (localDir > -0.5f && dirRight > 0.5f && h.mass * 0.35f < di)) ApplyComponentDamage(c, 11, hit);
+        if (c.panelStatus[5] != 0 && h.mass * 0.2f < di) ApplyComponentDamage(c, 5, hit);
+        if (c.panelStatus[5] >= 2 && h.mass * 0.2f < di) ApplyComponentDamage(c, 15, hit);
+        break;
+    }
+    case 4:
+        ApplyComponentDamage(c, 17, hit);
+        if (c.panelStatus[6] < 2) ApplyComponentDamage(c, 6, hit);
+        break;
+    case 5: case 6: case 7: case 8: ApplyComponentDamage(c, c.phys.piece + 2, hit); break;
+    case 9: case 10: case 11: case 12: ApplyComponentDamage(c, c.phys.piece + 2, hit); break;
+    case 19: ApplyComponentDamage(c, 15, hit); break;
+    default: break;
+    }
 }
 
 void Vehicles::CollisionDamage(float dt, int playerCar) {
@@ -803,6 +877,7 @@ void Vehicles::CollisionDamage(float dt, int playerCar) {
         const V3 up(&c.rot[6]);
         if (p.damager < 0 && Dot(V3(p.impactNormal), up) > 0.6f) continue;   // landing on the ground
         if (di <= minDi) continue;
+        if (up.z > 0.0f || Len2(V3(p.mv)) > 0.3f) DamageComponents(c, *h, di);
         const float loss = (di - minDi) * h->collisionDamageGame * 0.6f;
         if (loss <= 0.0f) continue;
         if ((int)i == playerCar) c.health -= loss / 2.0f;
