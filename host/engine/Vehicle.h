@@ -184,6 +184,11 @@ struct CarPhys {
     float wheelAngVel[2] = {0, 0}, wheelPitch[2] = {0, 0};
     float brakingSlide = 0.0f, lastThrust = 0.0f;
     bool brakesOn = false, onSideStand = true;
+    float animLeanLeft = 0.0f, animLeanFwd = 0.0f;   // CRideAnimData AnimLeanLeft / AnimLeanFwd (the rider's pose)
+    float riderStill = 0.0f;          // the rider's BIKE_STILL blend: a foot down tips the bike 10 degrees
+    bool knockOff = false;            // CEventKnockOffBike raised for the rider this frame
+    float knockOffVel[3] = {0, 0, 0}; // the rider's speed as he leaves (m/s)
+    int knockOffDir = 0;              // the fall: 0 front, 1 left, 2 back, 3 right (CPed::GetLocalDirection)
 };
 
 // The world as the car physics sees it: CWorld::ProcessLineOfSight for the suspension lines and
@@ -275,6 +280,16 @@ public:
     // CAutomobile::ProcessControl + CPhysical::ProcessCollision for car i over dt seconds. accel and brake are the
     // pedal buttons 0..1, steer -1 (left) .. 1 (right). An empty world falls back to Step. Cars, quads and
     // monster trucks only; returns false (and does nothing) for other kinds.
+    // The drawn matrix (D3D rows: right, forward, up, position), a bike's lean included, and a seat in car space.
+    void BodyMatrix(size_t i, float out[16]) const;
+    bool SeatLocal(size_t i, float out[3], bool passenger = false) const;
+    // CBike::ProcessRiderAnims for the player: the smoothed lean left / right and forward / back (-1 .. 1) the
+    // rider's lean clips are posed at, the share left for them, and which base pose: 0 ride, 1 still, 2 pushing back.
+    struct BikeRide { float leanLeft = 0, leanFwd = 0; float leftWeight = 0, fwdWeight = 0; int base = 0; };
+    bool BikeRiderAnims(size_t i, float dt, float stillBlend, BikeRide& out);
+    // The rider knocked off this bike (CBike::DamageKnockOffRider, or ProcessRiderAnims on a spin / fast reverse):
+    // true once, with the speed he is thrown at and the side he falls to.
+    bool TakeKnockOff(size_t i, float vel[3], int* dir);
     // leanFwd: a bike rider's weight, -1 back .. 1 forward (the pad's steer up / down).
     bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd = 0.0f);
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
@@ -366,6 +381,7 @@ private:
     int Random(int n);
     void ApplyComponentDamage(VehicleInstance& c, int comp, float intensity);
     void DamageComponents(VehicleInstance& c, const HandlingData& h, float di);
+    void BikeDamage(VehicleInstance& c, const HandlingData& h, float di, bool player);
 
     bool m_ready = false;
     std::string m_dir;

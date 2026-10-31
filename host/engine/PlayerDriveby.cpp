@@ -69,10 +69,29 @@ void PlayerPed::EnterVehicle(bool lowCar, int bike) {
     for (Assoc& a : m_assocs) a.delta = -8.0f;   // the on-foot clips fade out under the sit pose
 }
 
+void PlayerPed::SetSeatFrame(const float body[16], const float seat[3]) {
+    // the seat in the world, the ped's origin its feet's distance below (as Draw puts it: seat - 1 - bind min z)
+    const float* r = &body[0]; const float* f = &body[4]; const float* u = &body[8];
+    float pos[3];
+    for (int k = 0; k < 3; k++) pos[k] = body[12 + k] + r[k] * seat[0] + f[k] * seat[1] + u[k] * seat[2];
+    m_seatPos[0] = pos[0]; m_seatPos[1] = pos[1]; m_seatPos[2] = pos[2];
+    m_seatYaw = std::atan2(f[1], f[0]);
+    std::memcpy(m_seatFrame, body, sizeof(m_seatFrame));
+    for (int k = 0; k < 3; k++) m_seatFrame[12 + k] = pos[k] + u[k] * (-1.0f - m_bindMinZ);
+    m_seatFrameOn = true;
+}
+
+float PlayerPed::BikeStillBlend() const {
+    if (!m_seated || !m_bike) return 0.0f;
+    const Assoc* a = const_cast<PlayerPed*>(this)->Get(Clip(m_bike == 1 ? "bmx_still" : "bikes_still"));
+    return a && !a->dead ? a->blend : 0.0f;
+}
+
 // CPed::ReplaceWeaponWhenExitingVehicle. Safe to call whether or not m_seated is set:
 // the animated get-out clears m_seated before this runs.
 void PlayerPed::LeaveVehicle() {
     m_seated = false;
+    m_seatFrameOn = false;
     if (m_dbClip) Remove(m_dbClip);
     m_dbClip = nullptr;
     m_dbFiring = m_dbShot = false;
@@ -87,6 +106,24 @@ void PlayerPed::LeaveVehicle() {
     }
     if (const AnimClip* idle = Clip("idle_stance"))
         if (!Get(idle)) { Assoc* a = Add(idle, true, false); a->blend = 0.0f; a->delta = 8.0f; }
+}
+
+void PlayerPed::KnockedOffBike(int dir) {
+    LeaveVehicle();
+    for (Assoc& a : m_assocs) a.delta = -8.0f;   // the ride pose goes at once
+    // CEventKnockOffBike::CalcForcesAndAnims: front KO_SKID_BACK, left KD_RIGHT, back KO_SKID_FRONT, right KD_LEFT
+    static const char* kFall[4] = {"ko_skid_back", "kd_right", "ko_skid_front", "kd_left"};
+    const char* fall = Clip(kFall[dir & 3]) ? kFall[dir & 3] : "ko_skid_front";
+    if (!Clip(fall)) return;
+    Blend(Clip(fall), false, false, 8.0f);
+    m_busy = true;
+    m_busySoft = false;
+    m_busyClip = Clip(fall);
+    m_busyFall = true;
+    m_busyNext = Clip(!std::strcmp(fall, "ko_skid_back") ? "getup_front" : "getup");   // KO_SKID_BACK ends face down
+    if (!m_busyNext) m_busyNext = Clip("getup_front");
+    m_ratio = 0.0f;
+    m_velX = m_velY = 0.0f;
 }
 
 // The get-in clip for this door: the low variant on a lowrider; _lhs is the driver door, _rhs the passenger door.
@@ -241,6 +278,7 @@ void PlayerPed::UpdateSeated(const Input& in) {
         const bool pedal = m_bike == 1 && in.carGas && spd > 0.02f;
         const bool sprint = pedal && spd * 3.0f >= 2.5f;
         std::string want = spd < 0.02f && !in.carGas ? nm("still") : sprint ? nm("sprint") : pedal ? nm("pedal") : m_bike == 1 ? nm("still") : nm("ride");
+        if (in.bikeRide && m_bike == 2) want = in.bikeBase == 1 ? nm("still") : in.bikeBase == 2 ? nm("pushes") : nm("ride");
         for (const char* n : {"still", "pedal", "sprint", "ride", "pushes"}) {
             const AnimClip* c = Clip(nm(n).c_str());
             if (!c) continue;
@@ -254,6 +292,27 @@ void PlayerPed::UpdateSeated(const Input& in) {
         }
         const Assoc* base = Get(Clip(want.c_str()));
         const bool ok = base && base->blend >= 1.0f;
+        if (in.bikeRide) {   // CBike::ProcessRiderAnims: the lean clips held at a time by the lean, sharing what the base leaves
+            float budget = 1.0f;
+            for (const char* n : {"still", "pushes"})
+                if (const Assoc* a = Get(Clip(nm(n).c_str())); a && !a->dead) budget -= std::min(budget, a->blend);
+            auto pose = [&](const char* n, float amount, float t) {
+                const AnimClip* c = Clip(nm(n).c_str());
+                if (!c) return;
+                Assoc* a = Get(c);
+                if (!a) { a = Add(c, true, false); a->partial = true; }
+                a->blend = amount;
+                a->delta = 0.0f;
+                a->speed = 0.0f;
+                a->time = c->duration * std::clamp(t, 0.0f, 1.0f);
+            };
+            const bool back = in.bikeLeanFwd < 0.0f, left = in.bikeLeanLeft < 0.0f;
+            pose(back ? "back" : "fwd", in.bikeFwdWeight * budget, std::fabs(in.bikeLeanFwd));
+            pose(back ? "fwd" : "back", 0.0f, 0.0f);
+            pose(left ? "left" : "right", in.bikeLeftWeight * budget, std::fabs(in.bikeLeanLeft));
+            pose(left ? "right" : "left", 0.0f, 0.0f);
+            return;
+        }
         const AnimClip *cl = Clip(nm("left").c_str()), *cr = Clip(nm("right").c_str());
         const float lean = std::clamp(in.carSteer / kSteerRange, -1.0f, 1.0f);   // positive = left
         for (int side = 0; side < 2; side++) {

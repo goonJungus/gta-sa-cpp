@@ -217,6 +217,7 @@ static SHORT RawGameKey(int vk) {
     return g_hasFocus ? GetAsyncKeyState(vk) : 0;
 }
 static int g_driveCar = -1;   // index of the car CJ is driving, -1 on foot
+static float g_throwV[2] = {0, 0};   // CJ's horizontal speed from being thrown (m/s)
 static int g_vehTransCar = -1;   // car being entered/exited by the get-in / get-out animation, -1 none
 static bool g_vehTransEnter = false;   // the active transition is an entry (else an exit)
 static float g_vehEnterStart[3] = {0, 0, 0};   // CJ's feet where the entry began (he slides to the door)
@@ -3515,6 +3516,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     pin.carSpeed = std::sqrt(dc.vx * dc.vx + dc.vy * dc.vy);
                     pin.carGas = (RawGameKey('W') & 0x8000) != 0;
                     pin.carReverse = dc.speed < -0.3f || (RawGameKey('S') & 0x8000) != 0;
+                    Vehicles::BikeRide ride;
+                    if (g_vehicles.BikeRiderAnims((size_t)g_driveCar, dt, g_cj.BikeStillBlend(), ride)) {
+                        pin.bikeRide = true;
+                        pin.bikeLeanLeft = ride.leanLeft; pin.bikeLeanFwd = ride.leanFwd;
+                        pin.bikeLeftWeight = ride.leftWeight; pin.bikeFwdWeight = ride.fwdWeight;
+                        pin.bikeBase = ride.base;
+                    }
                     g_cj.SetDrivingSkill(Stats::Get(Stats::STAT_DRIVING_SKILL) / 10.0f);
                 }
                 pin.jetBrake = pin.duckHeld;
@@ -3642,6 +3650,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
             if (cjReady && g_cj.Climbing()) { playerX += vx * dt; playerY += vy * dt; vx = vy = 0.0f; }   // ignores the ledge's collision
+            if (g_throwV[0] != 0.0f || g_throwV[1] != 0.0f) {   // thrown (off a bike): slides out on the ground
+                vx += g_throwV[0]; vy += g_throwV[1];
+                const float sp = std::sqrt(g_throwV[0] * g_throwV[0] + g_throwV[1] * g_throwV[1]);
+                const float ns = onGround ? std::max(0.0f, sp - 10.0f * dt) : sp;
+                g_throwV[0] *= sp > 0.0f ? ns / sp : 0.0f; g_throwV[1] *= sp > 0.0f ? ns / sp : 0.0f;
+                if (ns < 0.05f || g_driveCar >= 0) g_throwV[0] = g_throwV[1] = 0.0f;
+            }
             const float ox = playerX, oy = playerY;
             float nx = playerX + vx * dt;
             float ny = playerY + vy * dt;
@@ -3886,6 +3901,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             g_vehicles.UpdateDamage(dt, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p) { g_carBooms.push_back({p[0], p[1], p[2]}); });
+            {   // CEventKnockOffBike: the rider leaves the bike at its speed, falls, and gets up
+                float kv[3]; int kd = 0;
+                if (g_driveCar >= 0 && g_vehicles.TakeKnockOff((size_t)g_driveCar, kv, &kd)) {
+                    float sp[3];
+                    if (g_vehicles.SeatWorld((size_t)g_driveCar, sp)) { playerX = sp[0]; playerY = sp[1]; playerZ = sp[2] + EYE_HEIGHT - 0.6f; }
+                    g_throwV[0] = kv[0]; g_throwV[1] = kv[1];
+                    velZ = kv[2]; onGround = false;
+                    g_driveCar = -1; g_audio.EngineStop(); g_radio.Tune(-1);
+                    if (cjReady) g_cj.KnockedOffBike(kd);
+                    Log("DRIVE: knocked off the bike (side %d, %.1f %.1f %.1f m/s)", kd, kv[0], kv[1], kv[2]);
+                }
+            }
             if (g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).wrecked) {   // thrown out of a car that blew up
                 const VehicleInstance& wc = g_vehicles.Car((size_t)g_driveCar);
                 playerX = wc.x + 2.5f; playerY = wc.y; playerZ = wc.z + EYE_HEIGHT; velZ = 3.0f; onGround = false;
@@ -4073,6 +4100,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     {
                         float sp[3];
                         if (cjReady && g_vehicles.SeatWorld((size_t)g_driveCar, sp)) g_cj.SetSeat(sp, c.heading + 1.5707963f);
+                        float body[16], seat[3];
+                        if (cjReady && g_vehicles.SeatLocal((size_t)g_driveCar, seat)) {   // CPed::SetPedPositionInCar
+                            g_vehicles.BodyMatrix((size_t)g_driveCar, body);
+                            g_cj.SetSeatFrame(body, seat);
+                        }
                     }
                     if (VehicleGuns::Kind gk = VehicleGuns::KindOf(c.model); gk != VehicleGuns::Kind::None && !c.wrecked) {   // TankControl / FireTruckControl
                         static bool s_prevGun = false;

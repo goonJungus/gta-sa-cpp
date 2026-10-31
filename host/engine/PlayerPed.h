@@ -87,6 +87,9 @@ public:
         bool whipTarget = false;              // a standing ped is close in front (CTaskSimpleUseGun::RequirePistolWhip)
         bool exitPressed = false;             // CPad::GetExitVehicle (lets go)
         float carSteer = 0.0f;                // seated: CVehicle::m_fSteerAngle, radians, positive = left
+        bool bikeRide = false;                // seated on a bike: the CBike::ProcessRiderAnims pose below is valid
+        float bikeLeanLeft = 0.0f, bikeLeanFwd = 0.0f, bikeLeftWeight = 0.0f, bikeFwdWeight = 0.0f;
+        int bikeBase = 0;                     // 0 ride, 1 still (a foot down), 2 pushing it back
         float carSpeed = 0.0f;                // seated: the car's speed, m/s
         bool carGas = false;                  // seated on a bike: the gas pedal is held
         bool carReverse = false;              // seated: gas pedal below zero (CVehicle::m_GasPedal)
@@ -156,6 +159,8 @@ public:
     // SMG (Micro Uzi, Tec-9, MP5) in hand with the old weapon saved, LeaveVehicle gives it back.
     void EnterVehicle(bool lowCar, int bike = 0);   // bike: 0 car, 1 bicycle (BMX group), 2 motorbike (bikes group)
     void LeaveVehicle();
+    // CTaskComplexFallAndGetUp after CEventKnockOffBike: off the bike into the fall for that side, then up again.
+    void KnockedOffBike(int dir);
     bool InVehicle() const { return m_seated; }
     // CTaskComplexEnterCar / CTaskComplexLeaveCar: the open-door / get-in / get-out animation
     // (cars only; bikes still mount instantly). CJ faces the car's nose throughout and his origin
@@ -179,7 +184,10 @@ public:
     float VehShuffleFrac() const { return m_vehShuffle; }   // 0 in the passenger seat, 1 at the wheel
     // The door-open point (seat -> door, car space) for a door before the entry starts.
     void VehDoorOffsetFor(bool lowCar, bool right, float out[2]) const;
-    void SetSeat(const float pos[3], float noseYaw) { m_seatPos[0] = pos[0]; m_seatPos[1] = pos[1]; m_seatPos[2] = pos[2]; m_seatYaw = noseYaw; }
+    void SetSeat(const float pos[3], float noseYaw) { m_seatPos[0] = pos[0]; m_seatPos[1] = pos[1]; m_seatPos[2] = pos[2]; m_seatYaw = noseYaw; m_seatFrameOn = false; }
+    // CPed::SetPedPositionInCar: seated on the vehicle's drawn matrix (a bike's lean included) at seat (car space).
+    void SetSeatFrame(const float body[16], const float seat[3]);
+    float BikeStillBlend() const;   // the BIKE_STILL clip's blend (a foot on the ground)
     void SeatPlacement(float out[3]) const { for (int i = 0; i < 3; i++) out[i] = m_seatPos[i]; }
     bool Driveby() const { return m_seated && m_dbClip != nullptr; }
     bool CanDriveby() const;               // an SMG with ammo is in hand
@@ -422,6 +430,7 @@ private:
     float m_airTime = 0.0f;
     bool m_inAir = false, m_jumping = false;
     bool m_busy = false;
+    bool m_busyFall = false;                   // the busy clip is a fall from a bike: no in-air control until it ends
     struct FootLeg { float weight = 0, offset = 0, pitch = 0, prevSole = 0; bool contact = false, valid = false; };
     FootLeg m_foot[2];                         // right, left
     float m_footRest[2] = {0.08f, 0.08f};      // bind pose ankle height above the sole
@@ -545,6 +554,8 @@ private:
     bool m_seated = false, m_seatLow = false;
     int m_bike = 0;
     float m_seatPos[3] = {0, 0, 0}, m_seatYaw = 0.0f, m_drivingSkill = 0.0f;
+    bool m_seatFrameOn = false;
+    float m_seatFrame[16] = {};       // the seated ped's world matrix (SetSeatFrame)
     int m_savedWeapon = -2;                // -2 none; else the WeaponIndex() to give back
     const AnimClip* m_dbClip = nullptr;    // the Driveby_x clip in use
     bool m_dbFiring = false, m_dbShot = false;

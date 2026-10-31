@@ -1268,6 +1268,7 @@ void Vehicles::CollisionDamage(float dt, int playerCar) {
         // CAutomobile::VehicleDamage(0, ...): the frame's strongest knock
         if (c.rot[8] < 0.0f && (int)i != playerCar) c.health = std::max(0.0f, c.health - dt * 50.0f * 4.0f);   // lying on its roof
         if (di == 0.0f) continue;
+        if (UsesBikePhysics(c.model)) { BikeDamage(c, *h, di, (int)i == playerCar); continue; }
         const float minDi = h->mass / 1500.0f * 25.0f;
         const V3 up(&c.rot[6]);
         if (p.damager < 0 && Dot(V3(p.impactNormal), up) > 0.6f) continue;   // landing on the ground

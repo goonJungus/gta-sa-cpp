@@ -1500,6 +1500,8 @@ void PlayerPed::Update(const Input& inRaw) {
             m_heading += std::clamp(d, -7.85f * dt, 7.85f * dt);
         }
         m_move.Reset();
+    } else if (!in.onGround && m_busy && m_busyFall) {   // thrown: the fall clip plays on through the air
+        m_ratio = 0.0f;
     } else if (!in.onGround) {
         if (m_aiming || m_ducking) LeaveStance(in.rewrite, false, false);
         ControlInAir(in);
@@ -1521,6 +1523,7 @@ void PlayerPed::Update(const Input& inRaw) {
                     Blend(m_busyClip, false, false, 4.0f);
                 } else {
                     m_busy = false;
+                    m_busyFall = false;
                     if (b) b->delta = -4.0f;
                 }
             }
@@ -1631,6 +1634,7 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
     // Ped models face +Y; heading 0 faces +X.
     const float a = m_heading - kPi * 0.5f, c = std::cos(a), s = std::sin(a);
     D3DMATRIX w = {c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, x, y, feetZ - m_bindMinZ, 1};
+    if (m_seated && m_seatFrameOn) std::memcpy(&w._11, m_seatFrame, sizeof(m_seatFrame));   // on the vehicle's matrix
     dev->SetTransform(D3DTS_WORLD, &w);
     for (Part& p : m_parts) {
         if (!p.mesh || (hideHead && p.isHead)) continue;

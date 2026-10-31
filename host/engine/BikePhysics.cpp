@@ -383,7 +383,7 @@ void Vehicles::BikeStep(VehicleInstance& c, const VehicleModel& vm, const Handli
         const float lim = c.wheelStatus[0] == 1 ? 0.4f * bh.maxLean : bh.maxLean;
         x = std::clamp(x, -lim, lim);
         const float k = std::pow(bh.desLean, ts);
-        p.desiredLean = k * p.desiredLean + (1.0f - k) * std::asin(x);
+        p.desiredLean = k * p.desiredLean + (1.0f - k) * (std::asin(x) - p.riderStill * 0.17453294f);
     }
     p.leanAngle = p.desiredLean;
     p.wheelState[0] = states[0];
@@ -432,6 +432,119 @@ void Vehicles::BikeStep(VehicleInstance& c, const VehicleModel& vm, const Handli
     for (int i = 0; i < 4; i++) { p.compPrev[i] = p.comp[i]; p.comp[i] = 1.0f; }
     Store(b, c);
     CarCollision(c, vm, h, ts, world);
+}
+
+bool Vehicles::BikeRiderAnims(size_t i, float dt, float stillBlend, BikeRide& out) {
+    if (i >= m_cars.size() || !UsesBikePhysics(m_cars[i].model)) return false;
+    VehicleInstance& c = m_cars[i];
+    CarPhys& p = c.phys;
+    const VehicleInfo* info = Info(c.model);
+    const HandlingData* hp = info ? Handling(info->handling) : nullptr;
+    if (!hp) return false;
+    const HandlingData& h = *hp;
+    const HandlingData::Bike& bh = h.bike;
+    const float ts = dt * 50.0f;
+    p.riderStill = stillBlend;
+    V3 r, f, u;
+    if (p.active) { r = V3(&c.rot[0]); f = V3(&c.rot[3]); u = V3(&c.rot[6]); }
+    else { const float cs = std::cos(c.heading), sn = std::sin(c.heading); r = V3(cs, sn, 0); f = V3(-sn, cs, 0); u = V3(0, 0, 1); }
+    const float v = Dot(V3(p.mv), f);
+    const float maxRev = h.trans.maxReverseVelocity;
+    // the base pose: a foot down when it stands, pushing it back with the feet when reversing slowly
+    float fwdTarget = 0.0f;
+    out.base = 0;
+    if (std::fabs(v) < 0.02f) out.base = 1;
+    else if (v < 0.0f) {
+        if (p.gas >= 0.0f || v <= maxRev * 1.5f) { if (v < maxRev * 1.5f) fwdTarget = -1.0f; }
+        else out.base = 2;
+    }
+    float leanTarget = std::clamp(p.leanAngle / bh.fullAnimLean, -1.0f, 1.0f);
+    if (fwdTarget == -1.0f) leanTarget = 0.0f;
+    const float kl = std::pow(0.86f, ts);
+    p.animLeanLeft = kl * p.animLeanLeft + (1.0f - kl) * leanTarget;
+    if (fwdTarget > -1.0f) {
+        fwdTarget = p.leanFwd;
+        const bool frontDown = p.wheelCounts[0] > 0.0f || p.wheelCounts[1] > 0.0f;
+        const bool rearDown = p.wheelCounts[2] > 0.0f || p.wheelCounts[3] > 0.0f;
+        bool wheelie = false;
+        if (!frontDown && f.z > 0.0f && rearDown) wheelie = bh.wheelieAng - f.z < 0.15f;   // up on the back wheel: lean in
+        if (wheelie) fwdTarget = std::max(fwdTarget, 0.25f);
+        else if (p.brake > 0.5f && v > 0.01f) fwdTarget = std::max(fwdTarget, 0.1f);   // braking: forward
+        else if (p.gas > 0.5f && fwdTarget <= 0.0f && v < h.trans.maxFlatVelocity * 0.3f && fwdTarget >= -0.3f) fwdTarget = -0.3f;   // pulling away: back
+        if (std::fabs(leanTarget) > 0.3f) fwdTarget *= std::max(0.0f, 1.0f - (std::fabs(leanTarget) - 0.3f) / 0.26f);
+    }
+    const float kf = std::pow(0.89f, ts);
+    p.animLeanFwd = kf * p.animLeanFwd + (1.0f - kf) * fwdTarget;
+    // spun too hard for the rider's skill (STAT_BIKE_SKILL, nil on a new game), or reversing too fast on the wheels
+    // or upside down after a knock: CEventKnockOffBike(KNOCK_OFF_TYPE_FALL), falling forward
+    const float skill = 0.0f;
+    const float spin = (skill + 1.0f) * 0.3f;
+    const bool spun = Len2(V3(p.tv)) > spin * spin;
+    const bool onWheels = p.wheelCounts[0] > 0.0f || p.wheelCounts[1] > 0.0f || p.wheelCounts[2] > 0.0f || p.wheelCounts[3] > 0.0f;
+    const bool reversed = std::fabs(v) >= 0.02f && v < (skill + 1.0f) * 3.5f * maxRev && (onWheels || (u.z < -0.5f && p.lastDI > 0.0f));
+    if ((spun || reversed) && !p.knockOff) {
+        p.knockOff = true;
+        p.knockOffDir = 2;
+        const float rise = RandRange(3.0f, 5.0f) / 70.0f;   // ApplyMoveForce(0, 0, 3..5) on a 70 kg ped
+        for (int k = 0; k < 3; k++) p.knockOffVel[k] = (p.mv[k] + (k == 2 ? rise : 0.0f)) * 50.0f;
+    }
+    out.leanLeft = p.animLeanLeft;
+    out.leanFwd = p.animLeanFwd;
+    if (std::fabs(p.animLeanLeft) > 0.56f) { out.fwdWeight = 0.0f; out.leftWeight = 1.0f; }
+    else if (std::fabs(p.animLeanFwd) > 0.56f) { out.fwdWeight = 1.0f; out.leftWeight = 0.0f; }
+    else {
+        const float l = std::sqrt(p.animLeanFwd * p.animLeanFwd + p.animLeanLeft * p.animLeanLeft);
+        out.fwdWeight = l > 0.01f ? std::fabs(p.animLeanFwd / l) : std::fabs(p.animLeanFwd);
+        out.leftWeight = l > 0.01f ? std::fabs(p.animLeanLeft / l) : std::fabs(p.animLeanLeft);
+    }
+    (void)r; (void)u;
+    return true;
+}
+
+bool Vehicles::TakeKnockOff(size_t i, float vel[3], int* dir) {
+    if (i >= m_cars.size() || !m_cars[i].phys.knockOff) return false;
+    CarPhys& p = m_cars[i].phys;
+    p.knockOff = false;
+    p.onSideStand = false;   // left to fall over
+    for (int k = 0; k < 3; k++) vel[k] = p.knockOffVel[k];
+    if (dir) *dir = p.knockOffDir;
+    return true;
+}
+
+// CBike::VehicleDamage for the frame's strongest knock: the rider may come off (DamageKnockOffRider), and past 25
+// the bike loses health. A bike has no panels to dent.
+void Vehicles::BikeDamage(VehicleInstance& c, const HandlingData& h, float di, bool player) {
+    CarPhys& p = c.phys;
+    const V3 r(&c.rot[0]), f(&c.rot[3]), u(&c.rot[6]), n(p.impactNormal);
+    if (player && !p.knockOff) {   // DamageKnockOffRider, for the player (skill 0)
+        float force = di / h.mass * 800.0f * 0.75f;
+        if (force > 10.0f) {
+            const float fwd = Dot(f, n), up = Dot(u, n), right = Dot(r, n);
+            float fwdW = 0.6f;
+            if (std::fabs(fwd) > 0.85f) { const float vert = n.z < 0.85f ? 0.0f : n.z; fwdW = 7.0f * vert * vert + 0.6f; }
+            if (u.z < 0.0f) fwdW = 5.0f;   // on its side or upside down
+            float backW = 1.5f, upW = 0.05f;
+            if (c.model == 468) { fwdW *= 0.65f; upW *= 0.75f; }   // the Sanchez
+            else if (c.model == 471) { backW = 3.0f; fwdW *= 0.65f; upW *= 0.75f; }   // the Quad
+            force *= std::fabs(fwd) * fwdW + std::max(up, 0.0f) * upW + std::fabs(right) * 0.45f - std::min(up, 0.0f) * backW;
+            if (force > 75.0f) {   // KNOCK_OFF_TYPE_SKIDBACKFRONT, from the side the knock came from
+                const float ang = std::atan2(n.x, -n.y) - c.heading;   // GetLocalDirection(-impact)
+                const float a = std::fmod(std::fmod(ang, 6.2831853f) + 6.2831853f + 0.78539816f, 6.2831853f);
+                p.knockOff = true;
+                p.knockOffDir = (int)(a / 1.5707963f) & 3;
+                const float push = -0.3f * di / h.mass, rise = RandRange(3.0f, 5.0f) / 70.0f;
+                p.knockOffVel[0] = (p.mv[0] + n.x * push) * 50.0f;
+                p.knockOffVel[1] = (p.mv[1] + n.y * push) * 50.0f;
+                p.knockOffVel[2] = (p.mv[2] + rise) * 50.0f;
+            }
+        }
+    }
+    if (p.damager < 0 && Dot(n, u) > 0.6f) return;   // landing on the ground
+    const float loss = (di - 25.0f) * h.collisionDamageGame;
+    if (di <= 25.0f || loss <= 0.0f) return;
+    const float before = c.health;
+    c.health -= player ? loss * 0.5f : loss * 0.25f;
+    if (c.health < 1.0f && before > 1.0f) c.health = 1.0f;   // only fire or a bullet finishes it
 }
 
 // CBike::CalculateLeanMatrix: the drawn body tips about its nose by the lean (and a little back), dropped so the

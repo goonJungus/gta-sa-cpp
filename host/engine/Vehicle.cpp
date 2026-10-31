@@ -708,6 +708,31 @@ bool Vehicles::Footprint(size_t i, float* halfX, float* minY, float* maxY) const
     return true;
 }
 
+void Vehicles::BodyMatrix(size_t i, float out[16]) const {
+    const VehicleInstance& c = m_cars[i];
+    const float cs = std::cos(c.heading), sn = std::sin(c.heading);
+    const float m0[16] = {cs, sn, 0, 0, -sn, cs, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
+    std::memcpy(out, m0, sizeof(m0));
+    if (c.hasRot || c.phys.active) {   // CMatrix rows: right, forward, up
+        const float* q = c.rot;
+        const float m[16] = {q[0], q[1], q[2], 0, q[3], q[4], q[5], 0, q[6], q[7], q[8], 0, c.x, c.y, c.z, 1};
+        std::memcpy(out, m, sizeof(m));
+    }
+    auto it = m_models.find(c.model);
+    if (it != m_models.end() && it->second.isBike) BikeLeanBody(c, it->second, out);
+}
+
+bool Vehicles::SeatLocal(size_t i, float out[3], bool passenger) const {
+    if (i >= m_cars.size()) return false;
+    auto it = m_models.find(m_cars[i].model);
+    if (it == m_models.end()) return false;
+    const VehicleModel& vm = it->second;
+    out[0] = passenger ? -vm.seatPos[0] : vm.seatPos[0];
+    out[1] = vm.seatPos[1];
+    out[2] = vm.seatPos[2];
+    return true;
+}
+
 bool Vehicles::SeatWorld(size_t i, float out[3], bool* low, bool passenger) const {
     if (i >= m_cars.size()) return false;
     const VehicleInstance& c = m_cars[i];
@@ -736,19 +761,11 @@ void Vehicles::Draw(D3DRenderer& r) {
         auto it = m_models.find(c.model);
         if (it == m_models.end()) continue;
         const VehicleModel& vm = it->second;
-        // Heading 0 faces +y like the ped; the model's nose is +y too.
-        const float cs = std::cos(c.heading), sn = std::sin(c.heading);
-        float body[16] = {cs, sn, 0, 0, -sn, cs, 0, 0, 0, 0, 1, 0, c.x, c.y, c.z, 1};
-        if (c.hasRot || c.phys.active) {   // CMatrix rows: right, forward, up
-            const float* q = c.rot;
-            const float m[16] = {q[0], q[1], q[2], 0, q[3], q[4], q[5], 0, q[6], q[7], q[8], 0, c.x, c.y, c.z, 1};
-            std::memcpy(body, m, sizeof(m));
-        }
+        // Heading 0 faces +y like the ped; the model's nose is +y too. A bike leans (CBike::CalculateLeanMatrix).
+        float body[16];
+        BodyMatrix((size_t)(&c - m_cars.data()), body);
         float bikeNodes[5][16];
-        if (vm.isBike) {   // CBike::CalculateLeanMatrix and PreRender
-            BikeLeanBody(c, vm, body);
-            BikeFrameMatrices(c, vm, bikeNodes);
-        }
+        if (vm.isBike) BikeFrameMatrices(c, vm, bikeNodes);   // CBike::PreRender
         D3DMATRIX out;
         for (const VehicleModel::PaintPart& pp : const_cast<VehicleModel&>(vm).paintParts) {   // this car's paint
             const int idx = c.paint[pp.slot];
