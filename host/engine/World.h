@@ -64,6 +64,9 @@ public:
     bool Init(ImgLoader& img, D3DRenderer& renderer, const std::string& gameDir);
     void Shutdown();
 
+    // The exterior car generators of the stream IPLs (CFileLoader::LoadCarGenerator).
+    const std::vector<BinIplCarGen>& CarGens() const { return m_carGens; }
+
     // Per-frame streaming decision based on the player's feet position.
     void Stream(float px, float py, float pz);
     // The interior the player is in (CGame::currArea). Placements of any other area neither draw
@@ -306,6 +309,7 @@ private:
     // Region key -> m_insts index of each text IPL line (-1 = not placed), so
     // binary stream LOD indices and text-to-text LOD indices resolve.
     std::unordered_map<std::string, std::vector<int32_t>> m_textInst;
+    std::vector<BinIplCarGen> m_carGens;
 
     // World instances: every text and binary IPL placement.
     std::vector<Inst> m_insts;

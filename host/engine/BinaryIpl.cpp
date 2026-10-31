@@ -50,3 +50,21 @@ bool BinaryIplLoader::LoadFromMemory(const uint8_t* data, size_t size,
     }
     return true;
 }
+
+bool BinaryIplLoader::LoadCarGens(const uint8_t* data, size_t size, std::vector<BinIplCarGen>& out) {
+    if (!data || size < 0x40 || std::memcmp(data, "bnry", 4) != 0)
+        return false;
+    int32_t count = 0, off = 0;
+    std::memcpy(&count, data + 0x14, 4);
+    std::memcpy(&off, data + 0x3c, 4);
+    if (count <= 0) return true;
+    if (count > 10000 || off < 0 || (size_t)off + (size_t)count * 48 > size)
+        return false;
+    for (int i = 0; i < count; i++) {
+        BinIplCarGen g;
+        static_assert(sizeof(BinIplCarGen) == 48, "CFileCarGenerator is 48 bytes");
+        std::memcpy(&g, data + off + (size_t)i * 48, 48);
+        out.push_back(g);
+    }
+    return true;
+}

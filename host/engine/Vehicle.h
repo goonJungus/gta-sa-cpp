@@ -193,6 +193,7 @@ struct VehicleInstance {
     bool hasDriver = false;           // someone at the wheel (brake lights need a foot on the pedal)
     bool siren = false;               // bSirenOrAlarm: the siren and its light bar
     int radioStation = -1;            // eRadioID it is tuned to, -1 until someone drives it
+    bool recycle = false;             // a car generator's parked car: its slot is reused once it is removed
     // CDoor per eDoors (bonnet, boot, lf, rf, lr, rr) while it swings loose: angle, angular speed, eDoorState.
     float doorAngle[6] = {0, 0, 0, 0, 0, 0}, doorAngVel[6] = {0, 0, 0, 0, 0, 0};
     uint8_t doorHit[6] = {0, 0, 0, 0, 0, 0};
@@ -209,6 +210,8 @@ public:
     const VehicleInfo* Info(int id) const;
     int ModelCount() const { return (int)m_ids.size(); }
     int IdAt(int i) const { return m_ids[(size_t)i]; }
+    // A car model, loading it on first use (nullptr if it cannot be).
+    const VehicleModel* LoadModel(D3DRenderer& r, int id) { return Model(r, id); }
 
     // Spawn a car of this model id (loads the model on first use). Returns an instance index or -1.
     int Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading);

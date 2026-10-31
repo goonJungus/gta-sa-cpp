@@ -582,6 +582,8 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
         for (int k = 0; k < 4; k++) c.paint[k] = set[(size_t)k];
     }
     c.randomSeed = (uint16_t)Random(65536);
+    for (size_t i = 0; i < m_cars.size(); i++)   // a removed generator car's slot
+        if (m_cars[i].removed && m_cars[i].recycle) { m_cars[i] = c; return (int)i; }
     m_cars.push_back(c);
     return (int)m_cars.size() - 1;
 }

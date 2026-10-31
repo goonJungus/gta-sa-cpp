@@ -8,7 +8,7 @@
 //   uint16 instanceCount @ 4  (retail reads a short; see decompile re-pass)
 //   int32 carGenCount @ 0x14
 //   int32 instanceArrayFileOffset @ 0x1c
-//   int32 carGenArrayFileOffset @ 0x3c (48-byte car-generator records; skipped)
+//   int32 carGenArrayFileOffset @ 0x3c (48-byte car-generator records, LoadCarGens)
 //   Each instance record is 40 bytes (0x28):
 //     pos (3x f32) @ 0, quat (4x f32) @ 12,
 //     modelId (i32) @ 28, areaAndFlags (u32 bitfield) @ 32, lodIndex (i32) @ 36
@@ -32,10 +32,21 @@ struct BinIplInstance {
     int32_t AreaCode() const { return areaAndFlags & 0xFF; }
 };
 
+// CFileCarGenerator (48 bytes): a parked car spot.
+struct BinIplCarGen {
+    float x, y, z, angle;    // angle in radians
+    int32_t modelId;         // -1: a random car
+    int32_t colour1, colour2;   // carcols indices, -1 random
+    uint32_t flags;          // 1 force spawn, 2 ignore the population limit
+    int32_t alarmChance, doorLockChance, minDelay, maxDelay;
+};
+
 class BinaryIplLoader {
 public:
     // Parse a binary IPL from memory. Returns false on bad magic/size.
     // Parsed instances are appended to out.
     static bool LoadFromMemory(const uint8_t* data, size_t size,
                                std::vector<BinIplInstance>& out);
+    // The car generators of a binary IPL (count @0x14, array offset @0x3c), appended to out.
+    static bool LoadCarGens(const uint8_t* data, size_t size, std::vector<BinIplCarGen>& out);
 };

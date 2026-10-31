@@ -51,6 +51,7 @@
 #include "FeMenu.h"
 #include "Hud.h"
 #include "Vehicle.h"
+#include "CarGenerators.h"
 #include "Script.h"
 #include "ScriptGame.h"
 #include "Radio.h"
@@ -611,6 +612,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // ResolveGameDir; nothing machine-specific is compiled in.
 static std::string g_gameDir;
 static Vehicles g_vehicles;
+static CarGenerators g_carGens;   // the IPL parked cars
 // The world as the car physics sees it (CWorld::ProcessLineOfSight / CCollision::ProcessColModels).
 static VehicleWorld CarWorld() {
     VehicleWorld w;
@@ -3816,6 +3818,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 static int s_lastTarget = -1;
                 if (hitPed >= 0 && hitPed != s_lastTarget) g_speech.SayPlayer(CTX_PULL_GUN);
                 s_lastTarget = hitPed;
+            }
+            if (worldReady && g_vehicles.Ready() && !getenv("GTA_NOCARGEN")) {   // CTheCarGenerators::Process
+                static bool s_genInit = false;
+                if (!s_genInit) { g_carGens.Init(g_world.CarGens()); s_genInit = true; Log("CARGEN: %zu generators", g_carGens.Count()); }
+                const float pp[3] = {playerX, playerY, playerZ - EYE_HEIGHT};
+                float pv[2] = {vx, vy};
+                if (g_driveCar >= 0) { pv[0] = g_vehicles.Car((size_t)g_driveCar).vx; pv[1] = g_vehicles.Car((size_t)g_driveCar).vy; }
+                const int genHour = ((int)(g_gameSeconds / 3600.0f)) % 24;
+                g_carGens.Process(g_vehicles, g_renderer, pp, pv, genHour, (uint32_t)g_bulletMs,
+                                  [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); });
+                if (getenv("GTA_CARDBG") && frame % 100 == 0) Log("CARGEN parked %d cars %zu", g_carGens.ParkedCars(), g_vehicles.Count());
             }
             if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
             if (g_vehicles.Ready()) {

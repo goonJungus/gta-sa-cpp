@@ -541,6 +541,7 @@ void GameWorld::LoadStreamsFrom(ImgLoader& img, bool interior) {
             continue;
         }
         parsed++;
+        if (!interior) BinaryIplLoader::LoadCarGens(data.data(), data.size(), m_carGens);
 
         // The region's text IPL placements: a binary instance's LOD index
         // points into that file's inst list (CIplStore::SetupRelatedIpls).
