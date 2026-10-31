@@ -23,13 +23,14 @@ constexpr float kSlowSpeed = 0.4f * 50.0f; // CVehicle::m_vecMoveSpeed is per ga
 
 struct RideSet { const char *idle, *left, *right, *back; };   // CRideAnims (aDriveAnimIds*)
 constexpr RideSet kLow = {"car_lsit", "drive_lo_l", "drive_lo_r", "car_lb"};
+constexpr RideSet kBoat = {"drive_boat", "drive_boat_l", "drive_boat_r", "drive_boat_back"};   // the boat anim group
 constexpr RideSet kBad = {"car_sit_weak", "drive_l_weak", "drive_r_weak", "car_lb_weak"};
 constexpr RideSet kBadSlow = {"car_sit_weak", "drive_l_weak_slow", "drive_r_weak_slow", "car_lb_weak"};
 constexpr RideSet kStd = {"car_sit", "drive_l", "drive_r", "car_lb"};
 constexpr RideSet kStdSlow = {"car_sit", "drive_l_slow", "drive_r_slow", "car_lb"};
 constexpr RideSet kPro = {"car_sit_pro", "drive_l_pro", "drive_r_pro", "car_lb_pro"};
 constexpr RideSet kProSlow = {"car_sit_pro", "drive_l_pro_slow", "drive_r_pro_slow", "car_lb_pro"};
-constexpr const RideSet* kSets[] = {&kLow, &kBad, &kBadSlow, &kStd, &kStdSlow, &kPro, &kProSlow};
+constexpr const RideSet* kSets[] = {&kBoat, &kLow, &kBad, &kBadSlow, &kStd, &kStdSlow, &kPro, &kProSlow};
 
 bool IsSmg(const std::string& label) { return label == "Micro SMG" || label == "MP5" || label == "Tec-9"; }   // the weapon.dat SMG slot
 }  // namespace
@@ -41,7 +42,7 @@ bool PlayerPed::CanDriveby() const {
 }
 
 // CPed::ReplaceWeaponForVehicle: an SMG with ammo goes in the hand, the old weapon is put by.
-void PlayerPed::EnterVehicle(bool lowCar, int bike) {
+void PlayerPed::EnterVehicle(bool lowCar, int bike, bool boat) {
     if (m_seated) return;
     const int cur = WeaponIndex();
     int smg = -1;
@@ -58,6 +59,7 @@ void PlayerPed::EnterVehicle(bool lowCar, int bike) {
     }
     m_seated = true;
     m_seatLow = lowCar;
+    m_seatBoat = boat;
     m_bike = bike;
     m_busy = m_aiming = m_ducking = m_inAir = m_jumping = false;
     m_firing = m_reloading = false;
@@ -435,7 +437,8 @@ void PlayerPed::UpdateSeated(const Input& in) {
 
     // ---- CVehicle::ProcessDrivingAnims: the tiered sit pose, steering and look-back overlays ----
     const RideSet* use;
-    if (m_seatLow) use = &kLow;
+    if (m_seatBoat) use = &kBoat;
+    else if (m_seatLow) use = &kLow;
     else {
         const bool slow = in.carSpeed <= kSlowSpeed;
         use = m_drivingSkill < 50.0f ? (slow ? &kBadSlow : &kBad)

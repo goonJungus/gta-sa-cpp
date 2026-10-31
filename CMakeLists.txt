@@ -90,6 +90,7 @@ if(WIN32)
         host/engine/Vehicle.cpp
         host/engine/CarPhysics.cpp
         host/engine/BikePhysics.cpp
+        host/engine/BoatPhysics.cpp
         host/engine/VehicleLights.cpp
         host/engine/CarGenerators.cpp
         host/engine/Script.cpp

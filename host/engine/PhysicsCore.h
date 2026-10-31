@@ -2,6 +2,7 @@
 // Shared by CarPhysics.cpp and BikePhysics.cpp: CPhysical in game units (speeds per 1/50 s).
 
 #include <cmath>
+#include <cstring>
 
 #include "Vehicle.h"
 
@@ -65,6 +66,17 @@ inline void Store(const Body& b, VehicleInstance& c) {
     b.right.To(&c.rot[0]); b.fwd.To(&c.rot[3]); b.up.To(&c.rot[6]);
     c.x = b.pos.x; c.y = b.pos.y; c.z = b.pos.z;
     b.mv.To(c.phys.mv); b.tv.To(c.phys.tv); b.fmv.To(c.phys.fmv); b.ftv.To(c.phys.ftv);
+}
+
+// Row-vector rotations (rows: right, forward, up), as CMatrix::SetRotateX / SetRotateY / SetRotateZ.
+inline void RotX(float a, float m[16]) { const float c = std::cos(a), s = std::sin(a); const float r[16] = {1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1}; std::memcpy(m, r, sizeof(r)); }
+inline void RotY(float a, float m[16]) { const float c = std::cos(a), s = std::sin(a); const float r[16] = {c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1}; std::memcpy(m, r, sizeof(r)); }
+inline void RotZ(float a, float m[16]) { const float c = std::cos(a), s = std::sin(a); const float r[16] = {c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; std::memcpy(m, r, sizeof(r)); }
+inline void Mul4(const float* a, const float* b, float* o) {
+    float t[16];
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++) t[r * 4 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[4 + c] + a[r * 4 + 2] * b[8 + c] + a[r * 4 + 3] * b[12 + c];
+    std::memcpy(o, t, sizeof(t));
 }
 
 }  // namespace physics

@@ -91,17 +91,6 @@ void ProcessBikeWheel(Body& b, const HandlingData& h, const V3& wf, const V3& wr
     b.ApplyTurnForce(b.right * across, b.fwd * Dot(point, b.fwd));
 }
 
-// Row-vector rotations (rows: right, forward, up), as CMatrix::SetRotateX / SetRotateY / SetRotateZ.
-void RotX(float a, float m[16]) { const float c = std::cos(a), s = std::sin(a); const float r[16] = {1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1}; std::memcpy(m, r, sizeof(r)); }
-void RotY(float a, float m[16]) { const float c = std::cos(a), s = std::sin(a); const float r[16] = {c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1}; std::memcpy(m, r, sizeof(r)); }
-void RotZ(float a, float m[16]) { const float c = std::cos(a), s = std::sin(a); const float r[16] = {c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; std::memcpy(m, r, sizeof(r)); }
-void Mul4(const float* a, const float* b, float* o) {
-    float t[16];
-    for (int r = 0; r < 4; r++)
-        for (int c = 0; c < 4; c++) t[r * 4 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[4 + c] + a[r * 4 + 2] * b[8 + c] + a[r * 4 + 3] * b[12 + c];
-    std::memcpy(o, t, sizeof(t));
-}
-
 }  // namespace
 
 bool Vehicles::UsesBikePhysics(int model) const {
@@ -625,7 +614,7 @@ void Vehicles::BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, fl
 
 // CBike::PreRender: the front forks and the bars turn with the steering, the front wheel rides up its fork and
 // the rear swing arm swings with its spring, and both wheels roll.
-void Vehicles::BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[8][16]) const {
+void Vehicles::BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[15][16]) const {
     const CarPhys& p = c.phys;
     const HandlingData* h = Handling(vm.info.handling);
     const float lower = h ? h->suspLower : -0.1f, upper = h ? h->suspUpper : 0.1f;

@@ -238,7 +238,7 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             std::vector<std::string> f;
             std::stringstream ss(line);
             for (std::string s; std::getline(ss, s, ',');) f.push_back(Trim(s));
-            if (f.size() < 15) continue;
+            if (f.size() < 11) continue;   // boats stop after the flags (no wheel fields)
             VehicleInfo v;
             v.id = std::atoi(f[0].c_str());
             v.dff = Lower(f[1]); v.txd = Lower(f[2]); v.type = f[3]; v.handling = Lower(f[4]); v.gameName = f[5];
@@ -247,8 +247,10 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
                                                        "motorbike", "leisureboat", "workerboat", "bicycle"};
                 for (int ci = 0; ci < 12; ci++) if (Lower(f[7]) == kClasses[ci]) v.vclass = ci;
             }
-            v.wheelScaleFront = (float)std::atof(f[12].c_str());
-            v.wheelScaleRear = (float)std::atof(f[13].c_str());
+            if (f.size() >= 15) {
+                v.wheelScaleFront = (float)std::atof(f[12].c_str());
+                v.wheelScaleRear = (float)std::atof(f[13].c_str());
+            }
             m_info[v.id] = v;
             if (v.type == "car") m_ids.push_back(v.id);
         }
@@ -349,6 +351,30 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             b.speedSteer = v[7]; b.slipSteer = v[8]; b.noPlayerCOMz = v[9];
             b.wheelieAng = std::sin(v[10] * d2r); b.stoppieAng = std::sin(v[11] * d2r);
             b.wheelieSteer = v[12]; b.wheelieStabMult = v[13]; b.stoppieStabMult = v[14];
+            // ConvertDataToGameUnits: two-wheelers reverse at no more than 0.05
+            HandlingData& hd = it->second;
+            if (hd.name != "rcbandit" && !(hd.handlingFlags & 0x1000000u)) { hd.trans.maxReverseVelocity = -0.05f; hd.trans.InitGearRatios(); }
+        }
+    }
+    {   // the '%' lines: tBoatHandlingData::InitFromData
+        std::istringstream in(ReadText(gameDir + "/data/handling.cfg"));
+        for (std::string line; std::getline(in, line);) {
+            line = Trim(line);
+            if (line.empty() || line[0] != '%') continue;
+            std::istringstream ls(line.substr(1));
+            std::string name;
+            float v[14];
+            ls >> name;
+            int n = 0;
+            while (n < 14 && (ls >> v[n])) n++;
+            auto it = m_handling.find(Lower(name));
+            if (n < 14 || it == m_handling.end()) continue;
+            HandlingData::Boat& b = it->second.boat;
+            b.found = true;
+            b.thrustY = v[0]; b.thrustZ = v[1]; b.thrustAppZ = v[2]; b.aqPlaneForce = v[3]; b.aqPlaneLimit = v[4];
+            b.aqPlaneOffset = v[5]; b.waveAudioMult = v[6];
+            for (int k = 0; k < 3; k++) { b.moveRes[k] = v[7 + k]; b.turnRes[k] = v[10 + k]; }
+            b.lookLRBehindCamHeight = v[13];
         }
     }
     {   // data/carcols.dat: the colour table (col) and the allowed colour pairs per model (car)
@@ -522,17 +548,20 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             for (int c = 0; c < 3; c++) bm.pos[c] = glob[i][12 + (size_t)c];
         }
     {   // CBike::SetupModelNodes: the frames that steer, spring and spin
-        static const char* kBikeNode[8] = {"forks_front", "forks_rear", "handlebars", "wheel_front", "wheel_rear", "chainset", "pedal_r", "pedal_l"};
+        // and CBoat's: the rudder and rear flaps turn with the steering, the propellers spin
+        static const char* kBikeNode[15] = {"forks_front", "forks_rear", "handlebars", "wheel_front", "wheel_rear", "chainset", "pedal_r", "pedal_l",
+                                            "boat_rudder", "boat_rearflap_left", "boat_rearflap_right", "static_prop", "moving_prop", "static_prop2", "moving_prop2"};
         for (size_t i = 0; i < w.frames.size(); i++)
-            for (int k = 0; k < 8; k++)
+            for (int k = 0; k < 15; k++)
                 if (w.frames[i].name == kBikeNode[k]) { vm.bikeNodes[k].found = true; vm.bikeNodes[k].frame = (int)i; }
         vm.isBike = vm.bikeNodes[3].found && vm.bikeNodes[4].found;
-        for (int k = 0; k < 8 && vm.isBike; k++) {
+        for (int k = 8; k < 15; k++) vm.isBoat = vm.isBoat || vm.bikeNodes[k].found;
+        for (int k = 0; k < 15 && (vm.isBike || vm.isBoat); k++) {
             VehicleModel::BikeNode& bn = vm.bikeNodes[k];
             if (!bn.found) continue;
             FrameMatrix(w.frames[(size_t)bn.frame].m, bn.local);
             const int p = w.frames[(size_t)bn.frame].parent;
-            for (int j = 0; j < 8; j++) if (j != k && vm.bikeNodes[j].found && vm.bikeNodes[j].frame == p) bn.parent = j;
+            for (int j = 0; j < 15; j++) if (j != k && vm.bikeNodes[j].found && vm.bikeNodes[j].frame == p) bn.parent = j;
             if (bn.parent < 0 && p >= 0 && (size_t)p < glob.size()) std::memcpy(bn.base, glob[(size_t)p].data(), sizeof(bn.base));
             else { std::memset(bn.base, 0, sizeof(bn.base)); bn.base[0] = bn.base[5] = bn.base[10] = bn.base[15] = 1.0f; }
         }
@@ -632,12 +661,12 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             }
             if (f == vm.doors[k].frame && f != fr) { p.door = k; std::memcpy(p.doorLocal, rel, sizeof(rel)); }
         }
-        for (int k = 0; k < 5 && fr >= 0 && vm.isBike && p.bikeNode < 0; k++) {   // under a bike's moving frame (the nearest)
+        for (int k = 0; k < 5 && fr >= 0 && (vm.isBike || vm.isBoat) && p.bikeNode < 0; k++) {   // under a bike's or boat's moving frame (the nearest)
             float rel[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
             int f = fr;
             bool hit = false;
             for (int guard = 0; f >= 0 && (size_t)f < w.frames.size() && guard < 64 && !hit; guard++) {
-                for (int j = 0; j < 8; j++) if (vm.bikeNodes[j].found && vm.bikeNodes[j].frame == f) { p.bikeNode = j; hit = true; }
+                for (int j = 0; j < 15; j++) if (vm.bikeNodes[j].found && vm.bikeNodes[j].frame == f) { p.bikeNode = j; hit = true; }
                 if (hit) break;
                 float local[16];
                 FrameMatrix(w.frames[(size_t)f].m, local);
@@ -764,8 +793,11 @@ void Vehicles::Draw(D3DRenderer& r) {
         // Heading 0 faces +y like the ped; the model's nose is +y too. A bike leans (CBike::CalculateLeanMatrix).
         float body[16];
         BodyMatrix((size_t)(&c - m_cars.data()), body, true);
-        float bikeNodes[8][16];
+        float bikeNodes[15][16];
         if (vm.isBike) BikeFrameMatrices(c, vm, bikeNodes);   // CBike::PreRender
+        else if (vm.isBoat) BoatFrameMatrices(c, vm, bikeNodes);   // CBoat::PreRender
+        // CBoat::PreRender fades the still propellers out and the blurred ones in as they spin up
+        const float propSpeed = std::min(1.0f, c.phys.engineSpeed * (32.0f / 6.2831855f));
         D3DMATRIX out;
         for (const VehicleModel::PaintPart& pp : const_cast<VehicleModel&>(vm).paintParts) {   // this car's paint
             const int idx = c.paint[pp.slot];
@@ -782,7 +814,9 @@ void Vehicles::Draw(D3DRenderer& r) {
                 if (NodeMatrix((size_t)(&c - m_cars.data()), p.node, nm)) { dev->SetTransform(D3DTS_WORLD, reinterpret_cast<D3DMATRIX*>(nm)); r.DrawMesh(p.mesh); continue; }
             }
             float pc[16];
-            if (vm.isBike && p.bikeNode >= 0) Mul(p.bikeLocal, bikeNodes[p.bikeNode], pc);
+            if (vm.isBoat && (p.bikeNode == 11 || p.bikeNode == 13) && propSpeed >= 0.6f) continue;
+            if (vm.isBoat && (p.bikeNode == 12 || p.bikeNode == 14) && propSpeed < 0.6f) continue;
+            if ((vm.isBike || vm.isBoat) && p.bikeNode >= 0) Mul(p.bikeLocal, bikeNodes[p.bikeNode], pc);
             else PartToCar(c, vm, p, pc);
             Mul(pc, body, &out._11);
             dev->SetTransform(D3DTS_WORLD, &out);

@@ -162,7 +162,7 @@ public:
     // CTaskSimpleCarDrive + CTaskSimpleGangDriveBy (PlayerDriveby.cpp). The host seats CJ at the car's
     // seat dummy; the ped origin is the pelvis. EnterVehicle is CPed::ReplaceWeaponForVehicle: the
     // SMG (Micro Uzi, Tec-9, MP5) in hand with the old weapon saved, LeaveVehicle gives it back.
-    void EnterVehicle(bool lowCar, int bike = 0);   // bike: 0 car, 1 bicycle (BMX group), 2 motorbike (bikes group)
+    void EnterVehicle(bool lowCar, int bike = 0, bool boat = false);   // bike: 0 car, 1 bicycle (BMX group), 2 motorbike (bikes group)
     void LeaveVehicle();
     // CTaskComplexFallAndGetUp after CEventKnockOffBike: off the bike into the fall for that side, then up again.
     void KnockedOffBike(int dir);
@@ -561,7 +561,7 @@ private:
     Launch m_launch;
     bool m_hideGun = false;
     // seated in a car (PlayerDriveby.cpp)
-    bool m_seated = false, m_seatLow = false;
+    bool m_seated = false, m_seatLow = false, m_seatBoat = false;
     int m_bike = 0;
     float m_seatPos[3] = {0, 0, 0}, m_seatYaw = 0.0f, m_drivingSkill = 0.0f;
     bool m_seatFrameOn = false;

@@ -438,7 +438,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
 
 // CPhysical::ProcessCollision for a car against the world: move by the speeds, find where the suspension
 // lines meet the ground, and push the body spheres back out of whatever they hit (ApplyCollisionAlt + ApplyFriction).
-void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world) {
+void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world, bool lines) {
     CarPhys& p = c.phys;
     Body b = Load(c, h);
     // ApplyMoveSpeed, ApplyTurnSpeed, Reorthogonalise
@@ -454,7 +454,7 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
         b.up = Cross(b.right, b.fwd);
     }
     // The four suspension lines against the world
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4 && lines; i++) {
         const V3 a = b.pos + b.Rot(V3(vm.suspStart[i])), e = b.pos + b.Rot(V3(vm.suspEnd[i]));
         float n[3] = {0, 0, 1};
         const float f = world.line(&a.x, &e.x, n);
@@ -572,8 +572,8 @@ void Vehicles::SyncFromPhys(VehicleInstance& c, const VehicleModel& vm) {
 bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd) {
     if (i >= m_cars.size() || !world.line || !world.sphere) return false;
     VehicleInstance& c = m_cars[i];
-    const bool bike = UsesBikePhysics(c.model);
-    if (!bike && !UsesCarPhysics(c.model)) return false;
+    const bool bike = UsesBikePhysics(c.model), boat = UsesBoatPhysics(c.model);
+    if (!bike && !boat && !UsesCarPhysics(c.model)) return false;
     auto mi = m_models.find(c.model);
     const VehicleInfo* info = Info(c.model);
     const HandlingData* h = info ? Handling(info->handling) : nullptr;
@@ -587,8 +587,10 @@ bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float st
     p.fakePhysics = 0;
     const float total = dt * 50.0f;
     const int steps = std::clamp((int)std::ceil(total), 1, 8);
+    if (boat) BoatInputs(c, *h, total, true);
     for (int k = 0; k < steps; k++) {
         if (bike) BikeStep(c, vm, *h, total / (float)steps, true, world);
+        else if (boat) BoatStep(c, vm, *h, total / (float)steps, true, world);
         else CarStep(c, vm, *h, total / (float)steps, true, world);
     }
     if (bike && (vm.info.type == "bmx" || vm.info.type == "BMX")) BmxSway(c);
@@ -608,12 +610,14 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         const HandlingData* h = info ? Handling(info->handling) : nullptr;
         if (mi == m_models.end() || !h) continue;
         VehicleModel& vm = mi->second;
-        const bool bike = UsesBikePhysics(c.model);
+        const bool bike = UsesBikePhysics(c.model), boat = UsesBoatPhysics(c.model);
         if (!vm.suspReady) { if (bike) SetupBikeSuspension(vm, *h); else SetupSuspension(vm, *h); }
         const float total = dt * 50.0f;
         const int steps = std::clamp((int)std::ceil(total), 1, 8);
+        if (boat) BoatInputs(c, *h, total, false);
         for (int k = 0; k < steps; k++) {
             if (bike) BikeStep(c, vm, *h, total / (float)steps, false, world);
+            else if (boat) BoatStep(c, vm, *h, total / (float)steps, false, world);
             else CarStep(c, vm, *h, total / (float)steps, false, world);
         }
         // CAutomobile::ProcessControl, STATUS_ABANDONED: once the averaged speeds stay tiny the car sleeps
@@ -1270,6 +1274,7 @@ void Vehicles::CollisionDamage(float dt, int playerCar) {
         if (c.rot[8] < 0.0f && (int)i != playerCar) c.health = std::max(0.0f, c.health - dt * 50.0f * 4.0f);   // lying on its roof
         if (di == 0.0f) continue;
         if (UsesBikePhysics(c.model)) { BikeDamage(c, *h, di, (int)i == playerCar); continue; }
+        if (UsesBoatPhysics(c.model)) { BoatDamage(c, *h, di, (int)i == playerCar); continue; }
         const float minDi = h->mass / 1500.0f * 25.0f;
         const V3 up(&c.rot[6]);
         if (p.damager < 0 && Dot(V3(p.impactNormal), up) > 0.6f) continue;   // landing on the ground

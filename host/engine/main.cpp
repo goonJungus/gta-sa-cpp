@@ -628,6 +628,7 @@ static VehicleWorld CarWorld() {
         for (int k = 0; k < 3; k++) { p[k] = hit.p[k]; n[k] = hit.n[k]; }
         return true;
     };
+    w.water = [](float x, float y, float* z) { return g_water.Ready() && g_water.GetWaterLevel(x, y, z); };
     return w;
 }
 // 0 car, 1 bicycle (bmx.ifp rider), 2 moped or motorbike (bikes.ifp rider); eVehicleClass 7, 8, 11
@@ -2533,7 +2534,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 static int s_carSlot = 0;   // spread the spawns sideways so they do not overlap
                 const float side = (float)(s_carSlot++ % 3 - 1) * 3.2f;
                 const float sx = playerX + fx * 5.0f + fy * side, sy = playerY + fy * 5.0f - fx * side;
-                const float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
+                float gz = g_world.GetGroundHeight(sx, sy, playerZ - EYE_HEIGHT + 1.0f);
+                if (float wz; g_water.Ready() && g_water.GetWaterLevel(sx, sy, &wz) && wz > gz) gz = wz;   // on the water, not the sea bed
                 const int ci = g_vehicles.Spawn(g_renderer, id, sx, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, std::atan2(fy, fx) - 1.57079633f);
                 if (const char* dm = getenv("GTA_CARDAMAGE"); dm && ci >= 0) {   // dev: "dddddd/ppppppp" door and panel states
                     VehicleInstance& dc = g_vehicles.Car((size_t)ci);
@@ -3939,23 +3941,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (n >= 0 && !g_vehicles.Car((size_t)n).wrecked && g_vehicles.Car((size_t)n).health > 0.0f) {
                         float sp[3]; bool low = false;
                         const bool ok = cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low);
-                        if (cjReady && ok && BikeKind(n) == 0) {   // cars: walk to the nearer front door, then get in
+                        if (cjReady && ok && BikeKind(n) == 0 && !g_vehicles.UsesBoatPhysics(g_vehicles.Car((size_t)n).model)) {   // cars: walk to the nearer front door, then get in
                             const VehicleInstance& vc = g_vehicles.Car((size_t)n);
                             const float lx = (playerX - vc.x) * std::cos(vc.heading) + (playerY - vc.y) * std::sin(vc.heading);
                             g_vehGoToCar = n; g_vehGoToTime = 0.0f;
                             g_vehGoToRight = lx > 0.0f && g_vehicles.HasDoor((size_t)n, 1);   // GetNearestCarDoor: the nearer door
                             g_vehGoStick[0] = g_vehGoStick[1] = 0.0f;
                             Log("DRIVE: going to the %s door of car %d", g_vehGoToRight ? "passenger" : "driver", n);
-                        } else {   // bikes mount instantly; so does a car whose model is not loaded yet
-                            g_driveCar = n; 
-                            if (ok) g_cj.EnterVehicle(low, BikeKind(n));
+                        } else {   // bikes and boats (CTaskSimpleCarSetPedInAsDriver) mount at once; so does a car whose model is not loaded yet
+                            g_driveCar = n;
+                            if (ok) g_cj.EnterVehicle(low, BikeKind(n), g_vehicles.UsesBoatPhysics(g_vehicles.Car((size_t)n).model));
                             Log("DRIVE: got in %d", n);
                         }
                     }
                 } else if (fJust && g_driveCar >= 0 && g_vehTransCar < 0 && g_vehGoToCar < 0) {
                     const int n = g_driveCar;
                     VehicleInstance& c = g_vehicles.Car((size_t)n);
-                    if (BikeKind(n) != 0) {   // bikes hop off instantly
+                    if (BikeKind(n) != 0 || g_vehicles.UsesBoatPhysics(c.model)) {   // bikes and boats: off at once
                         playerX = c.x + std::cos(c.heading) * 2.4f; playerY = c.y + std::sin(c.heading) * 2.4f;
                         playerZ = c.z + EYE_HEIGHT; velZ = 0.0f; onGround = true; c.speed = 0.0f;
                         g_driveCar = -1;
