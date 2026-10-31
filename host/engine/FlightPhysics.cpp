@@ -86,7 +86,7 @@ void FlyingControlHeli(Body& b, const HandlingData::Fly& f, float ts, const floa
 // stabilisation, wing lift from the angle of attack, then the turn resistance and caps.
 // skid: rudder, upDown: elevators, leftRight: ailerons (-1 .. 1), accel: throttle; airborne: no wheel touches.
 void FlyingControlPlane(Body& b, const HandlingData::Fly& f, float tailY, float ts, const float wind[3], bool airborne, float gearStatus,
-                        float skid, float upDown, float leftRight, float accel, float nozzle = -1.0f) {
+                        float skid, float upDown, float leftRight, float accel, float nozzle = -1.0f, bool vortex = false) {
     if (ts <= 0.0f) return;
     const V3 vel = b.mv - V3(wind) * f.windMult;
     const V3 com = b.ComW();
@@ -103,8 +103,8 @@ void FlyingControlPlane(Body& b, const HandlingData::Fly& f, float tailY, float 
     const float airSpeed = Dot(b.fwd, vel), airSpeed2 = airSpeed * airSpeed;
 
     float thrust;
-    if (airborne || accel > 0.0f) {
-        thrust = (accel + 1.0f) * f.thrust * 0.5f;
+    if ((airborne && !vortex) || accel > 0.0f) {   // the Vortex has no idle thrust: only the throttle pushes it
+        thrust = vortex ? accel * f.thrust : (accel + 1.0f) * f.thrust * 0.5f;
         if (airSpeed > 0.0f && f.thrustFallOff < 1.0f) {
             float d = f.thrustFallOff < 0.0f ? airSpeed + f.thrustFallOff : airSpeed - f.thrustFallOff;
             d = f.thrustFallOff < 0.0f ? d * d * 3.0f : d * d * 0.65f;
@@ -117,7 +117,9 @@ void FlyingControlPlane(Body& b, const HandlingData::Fly& f, float tailY, float 
     const float side = -Dot(vel, b.right);
     b.ApplyMoveForce(b.right * (std::fabs(side) * f.sideSlip * side * b.mass * ts));
     const float tailSide = -Dot(b.Speed(tail), b.right);
-    b.ApplyTurnForce(b.right * ((airSpeed * f.yaw * (skid * steerMul) + std::fabs(tailSide) * f.yawStab * tailSide) * ts * b.turnMass), com + tail);
+    // the Vortex turns with its thrust as well as its speed: min(thrust, speed) going forward, max backing
+    const float yawSpeed = !vortex ? airSpeed : airSpeed > 0.0f ? std::min(thrust, airSpeed) : std::max(thrust, airSpeed);
+    b.ApplyTurnForce(b.right * ((yawSpeed * f.yaw * (skid * steerMul) + std::fabs(tailSide) * f.yawStab * tailSide) * ts * b.turnMass), com + tail);
     b.ApplyTurnForce(b.right * (ts * f.roll * airSpeed * leftRight * b.turnMass), com + b.up);
     {   // the wings level themselves
         V3 level = Cross(b.fwd, V3(0, 0, 1));
@@ -230,7 +232,7 @@ void Vehicles::HeliFrameMatrices(const VehicleInstance& c, const VehicleModel& v
 namespace {
 // CPlane's propeller: PLANE_MIN_PROP_SPEED, PLANE_STD_PROP_SPEED, PLANE_MAX_PROP_SPEED, PLANE_ROC_PROP_SPEED
 constexpr float kPropMin = 0.05f, kPropStd = 0.18f, kPropMax = 0.34f, kPropRoc = 0.01f;
-enum { MODEL_RCBARON = 464, MODEL_VORTEX = 539 };
+enum { MODEL_RCBARON = 464, MODEL_VORTEX = 539 };   // the Vortex hovers on its own rules below
 
 void SetGear(VehicleInstance& c, bool up) {   // CPlane::SetGearUp / SetGearDown (the drag follows the gear status)
     c.phys.gearStatus = up ? 1.0f : 0.0f;
@@ -239,7 +241,7 @@ void SetGear(VehicleInstance& c, bool up) {   // CPlane::SetGearUp / SetGearDown
 }  // namespace
 
 bool Vehicles::UsesPlanePhysics(int model) const {
-    if (model == MODEL_RCBARON || model == MODEL_VORTEX) return false;
+    if (model == MODEL_RCBARON) return false;
     const VehicleInfo* info = Info(model);
     if (!info) return false;
     std::string t = info->type;
@@ -255,7 +257,8 @@ void Vehicles::PlaneInputs(VehicleInstance& c, const HandlingData& h, float ts, 
     if (!player) { p.flyAccel = 0.0f; return; }
     p.flyLeftRight = std::clamp(p.flyLeftRight + (p.inSteer - p.flyLeftRight) * ts * 0.2f, -1.0f, 1.0f);
     p.flyUpDown = std::clamp(p.flyUpDown + (-p.inLeanFwd - p.flyUpDown) * ts * 0.2f, -1.0f, 1.0f);   // steer up: nose down
-    p.flySkid = std::clamp(p.flySkid + (p.inSkid - p.flySkid) * ts * 0.2f, -1.0f, 1.0f);
+    const float skidPad = c.model == MODEL_VORTEX ? p.inSteer : p.inSkid;   // the Vortex: the steering, not the look keys
+    p.flySkid = std::clamp(p.flySkid + (skidPad - p.flySkid) * ts * 0.2f, -1.0f, 1.0f);
     p.flyAccel = p.inAccel - p.inBrake;
     if (c.model == 520 && std::fabs(p.inGunUpDown * 128.0f) > 10.0f) {   // the Hydra's nozzles: 25 a step at full, 0 .. 5000
         const int d = (int)(p.inGunUpDown * 128.0f * ts * 25.0f * 0.0078125f);
@@ -280,6 +283,7 @@ void Vehicles::PlaneWheelInputs(VehicleInstance& c, const HandlingData& h, bool 
     p.gas = 0.0f;
     if (player) {
         p.steerAngle = -(h.steeringLock * 0.017453292f * p.flySkid * std::max(0.1f, 1.0f - fwdSpeed));
+        if (c.model == MODEL_VORTEX && p.handbrake) { p.steerAngle *= 1.5f; p.flySkid *= 1.5f; }
         if (fwdSpeed > 0.0f && p.inBrake > 0.0f) p.brake = fwdSpeed <= 0.35f ? p.inBrake : p.inBrake * 0.5f;
         else if (Len(mv) < 0.1f && p.inBrake < 10.0f / 255.0f && p.inAccel < 10.0f / 255.0f) p.brake = 0.5f;
         else p.brake = 0.0f;
@@ -338,7 +342,7 @@ void Vehicles::PlaneFlyingCarStuff(VehicleInstance& c, const VehicleModel& vm, c
         }
         return;
     }
-    FlyingControlPlane(b, h.fly, vm.colMin[1], ts, world.wind, airborne, p.gearStatus, skid, upDown, leftRight, p.flyAccel, nozzle);
+    FlyingControlPlane(b, h.fly, vm.colMin[1], ts, world.wind, airborne, p.gearStatus, skid, upDown, leftRight, p.flyAccel, nozzle, c.model == MODEL_VORTEX);
     Store(b, c);
 }
 

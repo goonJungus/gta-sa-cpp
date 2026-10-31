@@ -547,6 +547,19 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         b.tv *= 0.99f;
     }
 
+    // CAutomobile::DoHoverSuspensionRatios: the Vortex's lines stand on the water as on ground
+    if (c.model == 539 && b.up.z >= 0.3f && !p.drowning && world.water)
+        for (int i = 0; i < 4; i++) {
+            const V3 s = b.pos + b.Rot(V3(vm.suspStart[i][0], vm.suspStart[i][1], L.top[i]));
+            const V3 e = b.pos + b.Rot(V3(vm.suspStart[i][0], vm.suspStart[i][1], L.bot[i]));
+            const float groundZ = p.comp[i] < 1.0f ? p.colPt[i][2] : -100.0f;   // MAP_Z_LOW_LIMIT
+            float wl = 0.0f;
+            if (!world.water(e.x, e.y, &wl) || wl <= groundZ || e.z - 1.0f >= wl) continue;
+            p.comp[i] = wl <= e.z ? 1.0f : wl <= s.z ? (s.z - wl) / (s.z - e.z) : 0.0f;
+            const V3 at = s + (e - s) * p.comp[i];
+            p.colPt[i][0] = at.x; p.colPt[i][1] = at.y; p.colPt[i][2] = wl;
+            p.colN[i][0] = 0.0f; p.colN[i][1] = 0.0f; p.colN[i][2] = 1.0f;
+        }
     // The lines' hit fractions become spring compressions (0 fully squashed, 1 the wheel hanging free).
     for (int i = 0; i < 4; i++) {
         const float wr = 1.0f - L.spring[i] / L.len[i];
@@ -577,7 +590,8 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
             V3 n(p.colN[i]);
             if (Dot(dir[i], n) > 0.0f) n = -n;
             // a lowrider with hydraulics stiffens its springs at a crawl
-            const float force = hydGeom && fwdSpeed < 0.15f ? h.suspForce * 1.5f : h.suspForce;
+            float force = hydGeom && fwdSpeed < 0.15f ? h.suspForce * 1.5f : h.suspForce;
+            if (c.model == 539) { force *= std::fabs(p.flyAccel) * 0.25f + 1.0f; n = -dir[i]; }   // the Vortex: ApplySpringCollision, stiffer with throttle
             limit[i] = stress * (std::min(ts, 3.0f) * b.mass) * force * bias * 0.016f;
             b.ApplyForce(n * limit[i], cp[i]);
         }
@@ -677,7 +691,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
     float acceleration = 0.0f;
     if ((player || p.ai) && !heli && !plane)   // the engine runs while someone drives (aircraft have no driven wheels)
         acceleration = tr.DriveAcceleration(p.gas, p.gear, speedForward, &p.inertia1, &p.inertia2, p.driveWheelsOnGround != 0, ts);
-    const float traction = h.tractionMult / 250.0f * 0.25f;
+    const float traction = h.tractionMult / 250.0f * 0.25f * (c.model == 539 && p.flyAccel == 0.0f ? 4.0f : 1.0f);   // a coasting Vortex grips
     {   // the player's steering is cut back to what the tyres can hold at speed
         float steer = 1.0f;
         if (speedForward > 0.01f && !(p.wheelCounts[0] <= 0.0f && p.wheelCounts[1] <= 0.0f) && player) {
@@ -757,7 +771,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         const bool slow = std::fabs(c.phys.mv[0]) < 0.0045f && std::fabs(c.phys.mv[1]) < 0.0045f && std::fabs(c.phys.mv[2]) < 0.0045f;
         const bool towStill = c.towedBy < 0 || Len2(V3(m_cars[(size_t)c.towedBy].phys.mv)) == 0.0f;
         const bool wheelDown = p.compPrev[0] < 1.0f || p.compPrev[1] < 1.0f || p.compPrev[2] < 1.0f || p.compPrev[3] < 1.0f;
-        if ((p.gas == 0.0f || c.wrecked) && slow && !((heli || plane) && p.flyAccel != 0.0f) && c.hoist == hoistPrev && towStill && wheelDown) {
+        if ((p.gas == 0.0f || c.wrecked) && slow && !((heli || plane) && p.flyAccel != 0.0f) && c.hoist == hoistPrev && towStill && wheelDown && c.model != 539) {
             std::fill(c.phys.mv, c.phys.mv + 3, 0.0f);
             c.phys.tv[2] = 0.0f;
         }
@@ -1059,7 +1073,7 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         const float fl = 0.003f * total, tl = 0.0009f * total;
         const V3 af(p.avgForce), at(p.avgTorque);
         const float moved = Len(V3(p.mv)) * total;
-        if (Len2(af) > fl * fl || Len2(at) > tl * tl || moved >= 0.005f) p.fakePhysics = 0;
+        if (Len2(af) > fl * fl || Len2(at) > tl * tl || moved >= 0.005f || c.model == 539) p.fakePhysics = 0;   // the Vortex never sleeps
         else if (++p.fakePhysics >= 10) {
             p.fakePhysics = 10;
             std::memset(p.mv, 0, sizeof(p.mv)); std::memset(p.tv, 0, sizeof(p.tv));
