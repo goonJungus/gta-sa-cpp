@@ -328,6 +328,29 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             m_handling[h.name] = h;
         }
     }
+    {   // the '!' lines: tBikeHandlingData::InitFromData, then ConvertBikeDataToGameUnits
+        std::istringstream in(ReadText(gameDir + "/data/handling.cfg"));
+        for (std::string line; std::getline(in, line);) {
+            line = Trim(line);
+            if (line.empty() || line[0] != '!') continue;
+            std::istringstream ls(line.substr(1));
+            std::string name;
+            float v[15];
+            ls >> name;
+            int n = 0;
+            while (n < 15 && (ls >> v[n])) n++;
+            auto it = m_handling.find(Lower(name));
+            if (n < 15 || it == m_handling.end()) continue;
+            HandlingData::Bike& b = it->second.bike;
+            const float d2r = 3.14159265f / 180.0f;
+            b.found = true;
+            b.leanFwdCOM = v[0]; b.leanFwdForce = v[1]; b.leanBakCOM = v[2]; b.leanBakForce = v[3];
+            b.maxLean = std::sin(v[4] * d2r); b.fullAnimLean = v[5] * d2r; b.desLean = v[6];
+            b.speedSteer = v[7]; b.slipSteer = v[8]; b.noPlayerCOMz = v[9];
+            b.wheelieAng = std::sin(v[10] * d2r); b.stoppieAng = std::sin(v[11] * d2r);
+            b.wheelieSteer = v[12]; b.wheelieStabMult = v[13]; b.stoppieStabMult = v[14];
+        }
+    }
     {   // data/carcols.dat: the colour table (col) and the allowed colour pairs per model (car)
         std::istringstream in(ReadText(gameDir + "/data/carcols.dat"));
         std::string sect;
@@ -498,6 +521,32 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             else { std::memset(bm.base, 0, sizeof(bm.base)); bm.base[0] = bm.base[5] = bm.base[10] = bm.base[15] = 1.0f; }
             for (int c = 0; c < 3; c++) bm.pos[c] = glob[i][12 + (size_t)c];
         }
+    {   // CBike::SetupModelNodes: the frames that steer, spring and spin
+        static const char* kBikeNode[5] = {"forks_front", "forks_rear", "handlebars", "wheel_front", "wheel_rear"};
+        for (size_t i = 0; i < w.frames.size(); i++)
+            for (int k = 0; k < 5; k++)
+                if (w.frames[i].name == kBikeNode[k]) { vm.bikeNodes[k].found = true; vm.bikeNodes[k].frame = (int)i; }
+        vm.isBike = vm.bikeNodes[3].found && vm.bikeNodes[4].found;
+        for (int k = 0; k < 5 && vm.isBike; k++) {
+            VehicleModel::BikeNode& bn = vm.bikeNodes[k];
+            if (!bn.found) continue;
+            FrameMatrix(w.frames[(size_t)bn.frame].m, bn.local);
+            const int p = w.frames[(size_t)bn.frame].parent;
+            for (int j = 0; j < 5; j++) if (j != k && vm.bikeNodes[j].found && vm.bikeNodes[j].frame == p) bn.parent = j;
+            if (bn.parent < 0 && p >= 0 && (size_t)p < glob.size()) std::memcpy(bn.base, glob[(size_t)p].data(), sizeof(bn.base));
+            else { std::memset(bn.base, 0, sizeof(bn.base)); bn.base[0] = bn.base[5] = bn.base[10] = bn.base[15] = 1.0f; }
+        }
+        if (vm.isBike && vm.bikeNodes[1].found) {   // m_fSwingArmLength (y and z only)
+            const float* a = glob[(size_t)vm.bikeNodes[4].frame].data();
+            const float* f = glob[(size_t)vm.bikeNodes[1].frame].data();
+            vm.swingArmLength = std::sqrt((a[13] - f[13]) * (a[13] - f[13]) + (a[14] - f[14]) * (a[14] - f[14]));
+        }
+        if (vm.isBike)   // the wheels' places, as the car wheel dummies are for cars (front at slot 0, rear at slot 2)
+            for (int k = 0; k < 2; k++) {
+                const float* g = glob[(size_t)vm.bikeNodes[3 + k].frame].data();
+                for (int c = 0; c < 3; c++) vm.wheelPos[k * 2][c] = g[12 + c];
+            }
+    }
     for (size_t i = 0; i < w.frames.size(); i++)
         if (w.frames[i].name == "engine") {
             vm.engineFound = true;
@@ -582,6 +631,20 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
                 f = w.frames[(size_t)f].parent;
             }
             if (f == vm.doors[k].frame && f != fr) { p.door = k; std::memcpy(p.doorLocal, rel, sizeof(rel)); }
+        }
+        for (int k = 0; k < 5 && fr >= 0 && vm.isBike && p.bikeNode < 0; k++) {   // under a bike's moving frame (the nearest)
+            float rel[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            int f = fr;
+            bool hit = false;
+            for (int guard = 0; f >= 0 && (size_t)f < w.frames.size() && guard < 64 && !hit; guard++) {
+                for (int j = 0; j < 5; j++) if (vm.bikeNodes[j].found && vm.bikeNodes[j].frame == f) { p.bikeNode = j; hit = true; }
+                if (hit) break;
+                float local[16];
+                FrameMatrix(w.frames[(size_t)f].m, local);
+                Mul(rel, local, rel);
+                f = w.frames[(size_t)f].parent;
+            }
+            if (hit) std::memcpy(p.bikeLocal, rel, sizeof(rel));
         }
         for (int k = 0; k < 2 && fr >= 0; k++) {   // under a bumper frame: likewise
             if (!vm.bumpers[k].found) continue;
@@ -681,6 +744,11 @@ void Vehicles::Draw(D3DRenderer& r) {
             const float m[16] = {q[0], q[1], q[2], 0, q[3], q[4], q[5], 0, q[6], q[7], q[8], 0, c.x, c.y, c.z, 1};
             std::memcpy(body, m, sizeof(m));
         }
+        float bikeNodes[5][16];
+        if (vm.isBike) {   // CBike::CalculateLeanMatrix and PreRender
+            BikeLeanBody(c, vm, body);
+            BikeFrameMatrices(c, vm, bikeNodes);
+        }
         D3DMATRIX out;
         for (const VehicleModel::PaintPart& pp : const_cast<VehicleModel&>(vm).paintParts) {   // this car's paint
             const int idx = c.paint[pp.slot];
@@ -697,7 +765,8 @@ void Vehicles::Draw(D3DRenderer& r) {
                 if (NodeMatrix((size_t)(&c - m_cars.data()), p.node, nm)) { dev->SetTransform(D3DTS_WORLD, reinterpret_cast<D3DMATRIX*>(nm)); r.DrawMesh(p.mesh); continue; }
             }
             float pc[16];
-            PartToCar(c, vm, p, pc);
+            if (vm.isBike && p.bikeNode >= 0) Mul(p.bikeLocal, bikeNodes[p.bikeNode], pc);
+            else PartToCar(c, vm, p, pc);
             Mul(pc, body, &out._11);
             dev->SetTransform(D3DTS_WORLD, &out);
             r.DrawMesh(p.mesh);

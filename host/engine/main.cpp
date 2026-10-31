@@ -148,6 +148,7 @@ static volatile bool g_hasFocus = true;
 // ranges, e.g. "0-120:W;120-200:WA;200-260:W+;260:_" (+ = Shift, ^ = Alt,
 // _ = Space, # = F4, other letters = their key).
 static int g_scriptFrame = 0;
+static const bool g_scriptedRun = getenv("GTA_KEYS") != nullptr;   // GTA_KEYS drives the run alone
 static bool ScriptedKey(int vk) {
     static const char* spec = getenv("GTA_KEYS");
     if (!spec) return false;
@@ -209,6 +210,7 @@ static bool g_freeHave = false;                      // free-pointer look has a 
 static bool g_cursorHidden = false;                  // ShowCursor(FALSE) is in effect
 static SHORT RawGameKey(int vk) {
     if (ScriptedKey(vk)) return (SHORT)0x8000;
+    if (g_scriptedRun) return 0;   // a scripted test run: the desk's keyboard and pad stay out of it
     if (g_hasFocus && PadKey(vk)) return (SHORT)0x8000;
     if (g_hasFocus && (vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON) &&
         g_msgBtn[vk == VK_LBUTTON ? 0 : vk == VK_RBUTTON ? 1 : 2]) return (SHORT)0x8000;
@@ -554,7 +556,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (GetRawInputData((HRAWINPUT)lp, RID_INPUT, &ri, &sz,
                             sizeof(RAWINPUTHEADER)) == (UINT)-1)
             break;
-        if (ri.header.dwType == RIM_TYPEMOUSE) {
+        if (ri.header.dwType == RIM_TYPEMOUSE && !g_scriptedRun) {
             const RAWMOUSE& m = ri.data.mouse;
             g_dbgRaw = g_dbgRaw + 1;
             if (g_dbgRaw <= 40) Log("MOUSE raw #%ld flags=0x%x dx=%ld dy=%ld buttons=0x%x", (long)g_dbgRaw, (unsigned)m.usFlags, (long)m.lLastX, (long)m.lLastY, (unsigned)m.usButtonFlags);
@@ -4048,7 +4050,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const float br = (RawGameKey('S') & 0x8000) ? 1.0f : 0.0f;
                     const float st = ((RawGameKey('D') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('A') & 0x8000) ? 1.0f : 0.0f);
                     const bool hb = (RawGameKey(VK_SPACE) & 0x8000) != 0;
-                    if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld())))
+                    // a bike rider's weight: the pad's steer up / down (num 8 / num 5, or the arrows)
+                    const float leanFwd = ((RawGameKey(VK_NUMPAD8) & 0x8000) || (RawGameKey(VK_UP) & 0x8000) ? 1.0f : 0.0f) -
+                                          ((RawGameKey(VK_NUMPAD5) & 0x8000) || (RawGameKey(VK_DOWN) & 0x8000) ? 1.0f : 0.0f);
+                    if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
                                         [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
                                         [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });

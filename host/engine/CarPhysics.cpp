@@ -6,6 +6,7 @@
 // time step counted in 1/50 s. Surfaces are taken as road (the world COL carries no materials yet).
 #define NOMINMAX
 #include "Vehicle.h"
+#include "PhysicsCore.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,27 +14,7 @@
 
 namespace {
 
-struct V3 {
-    float x = 0, y = 0, z = 0;
-    V3() = default;
-    V3(float a, float b, float c) : x(a), y(b), z(c) {}
-    explicit V3(const float* p) : x(p[0]), y(p[1]), z(p[2]) {}
-    V3 operator+(const V3& o) const { return {x + o.x, y + o.y, z + o.z}; }
-    V3 operator-(const V3& o) const { return {x - o.x, y - o.y, z - o.z}; }
-    V3 operator-() const { return {-x, -y, -z}; }
-    V3 operator*(float s) const { return {x * s, y * s, z * s}; }
-    V3 operator/(float s) const { return {x / s, y / s, z / s}; }
-    V3& operator+=(const V3& o) { x += o.x; y += o.y; z += o.z; return *this; }
-    V3& operator-=(const V3& o) { x -= o.x; y -= o.y; z -= o.z; return *this; }
-    V3& operator*=(float s) { x *= s; y *= s; z *= s; return *this; }
-    void To(float* p) const { p[0] = x; p[1] = y; p[2] = z; }
-};
-V3 operator*(float s, const V3& v) { return v * s; }
-float Dot(const V3& a, const V3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-V3 Cross(const V3& a, const V3& b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
-float Len2(const V3& v) { return Dot(v, v); }
-float Len(const V3& v) { return std::sqrt(Dot(v, v)); }
-V3 Norm(const V3& v) { const float l = Len(v); return l > 1e-9f ? v / l : V3(1, 0, 0); }
+using namespace physics;
 
 constexpr float kRoadAdhesion = 4.5f;   // surface.dat Rubber (wheelbase) on Road
 constexpr float kBodyAdhesion = 3.0f;   // surface.dat Hard (car body) on Road
@@ -50,46 +31,9 @@ enum { WHEEL_NORMAL = 0, WHEEL_SPINNING = 1, WHEEL_SKIDDING = 2, WHEEL_FIXED = 3
 // then on a tyre over its grip loses no further traction (tractionLoss 1).
 bool g_alreadySkidding = false;
 
-// CGeneral::GetRandomNumber for the tyre wobble and the burst-tyre sag.
-unsigned g_physRng = 12345u;
-int RandInt(int n) { g_physRng = g_physRng * 1664525u + 1013904223u; return n > 0 ? (int)((g_physRng >> 8) % (unsigned)n) : 0; }
-float RandRange(float lo, float hi) { return lo + (hi - lo) * (float)RandInt(65536) / 65535.0f; }
 constexpr float kBurstTyreMod = 0.13f;                // fBurstTyreMod (0x8D34B4)
 constexpr float kBurstSpeedMax = 0.3f;                // fBurstSpeedMax
 constexpr float kWheelDamageEffect = 0.5f;            // CDamageManager::ResetDamageStatusAndWheelDamage
-
-// The car as CPhysical sees it for one step: its matrix, the speeds, mass and centre of mass.
-struct Body {
-    V3 right, fwd, up, pos;
-    V3 mv, tv, fmv, ftv;
-    float mass = 1500.0f, turnMass = 3000.0f;
-    V3 com;   // car space
-    V3 Rot(const V3& l) const { return right * l.x + fwd * l.y + up * l.z; }   // CMatrix::TransformVector
-    V3 ComW() const { return Rot(com); }
-    // Points are relative to the car's position, as retail passes them.
-    void ApplyForce(const V3& f, const V3& p) { mv += f / mass; tv += Cross(p - ComW(), f) / turnMass; }
-    void ApplyMoveForce(const V3& f) { mv += f / mass; }
-    void ApplyTurnForce(const V3& f, const V3& p) { tv += Cross(p - ComW(), f) / turnMass; }
-    void ApplyFrictionForce(const V3& f, const V3& p) { fmv += f / mass; ftv += Cross(p - ComW(), f) / turnMass; }
-    V3 Speed(const V3& p) const { return Cross(tv + ftv, p - ComW()) + mv + fmv; }   // CPhysical::GetSpeed
-    float MassAt(const V3& p, const V3& dir) const { return 1.0f / (Len2(Cross(p, dir)) / turnMass + 1.0f / mass); }   // GetMass(pos, dir)
-};
-
-Body Load(const VehicleInstance& c, const HandlingData& h) {
-    Body b;
-    b.right = V3(&c.rot[0]); b.fwd = V3(&c.rot[3]); b.up = V3(&c.rot[6]);
-    b.pos = V3(c.x, c.y, c.z);
-    b.mv = V3(c.phys.mv); b.tv = V3(c.phys.tv); b.fmv = V3(c.phys.fmv); b.ftv = V3(c.phys.ftv);
-    b.mass = h.mass; b.turnMass = h.turnMass;
-    b.com = V3(h.com);
-    return b;
-}
-
-void Store(const Body& b, VehicleInstance& c) {
-    b.right.To(&c.rot[0]); b.fwd.To(&c.rot[3]); b.up.To(&c.rot[6]);
-    c.x = b.pos.x; c.y = b.pos.y; c.z = b.pos.z;
-    b.mv.To(c.phys.mv); b.tv.To(c.phys.tv); b.fmv.To(c.phys.fmv); b.ftv.To(c.phys.ftv);
-}
 
 bool FrontDrive(char d) { return d == 'F' || d == '4'; }
 bool RearDrive(char d) { return d == 'R' || d == '4'; }
@@ -625,24 +569,28 @@ void Vehicles::SyncFromPhys(VehicleInstance& c, const VehicleModel& vm) {
     (void)vm;
 }
 
-bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world) {
+bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd) {
     if (i >= m_cars.size() || !world.line || !world.sphere) return false;
     VehicleInstance& c = m_cars[i];
-    if (!UsesCarPhysics(c.model)) return false;
+    const bool bike = UsesBikePhysics(c.model);
+    if (!bike && !UsesCarPhysics(c.model)) return false;
     auto mi = m_models.find(c.model);
     const VehicleInfo* info = Info(c.model);
     const HandlingData* h = info ? Handling(info->handling) : nullptr;
     if (mi == m_models.end() || !h) return false;
     if (c.hasRot) return true;   // a recorded playback owns the car
     VehicleModel& vm = mi->second;
-    if (!vm.suspReady) SetupSuspension(vm, *h);
+    if (!vm.suspReady) { if (bike) SetupBikeSuspension(vm, *h); else SetupSuspension(vm, *h); }
     CarPhys& p = c.phys;
     Activate(c);
-    p.inAccel = accel; p.inBrake = brake; p.inSteer = steer; p.handbrake = handbrake;
+    p.inAccel = accel; p.inBrake = brake; p.inSteer = steer; p.handbrake = handbrake; p.inLeanFwd = leanFwd;
     p.fakePhysics = 0;
     const float total = dt * 50.0f;
     const int steps = std::clamp((int)std::ceil(total), 1, 8);
-    for (int k = 0; k < steps; k++) CarStep(c, vm, *h, total / (float)steps, true, world);
+    for (int k = 0; k < steps; k++) {
+        if (bike) BikeStep(c, vm, *h, total / (float)steps, true, world);
+        else CarStep(c, vm, *h, total / (float)steps, true, world);
+    }
     SyncFromPhys(c, vm);
     c.wheelSpin += c.speed * dt / std::max(0.2f, vm.wheelSize[0] / 2.0f);
     return true;
@@ -659,10 +607,14 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         const HandlingData* h = info ? Handling(info->handling) : nullptr;
         if (mi == m_models.end() || !h) continue;
         VehicleModel& vm = mi->second;
-        if (!vm.suspReady) SetupSuspension(vm, *h);
+        const bool bike = UsesBikePhysics(c.model);
+        if (!vm.suspReady) { if (bike) SetupBikeSuspension(vm, *h); else SetupSuspension(vm, *h); }
         const float total = dt * 50.0f;
         const int steps = std::clamp((int)std::ceil(total), 1, 8);
-        for (int k = 0; k < steps; k++) CarStep(c, vm, *h, total / (float)steps, false, world);
+        for (int k = 0; k < steps; k++) {
+            if (bike) BikeStep(c, vm, *h, total / (float)steps, false, world);
+            else CarStep(c, vm, *h, total / (float)steps, false, world);
+        }
         // CAutomobile::ProcessControl, STATUS_ABANDONED: once the averaged speeds stay tiny the car sleeps
         for (int a = 0; a < 3; a++) { p.avgForce[a] = (p.avgForce[a] + p.mv[a]) / 2.0f; p.avgTorque[a] = (p.avgTorque[a] + p.tv[a]) / 2.0f; }
         const float fl = 0.003f * total, tl = 0.0009f * total;

@@ -89,6 +89,7 @@ if(WIN32)
         host/engine/Melee.cpp
         host/engine/Vehicle.cpp
         host/engine/CarPhysics.cpp
+        host/engine/BikePhysics.cpp
         host/engine/VehicleLights.cpp
         host/engine/CarGenerators.cpp
         host/engine/Script.cpp

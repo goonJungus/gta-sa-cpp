@@ -54,6 +54,14 @@ struct HandlingData {
     float brakeDecelGame = 0.0f;      // per frame^2
     float collisionDamageGame = 0.0f; // m_fCollisionDamageMultiplier * 2000 / mass
     Transmission trans;
+    // tBikeHandlingData: the handling.cfg '!' line, in game units (ConvertBikeDataToGameUnits: the lean, wheelie
+    // and stoppie limits as sines, the full animation lean in radians).
+    struct Bike {
+        bool found = false;
+        float leanFwdCOM = 0, leanFwdForce = 0, leanBakCOM = 0, leanBakForce = 0, maxLean = 0, fullAnimLean = 0, desLean = 0;
+        float speedSteer = 0, slipSteer = 0, noPlayerCOMz = 0, wheelieAng = 0, stoppieAng = 0, wheelieSteer = 0;
+        float wheelieStabMult = 0, stoppieStabMult = 0;
+    } bike;
 };
 
 struct VehicleInfo {
@@ -74,6 +82,8 @@ struct VehiclePart {
     float doorLocal[16] = {};         // part frame -> door hinge frame
     int bumper = -1;                  // 0 / 1 when the part hangs under bump_front_dummy / bump_rear_dummy
     float bumperLocal[16] = {};       // part frame -> bumper frame
+    int bikeNode = -1;                // a bike's moving frame the part hangs under (VehicleModel::BikeNode order)
+    float bikeLocal[16] = {};         // part frame -> that frame
 };
 
 struct VehicleModel {
@@ -112,6 +122,12 @@ struct VehicleModel {
     // bump_front_dummy, bump_rear_dummy (CAR_BUMP_FRONT / CAR_BUMP_REAR): the frames a loose bumper bounces on.
     struct Bumper { bool found = false; int frame = -1; float local[16] = {}; float base[16] = {}; float pos[3] = {}; };
     Bumper bumpers[2];
+    // eBikeNodes that move: 0 forks_front, 1 forks_rear, 2 handlebars, 3 wheel_front, 4 wheel_rear. parent is the
+    // node above (wheel_front hangs on the front forks), else base is the fixed frame's matrix in bike space.
+    struct BikeNode { bool found = false; int frame = -1, parent = -1; float local[16] = {}; float base[16] = {}; };
+    BikeNode bikeNodes[5];
+    bool isBike = false;
+    float swingArmLength = 0.0f;      // CBike::m_fSwingArmLength: forks_rear to the rear wheel
     // The DFF's own collision model (CColModel): body spheres and boxes, and its bounding box.
     // piece: the car part the surface belongs to (eVehicleCollisionComponent: 1 bonnet, 2 boot, 3 front bumper,
     // 4 rear bumper, 5..8 doors lf rf lr rr, 9..12 wings, 19 windscreen, 0 none)
@@ -162,6 +178,12 @@ struct CarPhys {
     float impactPos[3] = {0, 0, 0}, impactNormal[3] = {0, 0, 0};   // m_vecLastCollisionPosn, m_vecLastCollisionImpactVelocity
     float lastDI = 0.0f;              // the last frame's strongest knock, for the doors
     float oldMv[3] = {0, 0, 0}, oldTv[3] = {0, 0, 0};   // the speeds a frame ago (the doors swing on the change)
+    // CBike: CRideAnimData lean (LeanAngle / DesiredLeanAngle, radians, + right), the handlebars, the rider's
+    // forward lean (-1 back .. 1 forward), the wheels' spin, burnout (m_nBrakesOn) and the side stand.
+    float leanAngle = 0.0f, desiredLean = 0.0f, barSteer = 0.0f, leanFwd = 0.0f, inLeanFwd = 0.0f;
+    float wheelAngVel[2] = {0, 0}, wheelPitch[2] = {0, 0};
+    float brakingSlide = 0.0f, lastThrust = 0.0f;
+    bool brakesOn = false, onSideStand = true;
 };
 
 // The world as the car physics sees it: CWorld::ProcessLineOfSight for the suspension lines and
@@ -253,10 +275,12 @@ public:
     // CAutomobile::ProcessControl + CPhysical::ProcessCollision for car i over dt seconds. accel and brake are the
     // pedal buttons 0..1, steer -1 (left) .. 1 (right). An empty world falls back to Step. Cars, quads and
     // monster trucks only; returns false (and does nothing) for other kinds.
-    bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world);
+    // leanFwd: a bike rider's weight, -1 back .. 1 forward (the pad's steer up / down).
+    bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd = 0.0f);
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
     void ProcessAbandoned(float dt, int skip, const VehicleWorld& world);
     bool UsesCarPhysics(int model) const;
+    bool UsesBikePhysics(int model) const;   // CBike and CBmx
     // CPhysical::ProcessCollisionSectorList between cars: body spheres that overlap trade impulses
     // (two-body ApplyCollision + ApplyFriction) and are pushed apart. A parked car that is hit wakes up.
     void CarCarCollisions(float dt);
@@ -314,6 +338,11 @@ private:
     void SetupSuspension(VehicleModel& vm, const HandlingData& h);
     void CarStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);
+    // CBike::SetupSuspensionLines and one CBike::ProcessControl (BikePhysics.cpp).
+    void SetupBikeSuspension(VehicleModel& vm, const HandlingData& h);
+    void BikeStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
+    void BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[5][16]) const;
+    void BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, float body[16]) const;
     void SyncFromPhys(VehicleInstance& c, const VehicleModel& vm);
     void Activate(VehicleInstance& c);
     // A component (0..5 eDoors, 6..12 6 + ePanels, 13 a wheel) of car ci comes off as a flying object (collision type
