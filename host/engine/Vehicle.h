@@ -238,6 +238,8 @@ struct CarPhys {
     float planePropSpeed = 0.0f, gearStatus = 0.0f;
     bool inGear = false;
     float inGunUpDown = 0.0f;         // the pad's special control up (+1) / down (-1): a tow truck's hoist
+    float inGunLeftRight = 0.0f;      // special control right (+1) / left (-1)
+    bool inHornJust = false, inHydJump = false;   // the horn went down this frame; the hydraulic jump key held
     // CTrailer: the legs' extension (m_fTrailerTowedRatio: 1 down, 0 wound up), the least of it that holds
     // (m_fTrailerTowedRatio2) and each leg line's hit (m_supportRatios, m_supportCPs)
     float supportExt = 1.0f, supportMin = 1.0f;
@@ -301,6 +303,16 @@ struct VehicleInstance {
     // (m_wMiscComponentAngle: 0 raised .. 20000 lowered)
     int towedBy = -1, towing = -1;
     int hoist = 0;
+    // Hydraulics (bHydraulicInst, CVehicle::m_aSpecialHydraulicData and the car's own copy of the suspension lines,
+    // m_aSpecialColModel): state is m_wMiscComponentAngle (0 idle, 20..60 pumped, 500..504 raised); the limits are
+    // worked out on first use (extUp 100 until then); prevSpeed is m_PrevSpeed (last frame's forward speed).
+    struct Hydraulics {
+        bool on = false, lines = false;
+        int state = 0;
+        float normUp = 0, normLo = 0, extUp = 100.0f, extLo = 0, idleUp = 0, idleLo = 0;
+        float top[4] = {}, bot[4] = {}, spring[4] = {};
+        float prevSpeed = 0.0f;
+    } hyd;
     CarPhys phys;
 };
 
@@ -372,6 +384,11 @@ public:
     // CTrailer::SetTowLink(cab, true): the trailer is put on the cab's tow bar (ATTACH_TRAILER_TO_CAB).
     bool AttachTrailer(size_t trailer, size_t cab);
     void DetachTrailer(size_t trailer) { BreakTowLink(trailer); }
+    // The driver's hydraulics pad for car i this frame (before ProcessCar): special control left / right, the horn
+    // just pressed (pumps up / drops), the jump key held.
+    void SetHydraulicPad(size_t i, float leftRight, bool hornJust, bool jump) {
+        if (i < m_cars.size()) { m_cars[i].phys.inGunLeftRight = leftRight; m_cars[i].phys.inHornJust = hornJust; m_cars[i].phys.inHydJump = jump; }
+    }
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
     void ProcessAbandoned(float dt, int skip, const VehicleWorld& world);
     bool UsesCarPhysics(int model) const;
@@ -483,6 +500,8 @@ private:
     void ScanForTowLink(size_t trailer, float ts);
     void ScanTrailers(float ts);
     void TowTruckControl(size_t i, float ts);
+    // CAutomobile::HydraulicControl for the player's car (each step, before the suspension).
+    void HydraulicControl(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h);
     // A component (0..5 eDoors, 6..12 6 + ePanels, 13 a wheel) of car ci comes off as a flying object (collision type
     // 0 bumper, 1 wheel, 2 door, 3 bonnet, 4 boot, 5 panel). Call before its state hides it.
     void SpawnFlying(size_t ci, int comp, int type, int wheel = 0);

@@ -162,7 +162,7 @@ static bool ScriptedKey(int vk) {
         if (g_scriptFrame >= a && g_scriptFrame <= b)
             for (const char* k = keys; k < p; k++) {
                 const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '`' ? VK_OEM_3 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON : *k == '%' ? VK_CONTROL
-                               : *k == '>' ? VK_UP : *k == '<' ? VK_DOWN : *k == '{' ? VK_NUMPAD8 : *k == '}' ? VK_NUMPAD2
+                               : *k == '>' ? VK_UP : *k == '<' ? VK_DOWN : *k == '{' ? VK_NUMPAD8 : *k == '}' ? VK_NUMPAD2 : *k == '[' ? VK_NUMPAD4 : *k == ']' ? VK_NUMPAD6
                                : toupper((unsigned char)*k);
                 if (want == vk) return true;
             }
@@ -510,6 +510,7 @@ static HCURSOR BlankCursor() {
 }
 
 static void SetPointerCapture(bool on) {
+    if (g_scriptedRun) return;   // a scripted test run leaves the desk's pointer alone
     if (on == g_cursorHidden) return;
     g_cursorHidden = on;
     if (MouseMode() == 0) {
@@ -2945,7 +2946,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
             // ---- Mouse look ----
-            if (mouseLook && !g_devPaused) {
+            if (mouseLook && !g_devPaused && !g_scriptedRun) {   // (a scripted run: no mouse, as no keyboard)
                 int dx = 0, dy = 0;
                 // Raw deltas first (no acceleration bias). Trackpads often send no raw
                 // mouse motion, only the cursor moving, so the cursor offset from the
@@ -3916,9 +3917,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (getenv("GTA_CARDBG") && frame % 25 == 0)
                 for (size_t ti = 0; g_vehicles.Ready() && ti < g_vehicles.Count(); ti++) {
                     const VehicleInstance& tv = g_vehicles.Car(ti);
-                    if (tv.towedBy < 0 && tv.towing < 0 && !g_vehicles.IsTrailer(tv.model) && tv.hoist == 0) continue;
+                    if (tv.towedBy < 0 && tv.towing < 0 && !g_vehicles.IsTrailer(tv.model) && tv.hoist == 0 && !tv.hyd.on) continue;
                     Log("TOW f%d car %zu model %d at %.2f %.2f %.2f hdg %.1f speed %.2f towedBy %d towing %d hoist %d legs %.3f/%.3f %.3f", frame, ti, tv.model,
                         tv.x, tv.y, tv.z, tv.heading * 57.29578f, tv.speed, tv.towedBy, tv.towing, tv.hoist, tv.phys.supportExt, tv.phys.supportRatio[0], tv.phys.supportRatio[1]);
+                    if (tv.hyd.on)
+                        Log("HYD f%d car %zu state %d up %.3f tops %.3f %.3f %.3f %.3f wheelZ %.3f %.3f %.3f %.3f roll %.3f", frame, ti, tv.hyd.state, tv.rot[8],
+                            tv.hyd.top[0], tv.hyd.top[1], tv.hyd.top[2], tv.hyd.top[3], tv.phys.wheelZ[0], tv.phys.wheelZ[1], tv.phys.wheelZ[2], tv.phys.wheelZ[3], tv.rot[2]);
                 }
             if (getenv("GTA_CARDBG") && frame % 10 == 0)
                 for (size_t pi = 0; g_peds.Ready() && pi < g_peds.Count(); pi++)
@@ -4191,6 +4195,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const bool onRails = g_trains.CarriageOfCar(g_driveCar) >= 0 && !g_vehicles.Car((size_t)g_driveCar).derailed;   // UpdateTrains drives it
                     // the special control up / down (VEHICLE_TURRETUP / DOWN: num 8 / num 2), a tow truck's hoist
                     const float gunUpDown = ((RawGameKey(VK_NUMPAD8) & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey(VK_NUMPAD2) & 0x8000) ? 1.0f : 0.0f);
+                    {   // hydraulics: num 6 / num 4, the horn (H / Caps Lock) just pressed, the sub-mission key (2) held to jump
+                        const float gunLR = ((RawGameKey(VK_NUMPAD6) & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey(VK_NUMPAD4) & 0x8000) ? 1.0f : 0.0f);
+                        static bool s_hornWas = false;
+                        const bool hornNow = ((RawGameKey('H') | RawGameKey(VK_CAPITAL)) & 0x8000) != 0;
+                        g_vehicles.SetHydraulicPad((size_t)g_driveCar, gunLR, hornNow && !s_hornWas, (RawGameKey('2') & 0x8000) != 0);
+                        s_hornWas = hornNow;
+                    }
                     if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust, gunUpDown)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
                                         [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
@@ -4290,7 +4301,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     VehicleInstance& hc = g_vehicles.Car((size_t)g_driveCar);
                     if (!hk && s_hornHeld > 0.0f && s_hornHeld < 0.1f && Vehicles::UsesSiren(hc.model)) hc.siren = !hc.siren;
                     s_hornHeld = hk ? s_hornHeld + dt : 0.0f;
-                    const bool horn = s_hornHeld >= 0.1f && !hc.wrecked;
+                    const bool horn = s_hornHeld >= 0.1f && !hc.wrecked && !hc.hyd.on;   // with hydraulics the horn key works the pump
                     const bool siren = hc.siren && !hc.wrecked && hc.model != 423;   // mr whoopee plays his jingle instead
                     g_audio.HornSiren(hc.model, horn, siren, siren && horn);
                 } else {

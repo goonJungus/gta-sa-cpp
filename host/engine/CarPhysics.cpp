@@ -39,6 +39,20 @@ constexpr float kTrailerDampingForce = 0.1f;          // CTrailer::m_fTrailerDam
 constexpr float kTrailerTowedMinRatio = 0.9f;         // TRAILER_TOWED_MINRATIO (0x8D346C)
 constexpr float kSupportRetract = 0.002f, kSupportExtend = 0.002f, kSupportWaitExtend = 0.0005f;   // 0x871C14..1C
 
+// The suspension lines' heights in car space: the model's, or a hydraulic car's own copy.
+struct Lines { float top[4], bot[4], spring[4], len[4]; };
+Lines LinesOf(const VehicleInstance& c, const VehicleModel& vm) {
+    Lines L;
+    for (int i = 0; i < 4; i++) {
+        const bool own = c.hyd.lines;
+        L.top[i] = own ? c.hyd.top[i] : vm.suspStart[i][2];
+        L.bot[i] = own ? c.hyd.bot[i] : vm.suspEnd[i][2];
+        L.spring[i] = own ? c.hyd.spring[i] : vm.suspSpring[i];
+        L.len[i] = L.top[i] - L.bot[i];
+    }
+    return L;
+}
+
 bool FrontDrive(char d) { return d == 'F' || d == '4'; }
 bool RearDrive(char d) { return d == 'R' || d == '4'; }
 
@@ -262,6 +276,107 @@ void Vehicles::SetupSuspension(VehicleModel& vm, const HandlingData& h) {
     vm.suspReady = true;
 }
 
+// CAutomobile::HydraulicControl: the car keeps its own suspension lines. The horn pumps it up to the extended limits
+// (or drops it back), the special control stick lifts the wheels on one corner or side (num 8 / 2 / 4 / 6), the jump
+// key lifts all four; a parked car settles a little below its normal ride. Each change moves the lines and keeps the
+// tyres where they touched.
+void Vehicles::HydraulicControl(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h) {
+    if (h.handlingFlags & 0x40000u) return;   // HYDRAULIC_NONE
+    VehicleInstance::Hydraulics& y = c.hyd;
+    CarPhys& p = c.phys;
+    if (!y.lines) {   // CVehicle::GetSpecialColModel: a copy of the model's lines
+        for (int i = 0; i < 4; i++) { y.top[i] = vm.suspStart[i][2]; y.bot[i] = vm.suspEnd[i][2]; y.spring[i] = vm.suspSpring[i]; }
+        y.lines = true;
+    }
+    const bool geom = (h.handlingFlags & 0x10000u) != 0;
+    const float wheelR = vm.wheelSize[0] / 2.0f;
+    float wheelZ[4];   // GetWheelPosn z: the dummy under each line
+    for (int i = 0; i < 4; i++) wheelZ[i] = vm.suspStart[i][2] - h.suspUpper;
+    float nU = y.normUp, nL = y.normLo, eU = y.extUp, eL = y.extLo;
+    float nS = nU - nL, eS = eU - eL;
+    if (y.extUp >= 100.0f) {   // the limits, once: a longer travel for the lowriders, raised up to the body's lowest point
+        float minZ = 0.0f;
+        for (const VehicleModel::ColSphere& s : vm.colSpheres) minZ = std::min(minZ, s.c[2] - s.r);
+        const float limitExtend = minZ - wheelZ[0];
+        nL = h.suspLower; nU = h.suspUpper;
+        nS = nU - nL;
+        if (geom) nS *= 1.5f;
+        nU = nS + nL;
+        y.normUp = nU; y.normLo = nL;
+        eU = nU - (geom ? 0.4f : 0.2f);
+        eL = nL - (geom ? 0.4f : 0.2f);
+        eU = std::max(eU, limitExtend);
+        eS = eU - eL;
+        y.extUp = eU; y.extLo = eL;
+        const float idle = (1.0f - 0.7f) * 0.5f * nS;
+        y.idleUp = nU - idle; y.idleLo = nL + idle;
+        const float wheelHeight = limitExtend + wheelR - 0.1f;
+        if (wheelHeight < y.idleLo) { const float d = y.idleLo - wheelHeight; y.idleUp -= d; y.idleLo -= d; }
+    }
+    bool setPrev = false;
+    if (y.state >= 20 || y.prevSpeed <= 0.02f || p.gas == 0.0f) {
+        if (y.state && y.state < 61 && y.prevSpeed < 0.01f) y.state--;   // at rest the pump winds down to idle
+    } else if (y.state) y.state++;
+    else { y.state = 20; setPrev = true; }   // driving off: the pump starts
+
+    float maxDelta = 0.0f;
+    auto setLine = [&](int i, float upper, float spring) {
+        const float len = spring + wheelR;
+        const float tyre = y.top[i] - (y.top[i] - y.bot[i]) * p.comp[i];   // where the tyre touched on the old line
+        const float top = wheelZ[i] + upper, bot = top - len;
+        maxDelta = std::max(std::fabs(maxDelta), std::fabs(bot - y.bot[i]));
+        y.top[i] = top; y.bot[i] = bot; y.spring[i] = spring;
+        if (p.comp[i] < 1.0f) p.comp[i] = std::min((top - tyre) / len, 1.0f);
+    };
+    bool triggered = false;
+    if (p.inHornJust) {   // (one press, one toggle: the frame's later steps see it released)
+        p.inHornJust = false;
+        y.state = y.state < 500 ? 500 : 60;
+        if (y.state >= 500) { for (int i = 0; i < 4; i++) setLine(i, eU, eS); triggered = true; }
+        else for (int i = 0; i < 4; i++) setLine(i, nU, nS);
+    }
+    if (!triggered) {
+        float chg[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        if (!p.inHydJump) {   // the stick's direction picks the corner, its push the lift
+            const float lr = p.inGunLeftRight * 128.0f, ud = p.inGunUpDown * 128.0f;
+            const float jump = std::sqrt(ud * ud + lr * lr) * 1.5f / 128.0f;
+            const float ang = std::atan2(lr, ud) - 0.78539816f;
+            const float rr = std::cos(ang) * jump, fr = std::sin(ang) * jump;
+            chg[0] = std::max(0.0f, -rr); chg[1] = std::max(0.0f, -fr);   // eCarWheel: front left, rear left,
+            chg[2] = std::max(0.0f, fr); chg[3] = std::max(0.0f, rr);     // front right, rear right
+        }
+        maxDelta = 0.0f;
+        if (y.state < 500) {
+            if (chg[0] == 0.0f && chg[1] == 0.0f && chg[2] == 0.0f && chg[3] == 0.0f) {
+                if (y.state == 0) { nU = y.idleUp; nL = y.idleLo; nS = nU - nL; }
+            } else {
+                if (y.state == 0) std::fill(chg, chg + 4, 0.0f);
+                y.state = 60;
+            }
+            for (int i = 0; i < 4; i++) {
+                const float k = std::min(chg[i], 1.0f);
+                setLine(i, (eU - nU) * k + nU, (eS - nS) * k + nS);
+            }
+        } else {
+            if (y.state < 504) y.state++;
+            for (int i = 0; i < 4; i++) {
+                const float k = std::min(chg[i], 1.0f);
+                setLine(i, (nU - eU) * k + eU, (nS - eS) * k + eS);
+            }
+        }
+        const float limitDiff = eL - nL;
+        if (limitDiff != 0.0f && std::fabs(maxDelta / limitDiff) > 0.01f) {
+            const float f = std::clamp((limitDiff + maxDelta) * 0.5f / limitDiff, 0.0f, 1.0f);
+            if (f < 0.4f || f > 0.6f) setPrev = true;
+        }
+    }
+    if (setPrev || triggered)
+        for (int i = 0; i < 4; i++) {
+            const float t = 1.0f - y.spring[i] / (y.top[i] - y.bot[i]);
+            p.compPrev[i] = (p.comp[i] - t) / (1.0f - t);
+        }
+}
+
 // One CAutomobile::ProcessControl at time step ts, then CPhysical::ProcessCollision.
 void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world, bool collide) {
     CarPhys& p = c.phys;
@@ -309,6 +424,9 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         TowTruckControl(self, ts);
         b = Load(c, h);
     }
+    if (player && c.hyd.on && !heli && !plane) HydraulicControl(c, vm, h);
+    const Lines L = LinesOf(c, vm);
+    const bool hydGeom = c.hyd.on && (h.handlingFlags & 0x10000u);   // HYDRAULIC_GEOM with hydraulics in
 
     // CPhysical::ProcessControl: ApplyFriction, ApplyGravity, ApplyAirResistance
     b.mv += b.fmv; b.tv += b.ftv;
@@ -323,7 +441,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
 
     // The lines' hit fractions become spring compressions (0 fully squashed, 1 the wheel hanging free).
     for (int i = 0; i < 4; i++) {
-        const float wr = 1.0f - vm.suspSpring[i] / vm.suspLine[i];
+        const float wr = 1.0f - L.spring[i] / L.len[i];
         p.comp[i] = (p.comp[i] - wr) / (1.0f - wr);
     }
     {   // CAutomobile::DoBurstAndSoftGroundRatios: a missing wheel never touches, a flat sags now and then
@@ -331,7 +449,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         for (int i = 0; i < 4; i++) {
             if (c.wheelStatus[i] == 2) p.comp[i] = 1.0f;
             else if (c.wheelStatus[i] == 1 && RandInt((int)(fwdRatio * 40.0f) + 98 + 1) < 100)
-                p.comp[i] = std::min(1.0f, p.comp[i] + (vm.suspLine[i] - vm.suspSpring[i]) / vm.suspLine[i] / 4.0f);
+                p.comp[i] = std::min(1.0f, p.comp[i] + (L.len[i] - L.spring[i]) / L.len[i] / 4.0f);
         }
     }
 
@@ -350,7 +468,9 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
             const float stress = 1.0f - p.comp[i];
             V3 n(p.colN[i]);
             if (Dot(dir[i], n) > 0.0f) n = -n;
-            limit[i] = stress * (std::min(ts, 3.0f) * b.mass) * h.suspForce * bias * 0.016f;
+            // a lowrider with hydraulics stiffens its springs at a crawl
+            const float force = hydGeom && fwdSpeed < 0.15f ? h.suspForce * 1.5f : h.suspForce;
+            limit[i] = stress * (std::min(ts, 3.0f) * b.mass) * force * bias * 0.016f;
             b.ApplyForce(n * limit[i], cp[i]);
         }
         V3 cs[4];
@@ -362,7 +482,8 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
             if (p.comp[i] >= 1.0f) continue;
             const float speedAlong = Dot(cs[i], dir[i]);
             const float pointAlong = Dot(b.Speed(cp[i]), dir[i]);
-            const float dts = std::clamp(std::min(ts, 3.0f) * h.suspDamping, -kDampingLimitInFrame, kDampingLimitInFrame);
+            const float damping = c.hyd.on && h.suspDamping > 0.1f && fwdSpeed < 0.15f ? 0.1f : h.suspDamping;   // and bounces softer
+            const float dts = std::clamp(std::min(ts, 3.0f) * damping, -kDampingLimitInFrame, kDampingLimitInFrame);
             float ds = -(dts * speedAlong);
             if (ds > 0.0f && ds + pointAlong > 0.0f) ds = pointAlong >= 0.0f ? 0.0f : -pointAlong;
             else if (ds < 0.0f && ds + pointAlong < 0.0f) ds = pointAlong <= 0.0f ? 0.0f : -pointAlong;
@@ -429,7 +550,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
     // ---- Wheel contact points and speeds ----
     V3 cp[4], cs[4];
     for (int i = 0; i < 4; i++) {
-        cp[i] = p.comp[i] >= 1.0f ? b.Rot(V3(vm.suspEnd[i])) : V3(p.colPt[i]) - b.pos;
+        cp[i] = p.comp[i] >= 1.0f ? b.Rot(V3(vm.suspEnd[i][0], vm.suspEnd[i][1], L.bot[i])) : V3(p.colPt[i]) - b.pos;
         cs[i] = b.Speed(cp[i]);
     }
     const float speedForward = Dot(b.mv, b.fwd);
@@ -514,6 +635,13 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
     if (rearFirst) wheelPair(0, 2, steerRear ? -999.0f : p.steerAngle, true);
 
     for (int i = 0; i < 4; i++) { p.compPrev[i] = p.comp[i]; p.comp[i] = 1.0f; }
+    if (player && c.hyd.on && Len(b.mv) < 0.2f && std::fabs(p.inGunLeftRight * 128.0f) > 50.0f && std::fabs(p.inGunUpDown * 128.0f) < 50.0f) {
+        // CAutomobile::ProcessControl: rocking a lowrider side to side, its roll is let die away only slowly
+        const float roll = Dot(b.tv, b.fwd);
+        const float keep = std::pow(std::pow(0.985f, ts) / (roll * roll * 5.0f + 1.0f), ts);
+        b.ApplyTurnForce(b.up * (-(keep * roll - roll) * b.turnMass), b.right + b.ComW());
+    }
+    c.hyd.prevSpeed = Dot(b.mv, b.fwd);
     Store(b, c);
     if (c.towedBy >= 0) TowLinks(self, ts);
     else if (c.towing >= 0 && ((size_t)c.towing >= m_cars.size() || m_cars[(size_t)c.towing].towedBy != (int)self)) c.towing = -1;
@@ -546,6 +674,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
 void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world, bool lines) {
     CarPhys& p = c.phys;
     Body b = Load(c, h);
+    const Lines L = LinesOf(c, vm);
     // ApplyMoveSpeed, ApplyTurnSpeed, Reorthogonalise
     b.pos += b.mv * ts;
     {
@@ -560,7 +689,7 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
     }
     // The four suspension lines against the world
     for (int i = 0; i < 4 && lines; i++) {
-        const V3 a = b.pos + b.Rot(V3(vm.suspStart[i])), e = b.pos + b.Rot(V3(vm.suspEnd[i]));
+        const V3 a = b.pos + b.Rot(V3(vm.suspStart[i][0], vm.suspStart[i][1], L.top[i])), e = b.pos + b.Rot(V3(vm.suspEnd[i][0], vm.suspEnd[i][1], L.bot[i]));
         float n[3] = {0, 0, 1};
         const float f = world.line(&a.x, &e.x, n);
         if (f < 1.0f) {
@@ -571,7 +700,7 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
             nn.To(p.colN[i]);
         }
         const float frac = std::min(p.comp[i], 1.0f);   // the tyre sits on the hit, or hangs at the line's end
-        p.wheelZ[i] = vm.suspStart[i][2] - frac * vm.suspLine[i] + vm.wheelSize[i] / 2.0f;
+        p.wheelZ[i] = L.top[i] - frac * L.len[i] + vm.wheelSize[i] / 2.0f;
     }
     for (int k = 0; k < 2 && lines && vm.trailerLegs; k++) {   // CTrailer::ProcessEntityCollision: the support lines
         const V3 a = b.pos + b.Rot(V3(vm.supportStart[k])), e = b.pos + b.Rot(V3(vm.supportEnd[k]));
