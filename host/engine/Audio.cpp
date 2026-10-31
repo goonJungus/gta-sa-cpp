@@ -463,6 +463,14 @@ void Audio::StopMusic() {
     m_musEnded = false;
 }
 
+int Audio::VehicleRadio(int model, int* type) {
+    const int idx = model - 400;
+    if (idx < 0 || idx >= (int)(sizeof(kVehAudio) / sizeof(kVehAudio[0]))) { if (type) *type = -1; return 13; }
+    const VehAudioRow& row = kVehAudio[idx];
+    if (type) *type = row.radioType;
+    return row.radioType == 2 ? 13 : row.radio;   // AE_RT_UNKNOWN: off
+}
+
 void Audio::HornSiren(int model, bool horn, bool siren, bool fastSiren) {
     if (!m_ready) return;
     const int idx = model - 400;

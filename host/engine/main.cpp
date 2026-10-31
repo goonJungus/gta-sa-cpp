@@ -1567,7 +1567,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         g_sg.playerCar = [] { return g_driveCar; };
         g_sg.putPlayerInCar = [&](int n) {
             if (n < 0 || (size_t)n >= g_vehicles.Count() || g_driveCar == n) return;
-            g_driveCar = n; Log("SCRIPT: player into car %d", n); g_radio.Tune(g_radioStation);
+            g_driveCar = n; Log("SCRIPT: player into car %d", n); 
             float sp[3]; bool low = false;
             if (cjReady && g_vehicles.SeatWorld((size_t)n, sp, &low)) g_cj.EnterVehicle(low, BikeKind(n));
         };
@@ -3888,7 +3888,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_vehGoStick[0] = g_vehGoStick[1] = 0.0f;
                             Log("DRIVE: going to the %s door of car %d", g_vehGoToRight ? "passenger" : "driver", n);
                         } else {   // bikes mount instantly; so does a car whose model is not loaded yet
-                            g_driveCar = n; g_radio.Tune(g_radioStation);
+                            g_driveCar = n; 
                             if (ok) g_cj.EnterVehicle(low, BikeKind(n));
                             Log("DRIVE: got in %d", n);
                         }
@@ -3999,7 +3999,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             velZ = 0.0f; onGround = true;
                             if (!g_cj.VehTransitioning()) {   // the sequence finished this frame
                                 if (g_vehTransEnter) {
-                                    g_driveCar = g_vehTransCar; g_radio.Tune(g_radioStation);
+                                    g_driveCar = g_vehTransCar; 
                                     Log("DRIVE: got in car %d", g_vehTransCar);
                                 } else {
                                     playerX = doorX; playerY = doorY; playerZ = doorFeet + EYE_HEIGHT;
@@ -4016,6 +4016,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         g_radio.Step(g_wheelSteps > 0 ? 1 : -1);
                         g_wheelSteps = 0;
                         g_radioStation = g_radio.Station();
+                        g_vehicles.Car((size_t)g_driveCar).radioStation = g_radio.IdOf(g_radioStation);
                         if (g_hudReady) g_hud.ShowMessage(g_radio.StationName(g_radioStation), 2.5f);
                     }
                     const float th = (RawGameKey('W') & 0x8000) ? 1.0f : 0.0f;
@@ -4086,6 +4087,26 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 static int s_driven = -1;
                 if (s_driven != g_driveCar && s_driven >= 0 && (size_t)s_driven < g_vehicles.Count()) g_vehicles.Car((size_t)s_driven).hasDriver = false;
                 if (g_driveCar >= 0) { VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar); dc.engineOn = true; dc.hasDriver = true; }
+                // CAERadioTrackManager::StartRadio on getting in: the car's own station (civilian radios only; the
+                // emergency scanner is not in yet), unless the station left behind under a minute ago is kept
+                // (m_bRadioAutoSelect). Getting out saves the station.
+                static int s_savedRadio = -1;
+                static uint32_t s_savedRadioMs = 0;
+                if (s_driven != g_driveCar && s_driven >= 0) { s_savedRadio = g_radio.IdOf(g_radio.Station()); s_savedRadioMs = (uint32_t)g_bulletMs; }
+                if (s_driven != g_driveCar && g_driveCar >= 0) {
+                    VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar);
+                    int type = 0;
+                    const int own = Audio::VehicleRadio(dc.model, &type);
+                    if (dc.radioStation < 0) dc.radioStation = own;
+                    int id = 13;   // RADIO_OFF
+                    if (type == 0) {
+                        id = dc.radioStation;
+                        if (s_savedRadio > 0 && s_savedRadio != id && s_savedRadio != 13 && (uint32_t)g_bulletMs < s_savedRadioMs + 60000u) id = s_savedRadio;
+                    }
+                    g_radio.Tune(g_radio.IndexOfId(id));
+                    g_radioStation = g_radio.Station();
+                    dc.radioStation = id;
+                }
                 s_driven = g_driveCar;
                 // CVehicle::ProcessSirenAndHorn: H or Caps Lock sounds the horn once held three frames (0.1 s); in an
                 // emergency vehicle a shorter tap flips the siren, and the horn with the siren on is the fast siren.

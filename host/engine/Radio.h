@@ -22,6 +22,12 @@ public:
     // Display name of a station, "Radio Off" for -1.
     const char* StationName(int s) const;
     int Station() const { return m_station; }
+    // A station's eRadioID (13 RADIO_OFF for -1), and the station with an eRadioID (-1 if none).
+    int IdOf(int s) const { return s >= 0 && s < (int)m_stations.size() ? m_stations[(size_t)s].id : 13; }
+    int IndexOfId(int id) const {
+        for (size_t i = 0; i < m_stations.size(); i++) if (m_stations[i].id == id) return (int)i;
+        return -1;
+    }
     // -1 turns the radio off.
     void Tune(int station);
     void Step(int dir);          // next / previous station, wrapping through "off"

@@ -189,6 +189,7 @@ struct VehicleInstance {
     bool engineOn = false;            // bEngineOn: started by a driver, keeps running when he leaves
     bool hasDriver = false;           // someone at the wheel (brake lights need a foot on the pedal)
     bool siren = false;               // bSirenOrAlarm: the siren and its light bar
+    int radioStation = -1;            // eRadioID it is tuned to, -1 until someone drives it
     // CDoor per eDoors (bonnet, boot, lf, rf, lr, rr) while it swings loose: angle, angular speed, eDoorState.
     float doorAngle[6] = {0, 0, 0, 0, 0, 0}, doorAngVel[6] = {0, 0, 0, 0, 0, 0};
     uint8_t doorHit[6] = {0, 0, 0, 0, 0, 0};

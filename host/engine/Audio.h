@@ -67,6 +67,8 @@ public:
     // CAEVehicleAudioEntity::PlayHornOrSiren for the player's vehicle: the model's horn (bank 74) while
     // held, the long siren loop, or the short one while the horn is held with the siren on.
     void HornSiren(int model, bool horn, bool siren, bool fastSiren);
+    // The vehicle audio table's radio: returns the eRadioID a model comes tuned to (13 off) and its eAERadioType.
+    static int VehicleRadio(int model, int* type);
 
     // A streamed music source (the radio): `pull` fills interleaved stereo frames at `rate` Hz and
     // returns how many it wrote, 0 when the track is over. It runs on the mixer thread.
