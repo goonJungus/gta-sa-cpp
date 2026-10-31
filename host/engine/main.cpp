@@ -3640,6 +3640,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     }
                 slid:;
             }
+            if (g_vehicles.Ready() && g_driveCar < 0 && g_vehTransCar < 0 && !g_devNoClip)   // CJ against the car bodies
+                g_vehicles.PushPedOut(&playerX, &playerY, playerZ - EYE_HEIGHT, PLAYER_RADIUS, PLAYER_HEIGHT);
             {   // pushing into a wall (rewrite handling drops its momentum)
                 const float want = sqrtf(vx * vx + vy * vy) * dt;
                 const float got = sqrtf((playerX - ox) * (playerX - ox) + (playerY - oy) * (playerY - oy));
@@ -3805,6 +3807,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 s_lastTarget = hitPed;
             }
             if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
+            if (g_vehicles.Ready()) { g_vehicles.CarCarCollisions(dt); g_vehicles.CollisionDamage(dt, g_driveCar); }
+            if (getenv("GTA_CARDBG") && frame % 10 == 0)
+                for (size_t i = 0; i < g_vehicles.Count(); i++) {
+                    const VehicleInstance& oc = g_vehicles.Car(i);
+                    if ((int)i != g_driveCar && oc.phys.active)
+                        Log("CARDBG f%d car %zu pos %.2f %.2f %.2f hdg %.1f v %.2f %.2f up %.2f rest %d hp %.0f", frame, i, oc.x, oc.y, oc.z,
+                            oc.heading * 57.29578f, oc.vx, oc.vy, oc.rot[8], oc.phys.fakePhysics, oc.health);
+                }
             g_vehicles.UpdateDamage(dt, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p) { g_carBooms.push_back({p[0], p[1], p[2]}); });
             if (g_driveCar >= 0 && g_vehicles.Car((size_t)g_driveCar).wrecked) {   // thrown out of a car that blew up
@@ -3975,9 +3985,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                         [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });
                     const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
                     if (getenv("GTA_CARDBG") && frame % 10 == 0)
-                        Log("CARDBG f%d pos %.2f %.2f %.2f hdg %.1f spd %.2f km/h %.1f gear %d gas %.2f brk %.2f comp %.2f %.2f %.2f %.2f up %.2f %.2f %.2f wheels %d",
+                        Log("CARDBG f%d pos %.2f %.2f %.2f hdg %.1f spd %.2f km/h %.1f gear %d gas %.2f brk %.2f comp %.2f %.2f %.2f %.2f up %.2f %.2f %.2f wheels %d hp %.0f",
                             frame, c.x, c.y, c.z, c.heading * 57.29578f, c.speed, c.speed * 3.6f, c.phys.gear, c.phys.gas, c.phys.brake,
-                            c.phys.compPrev[0], c.phys.compPrev[1], c.phys.compPrev[2], c.phys.compPrev[3], c.rot[6], c.rot[7], c.rot[8], c.phys.numContactWheels);
+                            c.phys.compPrev[0], c.phys.compPrev[1], c.phys.compPrev[2], c.phys.compPrev[3], c.rot[6], c.rot[7], c.rot[8], c.phys.numContactWheels, c.health);
                     if (worldReady) g_world.DynVehicle(c.x, c.y, c.z, c.vx, c.vy, 1.3f, 1500.0f);
                     if (const VehicleInfo* vi = g_vehicles.Info(c.model)) {
                         const HandlingData* hd = g_vehicles.Handling(vi->handling);

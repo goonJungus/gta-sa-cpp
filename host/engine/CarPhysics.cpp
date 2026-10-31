@@ -277,6 +277,8 @@ void Vehicles::SetupSuspension(VehicleModel& vm, const HandlingData& h) {
             vm.probes.push_back({{vm.bbHalfX - r, y, 0.2f}, r});
         }
     }
+    vm.probeRadius = 0.0f;
+    for (const VehicleModel::ColSphere& s : vm.probes) vm.probeRadius = std::max(vm.probeRadius, Len(V3(s.c)) + s.r);
     vm.suspReady = true;
 }
 
@@ -516,6 +518,7 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
         contacts[count++] = {q, V3(nm), depth};
     }
     float maxImpact = 0.0f;
+    V3 impactPos, impactNormal;
     if (count) {
         V3 addMove, addTurn;
         int accepted = 0;
@@ -538,7 +541,7 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
             move *= 0.8f;
             addTurn += Cross(d - comW, move) / b.turnMass;
             accepted++;
-            if (impact > maxImpact) { maxImpact = impact; ct.point.To(p.impactPos); ct.normal.To(p.impactNormal); }
+            if (impact > maxImpact) { maxImpact = impact; impactPos = ct.point; impactNormal = ct.normal; }
             // ApplyFriction with the body's grip on the road, split over the contacts
             float friction = kBodyAdhesion / (float)count;
             if (b.up.z > 0.3f && Len2(b.mv) < 0.02f && Len2(b.tv) < 0.01f) friction = 0.0f;
@@ -571,8 +574,23 @@ void Vehicles::CarCollision(VehicleInstance& c, const VehicleModel& vm, const Ha
         }
         b.pos += shift;
     }
-    p.damageIntensity = std::max(p.damageIntensity, maxImpact);
+    if (maxImpact > p.damageIntensity) {
+        p.damageIntensity = maxImpact; p.damager = -1;
+        impactPos.To(p.impactPos); impactNormal.To(p.impactNormal);
+    }
     Store(b, c);
+}
+
+void Vehicles::Activate(VehicleInstance& c) {
+    CarPhys& p = c.phys;
+    if (p.active) return;
+    // Hand the car to the simulation: its matrix from the heading, its speed from the arcade model.
+    const float cs = std::cos(c.heading), sn = std::sin(c.heading);
+    const float r[9] = {cs, sn, 0, -sn, cs, 0, 0, 0, 1};
+    std::memcpy(c.rot, r, sizeof(r));
+    p = CarPhys{};
+    p.mv[0] = c.vx / 50.0f; p.mv[1] = c.vy / 50.0f;
+    p.active = true;
 }
 
 void Vehicles::SyncFromPhys(VehicleInstance& c, const VehicleModel& vm) {
@@ -597,17 +615,9 @@ bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float st
     VehicleModel& vm = mi->second;
     if (!vm.suspReady) SetupSuspension(vm, *h);
     CarPhys& p = c.phys;
-    if (!p.active) {   // hand the car to the simulation: its matrix from the heading, its speed from the arcade model
-        const float cs = std::cos(c.heading), sn = std::sin(c.heading);
-        const float r[9] = {cs, sn, 0, -sn, cs, 0, 0, 0, 1};
-        std::memcpy(c.rot, r, sizeof(r));
-        p = CarPhys{};
-        p.mv[0] = c.vx / 50.0f; p.mv[1] = c.vy / 50.0f;
-        p.active = true;
-    }
+    Activate(c);
     p.inAccel = accel; p.inBrake = brake; p.inSteer = steer; p.handbrake = handbrake;
     p.fakePhysics = 0;
-    p.damageIntensity = 0.0f;
     const float total = dt * 50.0f;
     const int steps = std::clamp((int)std::ceil(total), 1, 8);
     for (int k = 0; k < steps; k++) CarStep(c, vm, *h, total / (float)steps, true, world);
@@ -628,7 +638,6 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         if (mi == m_models.end() || !h) continue;
         VehicleModel& vm = mi->second;
         if (!vm.suspReady) SetupSuspension(vm, *h);
-        p.damageIntensity = 0.0f;
         const float total = dt * 50.0f;
         const int steps = std::clamp((int)std::ceil(total), 1, 8);
         for (int k = 0; k < steps; k++) CarStep(c, vm, *h, total / (float)steps, false, world);
@@ -645,4 +654,192 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         SyncFromPhys(c, vm);
         c.wheelSpin += c.speed * dt / std::max(0.2f, vm.wheelSize[0] / 2.0f);
     }
+}
+
+namespace {
+
+// A car's matrix: the simulated one, else the heading's (a parked car the simulation has not touched).
+void CarFrame(const VehicleInstance& c, V3& right, V3& fwd, V3& up) {
+    if (c.phys.active || c.hasRot) { right = V3(&c.rot[0]); fwd = V3(&c.rot[3]); up = V3(&c.rot[6]); return; }
+    const float cs = std::cos(c.heading), sn = std::sin(c.heading);
+    right = V3(cs, sn, 0); fwd = V3(-sn, cs, 0); up = V3(0, 0, 1);
+}
+
+}   // namespace
+
+void Vehicles::CarCarCollisions(float dt) {
+    (void)dt;
+    struct Entry { size_t i; VehicleModel* vm; const HandlingData* h; V3 pos; bool awake; };
+    std::vector<Entry> cars;
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        const VehicleInstance& c = m_cars[i];
+        if (c.removed || c.hasRot || !UsesCarPhysics(c.model)) continue;
+        auto mi = m_models.find(c.model);
+        const VehicleInfo* info = Info(c.model);
+        const HandlingData* h = info ? Handling(info->handling) : nullptr;
+        if (mi == m_models.end() || !h) continue;
+        if (!mi->second.suspReady) SetupSuspension(mi->second, *h);
+        cars.push_back({i, &mi->second, h, V3(c.x, c.y, c.z), c.phys.active && c.phys.fakePhysics < 10});
+    }
+    struct Contact { V3 point, normal; float depth; };   // the normal points from B to A
+    std::vector<Contact> contacts;
+    for (size_t a = 0; a < cars.size(); a++)
+        for (size_t bI = a + 1; bI < cars.size(); bI++) {
+            Entry& ea = cars[a];
+            Entry& eb = cars[bI];
+            if (!ea.awake && !eb.awake) continue;   // two cars at rest stay at rest
+            const float reach = ea.vm->probeRadius + eb.vm->probeRadius;
+            if (Len2(ea.pos - eb.pos) > reach * reach) continue;
+            VehicleInstance& ca = m_cars[ea.i];
+            VehicleInstance& cb = m_cars[eb.i];
+            V3 ra, fa, ua, rb, fb, ub;
+            CarFrame(ca, ra, fa, ua);
+            CarFrame(cb, rb, fb, ub);
+            contacts.clear();
+            for (const VehicleModel::ColSphere& sa : ea.vm->probes) {
+                const V3 pa = ea.pos + ra * sa.c[0] + fa * sa.c[1] + ua * sa.c[2];
+                for (const VehicleModel::ColSphere& sb : eb.vm->probes) {
+                    const V3 pb = eb.pos + rb * sb.c[0] + fb * sb.c[1] + ub * sb.c[2];
+                    const V3 d = pa - pb;
+                    const float l2 = Len2(d), rr = sa.r + sb.r;
+                    if (l2 >= rr * rr || l2 < 1e-8f) continue;
+                    const float l = std::sqrt(l2);
+                    const V3 n = d / l;
+                    const float depth = rr - l;
+                    contacts.push_back({pb + n * (sb.r - depth * 0.5f), n, depth});
+                }
+            }
+            if (contacts.empty()) continue;
+            Activate(ca); Activate(cb);
+            ca.phys.fakePhysics = 0; cb.phys.fakePhysics = 0;
+            ea.awake = eb.awake = true;
+            Body A = Load(ca, *ea.h), B = Load(cb, *eb.h);
+            const float count = (float)contacts.size();
+            float maxA = 0.0f, maxB = 0.0f;
+            V3 hitA, hitB, nA0, nB0;
+            for (const Contact& ct : contacts) {
+                // CPhysical::ApplyCollision(entity, colPoint, thisDI, entityDI), the free-body branch (mass factors 1)
+                V3 dA = ct.point - A.pos, dB = ct.point - B.pos;
+                const float vA = Dot(A.Speed(dA), ct.normal), vB = Dot(B.Speed(dB), ct.normal);
+                const float mA = 1.0f / (Len2(Cross(dA - A.ComW(), ct.normal)) / A.turnMass + 1.0f / A.mass);
+                const float mB = 1.0f / (Len2(Cross(dB - B.ComW(), ct.normal)) / B.turnMass + 1.0f / B.mass);
+                const float common = (mB * vB + mA * vA) / (mB + mA);
+                if (vA - common >= 0.0f) continue;
+                const float tA = ca.phys.hitWall ? common : common - kElasticity * (vA - common);
+                const float tB = cb.phys.hitWall ? common : common - (vB - common) * kElasticity;
+                const float diA = (tA - vA) * mA;
+                const float diB = -((tB - vB) * mB);
+                V3 fA = ct.normal * diA, fB = ct.normal * -diB;
+                if (!ca.phys.hitWall) {
+                    if (ct.normal.z < 0.7f) fA.z *= 0.3f;
+                    if (ca.phys.player) dA *= 0.8f;
+                }
+                if (!cb.phys.hitWall) {
+                    if (-ct.normal.z < 0.7f) fB.z *= 0.3f;
+                    if (cb.phys.player) dB *= 0.8f;
+                }
+                A.ApplyForce(fA, dA);
+                B.ApplyForce(fB, dB);
+                if (diA > maxA) { maxA = diA; hitA = ct.point; nA0 = ct.normal; }
+                if (diB > maxB) { maxB = diB; hitB = ct.point; nB0 = -ct.normal; }
+                // ApplyFriction(entity, adhesion / points, colPoint): a moving car's grip scales with the blow
+                float friction = kBodyAdhesion / count;
+                if (Len2(A.mv) > 0.02f || Len2(A.tv) > 0.01f) friction *= diA;
+                dA = ct.point - A.pos; dB = ct.point - B.pos;
+                const V3 sA = A.Speed(dA), sB = B.Speed(dB);
+                const float nA = Dot(sA, ct.normal), nB = Dot(sB, ct.normal);
+                if (0.2f * 0.707f > std::fabs(nA)) friction *= 0.05f;
+                const V3 slideA = sA - ct.normal * nA, slideB = sB - ct.normal * nB;
+                const float lA = Len(slideA), lB = Len(slideB);
+                if (lA <= 0.0f) continue;
+                const V3 dir = slideA / lA;
+                const float fmA = 1.0f / (Len2(Cross(dA - A.ComW(), dir)) / A.turnMass + 1.0f / A.mass);
+                const float fmB = 1.0f / (Len2(Cross(dB - B.ComW(), dir)) / B.turnMass + 1.0f / B.mass);
+                const float slide = (lB * fmB + fmA * lA) / (fmB + fmA);
+                if (lA <= slide) continue;
+                const float jA = std::max(fmA * (slide - lA), -friction);
+                const float jB = std::min(fmB * (slide - lB), friction);
+                A.ApplyFrictionForce(dir * jA, dA);
+                B.ApplyFrictionForce(dir * jB, dB);
+            }
+            // ProcessShift: part the bodies, the lighter one moving further
+            V3 shift;
+            for (const Contact& ct : contacts) {
+                const float need = ct.depth - Dot(shift, ct.normal);
+                if (need > 0.0f) shift += ct.normal * need;
+            }
+            const float share = B.mass / (A.mass + B.mass);
+            A.pos += shift * share;
+            B.pos -= shift * (1.0f - share);
+            ea.pos = A.pos; eb.pos = B.pos;
+            Store(A, ca); Store(B, cb);
+            if (maxA > ca.phys.damageIntensity) {
+                ca.phys.damageIntensity = maxA; ca.phys.damager = (int)eb.i;
+                hitA.To(ca.phys.impactPos); nA0.To(ca.phys.impactNormal);
+            }
+            if (maxB > cb.phys.damageIntensity) {
+                cb.phys.damageIntensity = maxB; cb.phys.damager = (int)ea.i;
+                hitB.To(cb.phys.impactPos); nB0.To(cb.phys.impactNormal);
+            }
+            SyncFromPhys(ca, *ea.vm);
+            SyncFromPhys(cb, *eb.vm);
+        }
+}
+
+void Vehicles::CollisionDamage(float dt, int playerCar) {
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        VehicleInstance& c = m_cars[i];
+        CarPhys& p = c.phys;
+        if (!p.active || c.removed) continue;
+        const VehicleInfo* info = Info(c.model);
+        const HandlingData* h = info ? Handling(info->handling) : nullptr;
+        const float di = p.damageIntensity;
+        p.damageIntensity = 0.0f;   // taken once per frame
+        if (!h || c.wrecked) continue;
+        // CAutomobile::VehicleDamage(0, ...): the frame's strongest knock
+        if (c.rot[8] < 0.0f && (int)i != playerCar) c.health = std::max(0.0f, c.health - dt * 50.0f * 4.0f);   // lying on its roof
+        if (di == 0.0f) continue;
+        const float minDi = h->mass / 1500.0f * 25.0f;
+        const V3 up(&c.rot[6]);
+        if (p.damager < 0 && Dot(V3(p.impactNormal), up) > 0.6f) continue;   // landing on the ground
+        if (di <= minDi) continue;
+        const float loss = (di - minDi) * h->collisionDamageGame * 0.6f;
+        if (loss <= 0.0f) continue;
+        if ((int)i == playerCar) c.health -= loss / 2.0f;
+        else if (p.damager >= 0 && p.damager == playerCar) c.health -= loss / 1.5f;
+        else c.health -= loss / 4.0f;
+        if (c.health < 0.0f) c.health = 0.0f;
+    }
+}
+
+int Vehicles::PushPedOut(float* x, float* y, float z, float radius, float height) const {
+    int touched = -1;
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        const VehicleInstance& c = m_cars[i];
+        if (c.removed) continue;
+        auto mi = m_models.find(c.model);
+        if (mi == m_models.end() || !mi->second.suspReady) continue;
+        const VehicleModel& vm = mi->second;
+        const float dx0 = *x - c.x, dy0 = *y - c.y, reach = vm.probeRadius + radius;
+        if (dx0 * dx0 + dy0 * dy0 > reach * reach) continue;
+        V3 r, f, u;
+        CarFrame(c, r, f, u);
+        const V3 o(c.x, c.y, c.z);
+        for (const VehicleModel::ColSphere& s : vm.probes) {
+            const V3 p = o + r * s.c[0] + f * s.c[1] + u * s.c[2];
+            if (p.z + s.r < z + 0.3f || p.z - s.r > z + height) continue;   // stepped over, or above the head
+            // The sphere's slice at the nearest height of the ped's column
+            const float hz = std::clamp(p.z, z, z + height) - p.z;
+            const float sr2 = s.r * s.r - hz * hz;
+            if (sr2 <= 0.0f) continue;
+            const float sr = std::sqrt(sr2);
+            const float dx = *x - p.x, dy = *y - p.y, d2 = dx * dx + dy * dy, rr = sr + radius;
+            if (d2 >= rr * rr) continue;
+            const float d = std::sqrt(d2);
+            const float nx = d > 1e-4f ? dx / d : 1.0f, ny = d > 1e-4f ? dy / d : 0.0f;
+            *x += nx * (rr - d); *y += ny * (rr - d);
+            touched = (int)i;
+        }
+    }
+    return touched;
 }

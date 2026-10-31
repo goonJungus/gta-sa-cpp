@@ -101,6 +101,7 @@ struct VehicleModel {
     std::vector<ColSphere> colSpheres;
     std::vector<ColBox> colBoxes;
     std::vector<ColSphere> probes;    // what touches the world: the spheres, plus each box filled with spheres
+    float probeRadius = 0.0f;         // the probes' reach from the car origin
     bool colFound = false;
     float colMin[3] = {0, 0, 0}, colMax[3] = {0, 0, 0};
     // CAutomobile::SetupSuspensionLines, eCarWheel order (front left, rear left, front right, rear right):
@@ -134,7 +135,8 @@ struct CarPhys {
     float inAccel = 0.0f, inBrake = 0.0f, inSteer = 0.0f;      // the pad this frame (accelerate, brake/reverse, -1 left .. 1 right)
     bool player = false;              // STATUS_PLAYER (else STATUS_ABANDONED)
     float damageIntensity = 0.0f;     // strongest impact this frame (m_fDamageIntensity)
-    float impactPos[3] = {0, 0, 0}, impactNormal[3] = {0, 0, 0};
+    int damager = -1;                 // the car behind that impact, -1 the world (m_pDamageEntity)
+    float impactPos[3] = {0, 0, 0}, impactNormal[3] = {0, 0, 0};   // m_vecLastCollisionPosn, m_vecLastCollisionImpactVelocity
 };
 
 // The world as the car physics sees it: CWorld::ProcessLineOfSight for the suspension lines and
@@ -196,6 +198,15 @@ public:
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
     void ProcessAbandoned(float dt, int skip, const VehicleWorld& world);
     bool UsesCarPhysics(int model) const;
+    // CPhysical::ProcessCollisionSectorList between cars: body spheres that overlap trade impulses
+    // (two-body ApplyCollision + ApplyFriction) and are pushed apart. A parked car that is hit wakes up.
+    void CarCarCollisions(float dt);
+    // CAutomobile::VehicleDamage for the frame's strongest impact on each simulated car: health falls with the
+    // knock above mass / 1500 * 25, scaled by the handling's collision damage (more for the player's victims).
+    void CollisionDamage(float dt, int playerCar);
+    // A ped's upright cylinder (feet at z) against the car bodies: moves (x, y) out of any car it sinks into, so
+    // a parked car blocks and a moving one shoves. Returns the car it touched, or -1.
+    int PushPedOut(float* x, float* y, float z, float radius, float height) const;
     // The nearest car within `range` metres of a point, or -1.
     // Ray against the car bodies; returns the car index or -1, *t is the distance along dir.
     int Trace(const float* eye, const float* dir, float reach, float* t) const;
@@ -223,6 +234,7 @@ private:
     void CarStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);
     void SyncFromPhys(VehicleInstance& c, const VehicleModel& vm);
+    void Activate(VehicleInstance& c);
 
     bool m_ready = false;
     std::string m_dir;
