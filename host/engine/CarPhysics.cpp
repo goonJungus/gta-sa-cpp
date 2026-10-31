@@ -381,9 +381,11 @@ void Vehicles::HydraulicControl(VehicleInstance& c, const VehicleModel& vm, cons
 void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world, bool collide) {
     CarPhys& p = c.phys;
     const size_t self = (size_t)(&c - m_cars.data());
+    if (c.model == 460) for (uint8_t& w : c.wheelStatus) w = 2;   // CPlane::ProcessControl: the Skimmer has floats, no wheels
     Body b = Load(c, h);
     const Transmission& tr = h.trans;
     p.burnout = false;
+    const bool hitWallPrev = p.hitWall;
     p.hitWall = false;
     p.player = player;
     const bool heli = UsesHeliPhysics(c.model), plane = UsesPlanePhysics(c.model);
@@ -439,6 +441,11 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
     if (player && c.hyd.on && !heli && !plane) HydraulicControl(c, vm, h);
     const Lines L = LinesOf(c, vm);
     const bool hydGeom = c.hyd.on && (h.handlingFlags & 0x10000u);   // HYDRAULIC_GEOM with hydraulics in
+    if (c.model == 460 && h.boat.found) {   // CAutomobile::ProcessControl: the Skimmer floats as a boat (else ProcessBuoyancy)
+        Store(b, c);
+        BoatControl(c, vm, h, ts, player, hitWallPrev, world);
+        b = Load(c, h);
+    }
 
     // CPhysical::ProcessControl: ApplyFriction, ApplyGravity, ApplyAirResistance
     b.mv += b.fmv; b.tv += b.ftv;

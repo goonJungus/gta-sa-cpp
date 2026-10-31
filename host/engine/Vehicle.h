@@ -228,6 +228,7 @@ struct CarPhys {
     float engineSpeed = 0.0f, propAngle = 0.0f;   // m_EngineSpeed (the propeller), m_PropellerAngle
     float prevVolume = 0.0f, boatForce = 0.0f;    // m_PrevVolume (the last immersion), |the buoyancy force|
     bool boatInWater = false, engineInWater = false;
+    float skimDiveMs = 0.0f;          // m_f2ndSteerAngle on the Skimmer: what is left of its 300 ms nose-dive braking
     float sprintLean = 0.0f;          // m_fSprintLeanAngle: the frame rocks under a sprinting rider
     // CHeli: the pad (ProcessControlInputs: m_fAccelerationBreakStatus, m_fSteeringUpDown, m_fSteeringLeftRight,
     // m_fLeftRightSkid), the rotor (m_fHeliRotorSpeed) and the drawn rotor angles (m_fRotorZ, m_fSecondRotorZ)
@@ -494,6 +495,8 @@ private:
     void CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world, bool lines = true);
     void BoatInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player);
     void BoatStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
+    // CVehicle::ProcessBoatControl on the car's state: the hull in the water. The Skimmer runs it from its plane step.
+    void BoatControl(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, bool hitWall, const VehicleWorld& world);
     void BoatFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const;
     // CHeli::ProcessControlInputs (once a frame), CHeli::ProcessFlyingCarStuff + CVehicle::FlyingControl (each step,
     // at the end of CAutomobile::ProcessControl) and CHeli::PreRender's rotors (FlightPhysics.cpp).

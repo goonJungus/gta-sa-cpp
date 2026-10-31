@@ -2582,6 +2582,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (ci >= 0 && getenv("GTA_CARSHATTER")) { g_vehicles.Car((size_t)ci).panelStatus[4] = 3; g_vehicles.WindscreenShatters((size_t)ci); }   // dev
                 if (const char* ty = getenv("GTA_CARTYRES"); ty && ci >= 0)   // dev: "flrlfrrr" wheel states (0 ok, 1 burst, 2 missing)
                     for (int k = 0; k < 4 && ty[k]; k++) g_vehicles.Car((size_t)ci).wheelStatus[k] = (uint8_t)(ty[k] - '0');
+                if (ci >= 0 && getenv("GTA_WARPIN")) {   // dev: straight into the driver's seat (WARP_CHAR_INTO_CAR)
+                    g_driveCar = ci;
+                    float sp[3]; bool low = false;
+                    if (cjReady && g_vehicles.SeatWorld((size_t)ci, sp, &low)) g_cj.EnterVehicle(low, BikeKind(ci));
+                }
                 Log("DEV: spawned vehicle %d at %.1f %.1f %.1f (player %.1f %.1f, cam %.1f %.1f)", id, sx, sy, gz, playerX, playerY, camPosX, camPosY);
                 // dev: GTA_VEHMODEL "cab+trailer" puts the second model on the first one's tow bar; GTA_TRAILERSCAN
                 // leaves it there unhooked (for the trailer's own scan, or a tow truck's hoist, to pick up)

@@ -25,7 +25,7 @@ const float kVolumeSail[3][3] = {{0.55f, 0.95f, 0.55f}, {0.75f, 1.1f, 0.75f}, {0
 const float kVolumeDinghy[3][3] = {{0.65f, 0.85f, 0.65f}, {0.85f, 1.1f, 0.85f}, {0.65f, 0.95f, 0.65f}};
 const float kVolumeSpeed[3][3] = {{0.7f, 0.9f, 0.7f}, {0.95f, 1.0f, 0.95f}, {0.6f, 0.7f, 0.6f}};
 
-enum : int { kPredator = 430, kSqualo = 446, kSpeeder = 452, kReefer = 453, kTropic = 454, kCoastguard = 472, kDinghy = 473,
+enum : int { kSkimmer = 460, kPredator = 430, kSqualo = 446, kSpeeder = 452, kReefer = 453, kTropic = 454, kCoastguard = 472, kDinghy = 473,
              kMarquis = 484, kJetmax = 493, kLaunch = 595 };
 
 // CPlane's propeller speeds, which boats share
@@ -155,23 +155,54 @@ void Vehicles::BoatInputs(VehicleInstance& c, const HandlingData& h, float ts, b
 // One CBoat::ProcessControl step: CVehicle::ProcessBoatControl, gravity and drag, then the collision.
 void Vehicles::BoatStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world) {
     CarPhys& p = c.phys;
-    const HandlingData::Boat& bh = h.boat;
-    Body b = Load(c, h);
     p.player = player;
     const bool hitWall = p.hitWall;   // GetHasHitWall: the last step's collision
     p.hitWall = false;
+    BoatControl(c, vm, h, ts, player, hitWall, world);
+    Body b = Load(c, h);
+    // CPhysical::ProcessControl: ApplyFriction, ApplyGravity, ApplyAirResistance
+    b.mv += b.fmv; b.tv += b.ftv;
+    b.fmv = V3(); b.ftv = V3();
+    b.mv.z -= ts * 0.008f;
+    {
+        const float air = h.dragMult <= 0.01f ? h.dragMult : h.dragMult / 1000.0f / 2.0f;
+        b.mv *= std::pow(std::max(0.0f, 1.0f - Len(b.mv) * air), ts);
+        b.tv *= 0.99f;
+    }
+    Store(b, c);
+    CarCollision(c, vm, h, ts, world, false);
+}
+
+// CVehicle::ProcessBoatControl. The Skimmer floats on it too, with its own rules: no propeller in the water (its
+// engine flies it), the planing lift scaled by throttle + 1, the hull barely floating once it lies upside down and
+// still, and a nose-first plunge braked hard for 300 ms (no turn resistance meanwhile).
+void Vehicles::BoatControl(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, bool hitWall, const VehicleWorld& world) {
+    CarPhys& p = c.phys;
+    const HandlingData::Boat& bh = h.boat;
+    const bool skimmer = c.model == kSkimmer;
+    Body b = Load(c, h);
     const bool postCollision = p.lastDI > 0.0f && p.impactNormal[2] > 0.1f;
     const float buoyancy = h.mass * 0.8f / (float)std::max(1, h.percentSubmerged);
     Buoyancy bu;
-    if (!BuoyancyBoat(c.model, vm, b, buoyancy, h.suspDamping, ts, hitWall, world, bu) ) {
+    const bool floated = BuoyancyBoat(c.model, vm, b, buoyancy, h.suspDamping, ts, hitWall, world, bu);
+    if (!floated) {
         p.boatInWater = false;
     } else {
-        const bool onWater = ts * b.mass * 0.0008f < bu.force.z;
-        b.ApplyMoveForce(bu.force);
+        bool onWater = ts * b.mass * 0.0008f < bu.force.z;
+        const bool capsized = skimmer && b.up.z < -0.5f && std::fabs(b.mv.x) < 0.2f && std::fabs(b.mv.y) < 0.2f;
+        b.ApplyMoveForce(capsized ? bu.force * 0.03f : bu.force);
         if (hitWall) b.ApplyTurnForce(bu.force * 0.4f, bu.turnPoint);
+        if (skimmer && (p.skimDiveMs > 0.0f || (b.fwd.z < -0.5f && b.up.z > -0.5f && b.mv.z < -0.15f &&
+                                                 ts * b.mass * 8.0e-5f < bu.force.z && bu.force.z < ts * b.mass * 0.4f * 0.008f))) {
+            b.ApplyTurnForce(b.fwd * (b.fwd.z * b.turnMass * ts * -0.00017f * bu.force.z), b.up);   // the nose comes up
+            onWater = false;
+            b.ApplyMoveForce(b.fwd * (Dot(b.fwd, b.mv) * -0.5f * b.mass));                    // and half the way on is lost
+            if (p.skimDiveMs == 0.0f) p.skimDiveMs = 300.0f;
+            else if ((p.skimDiveMs -= ts * 20.0f) <= 0.0f) p.skimDiveMs = 0.0f;
+        }
         if (!postCollision && onWater && b.up.z > 0.0f) {   // planing: the hull rises out of the water with speed
             float lift = Len2(b.mv) * bh.aqPlaneForce * ts * bu.force.z * 0.5f;
-            lift = p.gas <= 0.05f ? 0.0f : lift * p.gas;
+            lift = skimmer ? lift * (p.gas + 1.0f) : p.gas <= 0.05f ? 0.0f : lift * p.gas;
             lift = std::min(lift, ts * bh.aqPlaneLimit * b.mass / 125.0f);
             const V3 f = b.up * lift;
             b.ApplyMoveForce(f);
@@ -195,7 +226,7 @@ void Vehicles::BoatStep(VehicleInstance& c, const VehicleModel& vm, const Handli
                 if (p.engineInWater) {
                     const float depth = std::min((level - at.z + 0.5f) * (level - at.z + 0.5f), 1.0f);
                     const float g = std::fabs(p.gas);
-                    bool easing = g < 0.01f;
+                    bool easing = g < 0.01f || skimmer;
                     if (!easing) {
                         if (g < 0.5f) easing = true;
                         V3 push = b.Rot(V3(-sn, cs, -std::fabs(p.steerAngle))) * (depth * p.gas * 40.0f * h.trans.engineAccel * b.mass);
@@ -248,7 +279,7 @@ void Vehicles::BoatStep(VehicleInstance& c, const VehicleModel& vm, const Handli
             if (b.mv.z <= 0.0f) b.mv.z *= (1.0f - res.z) * 0.5f + res.z;
             else b.mv.z *= res.z;
         }
-        if (!hitWall) {   // the turn resistance about each axis
+        if (!hitWall && (!skimmer || p.skimDiveMs == 0.0f)) {   // the turn resistance about each axis
             const V3 res(std::pow(bh.turnRes[0], ts), std::pow(bh.turnRes[1], ts), std::pow(bh.turnRes[2], ts));
             V3 lt(Dot(b.tv, b.right), Dot(b.tv, b.fwd), Dot(b.tv, b.up));
             lt.y *= res.y;
@@ -271,15 +302,5 @@ void Vehicles::BoatStep(VehicleInstance& c, const VehicleModel& vm, const Handli
         p.boatInWater = onWater;
         p.boatForce = Len(bu.force);
     }
-    // CPhysical::ProcessControl: ApplyFriction, ApplyGravity, ApplyAirResistance
-    b.mv += b.fmv; b.tv += b.ftv;
-    b.fmv = V3(); b.ftv = V3();
-    b.mv.z -= ts * 0.008f;
-    {
-        const float air = h.dragMult <= 0.01f ? h.dragMult : h.dragMult / 1000.0f / 2.0f;
-        b.mv *= std::pow(std::max(0.0f, 1.0f - Len(b.mv) * air), ts);
-        b.tv *= 0.99f;
-    }
     Store(b, c);
-    CarCollision(c, vm, h, ts, world, false);
 }

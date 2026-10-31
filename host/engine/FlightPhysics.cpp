@@ -230,7 +230,7 @@ void Vehicles::HeliFrameMatrices(const VehicleInstance& c, const VehicleModel& v
 namespace {
 // CPlane's propeller: PLANE_MIN_PROP_SPEED, PLANE_STD_PROP_SPEED, PLANE_MAX_PROP_SPEED, PLANE_ROC_PROP_SPEED
 constexpr float kPropMin = 0.05f, kPropStd = 0.18f, kPropMax = 0.34f, kPropRoc = 0.01f;
-enum { MODEL_SKIMMER = 460, MODEL_RCBARON = 464, MODEL_VORTEX = 539 };
+enum { MODEL_RCBARON = 464, MODEL_VORTEX = 539 };
 
 void SetGear(VehicleInstance& c, bool up) {   // CPlane::SetGearUp / SetGearDown (the drag follows the gear status)
     c.phys.gearStatus = up ? 1.0f : 0.0f;
@@ -239,7 +239,7 @@ void SetGear(VehicleInstance& c, bool up) {   // CPlane::SetGearUp / SetGearDown
 }  // namespace
 
 bool Vehicles::UsesPlanePhysics(int model) const {
-    if (model == MODEL_SKIMMER || model == MODEL_RCBARON || model == MODEL_VORTEX) return false;
+    if (model == MODEL_RCBARON || model == MODEL_VORTEX) return false;
     const VehicleInfo* info = Info(model);
     if (!info) return false;
     std::string t = info->type;
