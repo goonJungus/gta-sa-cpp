@@ -98,11 +98,11 @@ bool BuoyancyBoat(int model, const VehicleModel& vm, Body& b, float buoyancy, fl
 
 // CBoat::PreRender: the rudder and rear flaps turn against the steering; the still propellers turn twice as fast
 // as the blurred ones, each pair in opposite senses.
-void Vehicles::BoatFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[15][16]) const {
+void Vehicles::BoatFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const {
     const CarPhys& p = c.phys;
-    for (int k = 0; k < 15; k++) {
+    for (int k = 0; k < VehicleModel::kMoveNodes; k++) {
         const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
-        if (k < 8 || !bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
+        if (k < 8 || k > 14 || !bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
         float m[16], r[16];
         std::memcpy(m, bn.local, sizeof(m));
         const float spin = k == 11 ? p.propAngle * 2.0f : k == 13 ? p.propAngle * -2.0f : k == 12 ? -p.propAngle : p.propAngle;

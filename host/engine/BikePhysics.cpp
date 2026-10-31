@@ -614,7 +614,7 @@ void Vehicles::BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, fl
 
 // CBike::PreRender: the front forks and the bars turn with the steering, the front wheel rides up its fork and
 // the rear swing arm swings with its spring, and both wheels roll.
-void Vehicles::BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[15][16]) const {
+void Vehicles::BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const {
     const CarPhys& p = c.phys;
     const HandlingData* h = Handling(vm.info.handling);
     const float lower = h ? h->suspLower : -0.1f, upper = h ? h->suspUpper : 0.1f;

@@ -245,8 +245,12 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
     p.burnout = false;
     p.hitWall = false;
     p.player = player;
+    const bool heli = UsesHeliPhysics(c.model);
 
-    if (player) {   // CAutomobile::ProcessControlInputs
+    if (heli) {   // CHeli::ProcessControlInputs: the wheels stay braked and straight, the rotor does the rest
+        p.gas = 0.0f; p.brake = 1.0f; p.steerAngle = 0.0f;
+        if (!player) p.handbrake = false;
+    } else if (player) {   // CAutomobile::ProcessControlInputs
         p.rawSteer += (-p.inSteer - p.rawSteer) / 5.0f * ts;
         p.rawSteer = std::clamp(p.rawSteer, -1.0f, 1.0f);
         const float fwdVel = Dot(b.mv, b.fwd);
@@ -364,7 +368,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         if (tr.driveType == '4' || (tr.driveType == 'F' && front) || (tr.driveType == 'R' && !front)) p.driveWheelsOnGround++;
     }
     float acceleration = 0.0f;
-    if (player)   // the engine runs while someone drives
+    if (player && !heli)   // the engine runs while someone drives (aircraft have no driven wheels)
         acceleration = tr.DriveAcceleration(p.gas, p.gear, speedForward, &p.inertia1, &p.inertia2, p.driveWheelsOnGround != 0, ts);
     const float traction = h.tractionMult / 250.0f * 0.25f;
     {   // the player's steering is cut back to what the tyres can hold at speed
@@ -433,6 +437,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
 
     for (int i = 0; i < 4; i++) { p.compPrev[i] = p.comp[i]; p.comp[i] = 1.0f; }
     Store(b, c);
+    if (heli) { HeliFlyingCarStuff(c, h, ts, player, world); HeliRotors(c, ts); }
     CarCollision(c, vm, h, ts, world);
 }
 
@@ -569,11 +574,12 @@ void Vehicles::SyncFromPhys(VehicleInstance& c, const VehicleModel& vm) {
     (void)vm;
 }
 
-bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd) {
+bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd,
+                          float skid) {
     if (i >= m_cars.size() || !world.line || !world.sphere) return false;
     VehicleInstance& c = m_cars[i];
-    const bool bike = UsesBikePhysics(c.model), boat = UsesBoatPhysics(c.model);
-    if (!bike && !boat && !UsesCarPhysics(c.model)) return false;
+    const bool bike = UsesBikePhysics(c.model), boat = UsesBoatPhysics(c.model), heli = UsesHeliPhysics(c.model);
+    if (!bike && !boat && !heli && !UsesCarPhysics(c.model)) return false;
     auto mi = m_models.find(c.model);
     const VehicleInfo* info = Info(c.model);
     const HandlingData* h = info ? Handling(info->handling) : nullptr;
@@ -583,11 +589,12 @@ bool Vehicles::ProcessCar(size_t i, float dt, float accel, float brake, float st
     if (!vm.suspReady) { if (bike) SetupBikeSuspension(vm, *h); else SetupSuspension(vm, *h); }
     CarPhys& p = c.phys;
     Activate(c);
-    p.inAccel = accel; p.inBrake = brake; p.inSteer = steer; p.handbrake = handbrake; p.inLeanFwd = leanFwd;
+    p.inAccel = accel; p.inBrake = brake; p.inSteer = steer; p.handbrake = handbrake; p.inLeanFwd = leanFwd; p.inSkid = skid;
     p.fakePhysics = 0;
     const float total = dt * 50.0f;
     const int steps = std::clamp((int)std::ceil(total), 1, 8);
     if (boat) BoatInputs(c, *h, total, true);
+    if (heli) HeliInputs(c, true);
     for (int k = 0; k < steps; k++) {
         if (bike) BikeStep(c, vm, *h, total / (float)steps, true, world);
         else if (boat) BoatStep(c, vm, *h, total / (float)steps, true, world);
@@ -615,6 +622,7 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
         const float total = dt * 50.0f;
         const int steps = std::clamp((int)std::ceil(total), 1, 8);
         if (boat) BoatInputs(c, *h, total, false);
+        if (UsesHeliPhysics(c.model)) HeliInputs(c, false);
         for (int k = 0; k < steps; k++) {
             if (bike) BikeStep(c, vm, *h, total / (float)steps, false, world);
             else if (boat) BoatStep(c, vm, *h, total / (float)steps, false, world);
@@ -652,7 +660,7 @@ void Vehicles::CarCarCollisions(float dt) {
     std::vector<Entry> cars;
     for (size_t i = 0; i < m_cars.size(); i++) {
         const VehicleInstance& c = m_cars[i];
-        if (c.removed || c.hasRot || !UsesCarPhysics(c.model)) continue;
+        if (c.removed || c.hasRot || (!UsesCarPhysics(c.model) && !UsesHeliPhysics(c.model))) continue;
         auto mi = m_models.find(c.model);
         const VehicleInfo* info = Info(c.model);
         const HandlingData* h = info ? Handling(info->handling) : nullptr;

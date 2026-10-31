@@ -162,7 +162,7 @@ static bool ScriptedKey(int vk) {
         if (g_scriptFrame >= a && g_scriptFrame <= b)
             for (const char* k = keys; k < p; k++) {
                 const int want = *k == '+' ? VK_SHIFT : *k == '^' ? VK_MENU : *k == '_' ? VK_SPACE : *k == '#' ? VK_F4 : *k == '`' ? VK_OEM_3 : *k == '~' ? VK_RBUTTON : *k == '|' ? VK_LBUTTON : *k == '%' ? VK_CONTROL
-                               : toupper((unsigned char)*k);
+                               : *k == '>' ? VK_UP : *k == '<' ? VK_DOWN : toupper((unsigned char)*k);
                 if (want == vk) return true;
             }
         if (*p == ';') p++;
@@ -4132,7 +4132,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             Log("BMX f%d move %.2f pedal %.2f canRun %.1f clips p%.2f s%.2f hop %.2f crank %.2f%s", frame, ms, g_bmxCtrlPedal, g_timeCanRun,
                                 rider.pedalBlend, rider.sprintBlend, hopBlend, rider.crank, rider.hopLaunch > 0.0f ? " LAUNCH" : "");
                     }
-                    if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd)))
+                    // look right / left (E / Q): a helicopter's tail rotor
+                    const float skid = ((RawGameKey('E') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('Q') & 0x8000) ? 1.0f : 0.0f);
+                    if (!(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
                                         [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
                                         [](float x, float y, float ox, float oy, float z) { return g_world.HitsSolidCircle(x, y, z + 0.4f, ox, oy, 1.1f, 0.3f, 1.2f, true); });

@@ -69,6 +69,14 @@ struct HandlingData {
         float thrustY = 0, thrustZ = 0, thrustAppZ = 0, aqPlaneForce = 0, aqPlaneLimit = 0, aqPlaneOffset = 0, waveAudioMult = 0;
         float moveRes[3] = {1, 1, 1}, turnRes[3] = {1, 1, 1}, lookLRBehindCamHeight = 0;
     } boat;
+    // tFlyingHandlingData: the handling.cfg '$' line, raw (retail converts none of it). A field sscanf could
+    // not read stays 0, as in the zeroed retail table (RCRAIDER's "0.1s" stops it short).
+    struct Fly {
+        bool found = false;
+        float thrust = 0, thrustFallOff = 0, yaw = 0, yawStab = 0, sideSlip = 0, roll = 0, rollStab = 0, pitch = 0, pitchStab = 0;
+        float formLift = 0, attackLift = 0, gearUpR = 0, gearDownL = 0, windMult = 0, moveRes = 0;
+        float turnRes[3] = {0, 0, 0}, speedRes[3] = {0, 0, 0};
+    } fly;
 };
 
 struct VehicleInfo {
@@ -132,8 +140,11 @@ struct VehicleModel {
     // eBikeNodes that move: 0 forks_front, 1 forks_rear, 2 handlebars, 3 wheel_front, 4 wheel_rear. parent is the
     // node above (wheel_front hangs on the front forks), else base is the fixed frame's matrix in bike space.
     struct BikeNode { bool found = false; int frame = -1, parent = -1; float local[16] = {}; float base[16] = {}; };
-    BikeNode bikeNodes[15];           // bike frames 0..7, then a boat's rudder, rear flaps and propellers (8..14)
-    bool isBike = false, isBoat = false;
+    // bike frames 0..7, then a boat's rudder, rear flaps and propellers (8..14), then a helicopter's rotors:
+    // 15 static_rotor, 16 moving_rotor, 17 static_rotor2, 18 moving_rotor2 (eHeliNodes 12..15)
+    static constexpr int kMoveNodes = 19;
+    BikeNode bikeNodes[kMoveNodes];
+    bool isBike = false, isBoat = false, isHeli = false;
     float swingArmLength = 0.0f;      // CBike::m_fSwingArmLength: forks_rear to the rear wheel
     // The DFF's own collision model (CColModel): body spheres and boxes, and its bounding box.
     // piece: the car part the surface belongs to (eVehicleCollisionComponent: 1 bonnet, 2 boot, 3 front bumper,
@@ -207,6 +218,11 @@ struct CarPhys {
     float prevVolume = 0.0f, boatForce = 0.0f;    // m_PrevVolume (the last immersion), |the buoyancy force|
     bool boatInWater = false, engineInWater = false;
     float sprintLean = 0.0f;          // m_fSprintLeanAngle: the frame rocks under a sprinting rider
+    // CHeli: the pad (ProcessControlInputs: m_fAccelerationBreakStatus, m_fSteeringUpDown, m_fSteeringLeftRight,
+    // m_fLeftRightSkid), the rotor (m_fHeliRotorSpeed) and the drawn rotor angles (m_fRotorZ, m_fSecondRotorZ)
+    float inSkid = 0.0f;              // look right (+1) / left (-1): the tail rotor's yaw
+    float flyAccel = 0.0f, flyUpDown = 0.0f, flyLeftRight = 0.0f, flySkid = 0.0f;
+    float rotorSpeed = 0.0f, rotorZ = 0.0f, rotor2Z = 0.0f;
 };
 
 // The world as the car physics sees it: CWorld::ProcessLineOfSight for the suspension lines and
@@ -218,6 +234,8 @@ struct VehicleWorld {
     std::function<bool(const float* centre, float radius, float* point, float* normal)> sphere;
     // CWaterLevel::GetWaterLevel: the surface height at (x, y); false where there is no water.
     std::function<bool(float x, float y, float* z)> water;
+    // CWeather::WindDir (no wind is simulated yet: still air)
+    float wind[3] = {0, 0, 0};
 };
 
 struct VehicleInstance {
@@ -320,12 +338,15 @@ public:
     struct BmxRider { bool pedalOn = false; float hopBlend = 0, hopLaunch = 0, pedalPhase = 0, pedalBlend = 0, sprintPhase = 0, sprintBlend = 0, crank = 0; };
     void SetBmxRider(size_t i, const BmxRider& r);
     // leanFwd: a bike rider's weight, -1 back .. 1 forward (the pad's steer up / down).
-    bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd = 0.0f);
+    // skid: look right (+1) / left (-1), a helicopter's tail rotor.
+    bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd = 0.0f,
+                    float skid = 0.0f);
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
     void ProcessAbandoned(float dt, int skip, const VehicleWorld& world);
     bool UsesCarPhysics(int model) const;
     bool UsesBikePhysics(int model) const;   // CBike and CBmx
     bool UsesBoatPhysics(int model) const;   // CBoat
+    bool UsesHeliPhysics(int model) const;   // CHeli (a CAutomobile that flies)
     // CPhysical::ProcessCollisionSectorList between cars: body spheres that overlap trade impulses
     // (two-body ApplyCollision + ApplyFriction) and are pushed apart. A parked car that is hit wakes up.
     void CarCarCollisions(float dt);
@@ -385,12 +406,18 @@ private:
     void CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world, bool lines = true);
     void BoatInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player);
     void BoatStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
-    void BoatFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[15][16]) const;
+    void BoatFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const;
+    // CHeli::ProcessControlInputs (once a frame), CHeli::ProcessFlyingCarStuff + CVehicle::FlyingControl (each step,
+    // at the end of CAutomobile::ProcessControl) and CHeli::PreRender's rotors (FlightPhysics.cpp).
+    void HeliInputs(VehicleInstance& c, bool player);
+    void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
+    void HeliRotors(VehicleInstance& c, float ts);
+    void HeliFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const;
     void BoatDamage(VehicleInstance& c, const HandlingData& h, float di, bool player);
     // CBike::SetupSuspensionLines and one CBike::ProcessControl (BikePhysics.cpp).
     void SetupBikeSuspension(VehicleModel& vm, const HandlingData& h);
     void BikeStep(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
-    void BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[15][16]) const;
+    void BikeFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const;
     void BikeLeanBody(const VehicleInstance& c, const VehicleModel& vm, float body[16], float sway = 0.0f) const;
     float RiderSkill(int model) const;
     void BmxSway(VehicleInstance& c);
