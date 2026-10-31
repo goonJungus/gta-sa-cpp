@@ -93,10 +93,15 @@ struct VehicleModel {
     // The misc_a, misc_b and misc_c frames (eCarNodes CAR_MISC_A..C): tank turret, barrel and muzzle, fire truck nozzle.
     struct Node { bool found = false; int parent = -1; float local[16] = {}; float base[16] = {}; };
     Node nodes[3];
-    // The side doors (CAutomobile m_doors DOOR_LEFT_FRONT..DOOR_RIGHT_REAR): CDoor::UpdateFrameMatrix swings the
-    // frame about its own Z through ratio * openAngle (left -pi/2, right +pi/2), replacing its rotation, keeping its hinge.
-    struct Door { bool found = false; int frame = -1; float base[16] = {}; float hinge[3] = {}; float openAngle = 0.0f; };
-    Door doors[4];
+    // The hinged parts (CAutomobile m_doors, CDoor::Init): slots 0..3 the side doors lf rf lr rr, 4 the bonnet,
+    // 5 the boot. CDoor::UpdateFrameMatrix turns the frame about its own axis (X or Z) by the door angle, replacing
+    // its rotation and keeping its hinge. dirn is the eDoorAxis the door leaf points along (0 +x .. 5 -z).
+    struct Door {
+        bool found = false; int frame = -1; float base[16] = {}; float hinge[3] = {}; float openAngle = 0.0f;
+        int axis = 2, dirn = 4; bool based = true, lowGravity = false;
+        float pivot[3] = {};          // the hinge in car space
+    };
+    Door doors[6];
     // The DFF's own collision model (CColModel): body spheres and boxes, and its bounding box.
     // piece: the car part the surface belongs to (eVehicleCollisionComponent: 1 bonnet, 2 boot, 3 front bumper,
     // 4 rear bumper, 5..8 doors lf rf lr rr, 9..12 wings, 19 windscreen, 0 none)
@@ -142,6 +147,8 @@ struct CarPhys {
     int damager = -1;                 // the car behind that impact, -1 the world (m_pDamageEntity)
     int piece = 0;                    // the part of the car that took it (m_nPieceType, eVehicleCollisionComponent)
     float impactPos[3] = {0, 0, 0}, impactNormal[3] = {0, 0, 0};   // m_vecLastCollisionPosn, m_vecLastCollisionImpactVelocity
+    float lastDI = 0.0f;              // the last frame's strongest knock, for the doors
+    float oldMv[3] = {0, 0, 0}, oldTv[3] = {0, 0, 0};   // the speeds a frame ago (the doors swing on the change)
 };
 
 // The world as the car physics sees it: CWorld::ProcessLineOfSight for the suspension lines and
@@ -175,6 +182,9 @@ struct VehicleInstance {
     uint8_t panelStatus[7] = {0, 0, 0, 0, 0, 0, 0};
     uint8_t lightStatus[4] = {0, 0, 0, 0};
     uint8_t wheelStatus[4] = {0, 0, 0, 0};   // eCarWheel order (fl, rl, fr, rr): 0 ok, 1 burst, 2 missing
+    // CDoor per eDoors (bonnet, boot, lf, rf, lr, rr) while it swings loose: angle, angular speed, eDoorState.
+    float doorAngle[6] = {0, 0, 0, 0, 0, 0}, doorAngVel[6] = {0, 0, 0, 0, 0, 0};
+    uint8_t doorHit[6] = {0, 0, 0, 0, 0, 0};
     CarPhys phys;
 };
 
@@ -212,6 +222,13 @@ public:
     // CPhysical::ProcessCollisionSectorList between cars: body spheres that overlap trade impulses
     // (two-body ApplyCollision + ApplyFriction) and are pushed apart. A parked car that is hit wakes up.
     void CarCarCollisions(float dt);
+    // CAutomobile::ProcessSwingingDoor for every simulated car: a hard knock pops doors open (CDoor::ProcessImpact),
+    // loose doors, bonnet and boot swing with the car's jolts (CDoor::Process) and slam shut, a bonnet blown fully
+    // open at speed tears off.
+    void ProcessDoors(float dt);
+    // Parts that came off (CAutomobile::SpawnFlyingComponent objects): fall, tumble, bounce and vanish.
+    void UpdateFlying(float dt, const VehicleWorld& world);
+    size_t FlyingCount() const { return m_flying.size(); }
     // CAutomobile::VehicleDamage for the frame's strongest impact on each simulated car: health falls with the
     // knock above mass / 1500 * 25, scaled by the handling's collision damage (more for the player's victims).
     void CollisionDamage(float dt, int playerCar);
@@ -255,6 +272,24 @@ private:
     void CarCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);
     void SyncFromPhys(VehicleInstance& c, const VehicleModel& vm);
     void Activate(VehicleInstance& c);
+    // A component (0..5 eDoors, 6..12 6 + ePanels, 13 a wheel) of car ci comes off as a flying object (collision type
+    // 0 bumper, 1 wheel, 2 door, 3 bonnet, 4 boot, 5 panel). Call before its state hides it.
+    void SpawnFlying(size_t ci, int comp, int type, int wheel = 0);
+    // CAutomobile::BlowUpCar: the car jumps, its doors fly off, a wheel comes away.
+    void BlowUp(size_t ci);
+    bool PartVisible(const VehicleInstance& c, const VehiclePart& p) const;
+    void PartToCar(const VehicleInstance& c, const VehicleModel& vm, const VehiclePart& p, float out[16]) const;
+    float DoorDrawAngle(const VehicleInstance& c, int slot) const;
+    // Parts in flight: the meshes (with their frame relative to the object), the body and its speeds.
+    struct FlyingPart {
+        int model = 0;
+        int paint[4] = {0, 0, 0, 0};
+        struct Piece { D3DRenderMesh* mesh; float m[16]; };
+        std::vector<Piece> pieces;
+        float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1}, pos[3] = {0, 0, 0}, mv[3] = {0, 0, 0}, tv[3] = {0, 0, 0}, com[3] = {0, 0, 0};
+        float mass = 10.0f, turnMass = 25.0f, air = 0.97f, life = 20.0f;
+    };
+    std::vector<FlyingPart> m_flying;
     int Random(int n);
     void ApplyComponentDamage(VehicleInstance& c, int comp, float intensity);
     void DamageComponents(VehicleInstance& c, const HandlingData& h, float di);

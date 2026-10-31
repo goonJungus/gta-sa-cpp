@@ -831,6 +831,12 @@ void Vehicles::PedHitReaction(size_t i, const float pedCentre[3], bool overBonne
     b.ApplyForce(dir * f, rel * 0.25f);
     Store(b, c);
     SyncFromPhys(c, m_models[c.model]);
+    // CAutomobile::RemoveBonnetInPedCollision: a bonnet hanging open more than 40% goes with the ped
+    const VehicleModel& vm = m_models[c.model];
+    if (overBonnet && vm.doors[4].found && (c.doorStatus[0] == 1 || c.doorStatus[0] == 3) && !(vm.doors[4].openAngle * 0.4f >= c.doorAngle[0])) {
+        SpawnFlying(i, 0, 2);
+        c.doorStatus[0] = 4;
+    }
 }
 
 bool Vehicles::ColBounds(size_t i, float mn[3], float mx[3]) const {
@@ -919,6 +925,235 @@ int Vehicles::Trace(const float* eye, const float* dir, float reach, float* t, i
     return best;
 }
 
+void Vehicles::SpawnFlying(size_t ci, int comp, int type, int wheel) {
+    if (ci >= m_cars.size() || m_flying.size() >= 150) return;   // CObject::nNoTempObjects
+    const VehicleInstance& c = m_cars[ci];
+    auto it = m_models.find(c.model);
+    if (it == m_models.end()) return;
+    const VehicleModel& vm = it->second;
+    FlyingPart fp;
+    fp.model = c.model;
+    std::memcpy(fp.paint, c.paint, sizeof(fp.paint));
+    // The component's frame in car space: a hinge, a wheel, or the part's own frame
+    float pivot[3] = {0, 0, 0};
+    if (comp == 13) {
+        static const int kDummy[4] = {0, 2, 1, 3};   // eCarWheel -> lf, rf, lb, rb dummy
+        const int k = kDummy[wheel & 3];
+        if (!vm.wheelMesh || !vm.wheelFound[k]) return;
+        pivot[0] = vm.wheelPos[k][0]; pivot[1] = vm.wheelPos[k][1];
+        pivot[2] = c.phys.active && vm.suspReady ? c.phys.wheelZ[wheel & 3] : vm.wheelPos[k][2];
+        const float side = k % 2 == 0 ? -1.0f : 1.0f;
+        FlyingPart::Piece pc{vm.wheelMesh, {side, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}};
+        fp.pieces.push_back(pc);
+    } else {
+        const int slot = comp < 6 ? (comp == 0 ? 4 : comp == 1 ? 5 : comp - 2) : -1;
+        bool havePivot = false;
+        if (slot >= 0 && vm.doors[slot].found) { std::memcpy(pivot, vm.doors[slot].pivot, sizeof(pivot)); havePivot = true; }
+        for (const VehiclePart& p : vm.parts) {   // GetCurrentAtomicObjectCB: the mesh shown now
+            if (p.comp != comp || !PartVisible(c, p)) continue;
+            FlyingPart::Piece pc;
+            pc.mesh = p.mesh;
+            PartToCar(c, vm, p, pc.m);
+            if (!havePivot) { pivot[0] = pc.m[12]; pivot[1] = pc.m[13]; pivot[2] = pc.m[14]; havePivot = true; }
+            fp.pieces.push_back(pc);
+        }
+        if (fp.pieces.empty()) return;
+    }
+    for (FlyingPart::Piece& pc : fp.pieces) { pc.m[12] -= pivot[0]; pc.m[13] -= pivot[1]; pc.m[14] -= pivot[2]; }
+    V3 r, f, u;
+    CarFrame(c, r, f, u);
+    r.To(&fp.rot[0]); f.To(&fp.rot[3]); u.To(&fp.rot[6]);
+    const V3 carPos(c.x, c.y, c.z);
+    V3 pos = carPos + r * pivot[0] + f * pivot[1] + u * pivot[2];
+    // The object's centre of mass for its collision type
+    if (type == 0) fp.com[0] = -pivot[0];
+    else if (type == 2) fp.com[1] = -0.5f;
+    else if (type == 3) fp.com[1] = 0.4f;
+    else if (type == 4) fp.com[1] = -0.3f;
+    const size_t n = m_flying.size() + 1;
+    fp.life = n <= 10 ? 20.0f : n <= 20 ? 10.0f : 4.0f;   // m_nRemovalTime
+    const V3 cmv = c.phys.active ? V3(c.phys.mv) : V3(c.vx / 50.0f, c.vy / 50.0f, 0.0f);
+    float mz;
+    if (cmv.z > 0.0f) mz = cmv.z * 1.5f;
+    else if (u.z < 0.0f && (type == 3 || type == 4)) mz = 0.04f - cmv.z * 1.5f;
+    else mz = cmv.z / 4.0f;
+    V3 mv(cmv.x * 0.75f, cmv.y * 0.75f, mz);
+    const V3 tv = c.phys.active ? V3(c.phys.tv) * 2.0f : V3();
+    V3 dir = Norm(pos - carPos);
+    if (type == 3 || type == 4) {
+        dir += u;
+        if (u.z > 0.0f) pos += u * std::sqrt(cmv.x * cmv.x + cmv.y * cmv.y);
+    }
+    mv += dir / fp.mass;   // ApplyMoveForce(objDir)
+    V3 tvv = tv;
+    if (type == 1) { fp.turnMass = 5.0f; tvv.x = 0.5f; fp.air = 0.99f; }
+    pos.To(fp.pos); mv.To(fp.mv); tvv.To(fp.tv);
+    m_flying.push_back(std::move(fp));
+}
+
+void Vehicles::BlowUp(size_t ci) {
+    if (ci >= m_cars.size()) return;
+    VehicleInstance& c = m_cars[ci];
+    if (UsesCarPhysics(c.model)) { Activate(c); c.phys.mv[2] += 0.13f; c.phys.fakePhysics = 0; }   // the blast lifts it
+    auto it = m_models.find(c.model);
+    if (it == m_models.end()) return;
+    const VehicleModel& vm = it->second;
+    // CDamageManager::FuckCarCompletely: a wheel comes off, every door, the bonnet and the boot go. (Its panel
+    // reset to intact is not drawn: SetBumperDamage leaves the bumpers looking as they were.)
+    const int wheel = Random(4);
+    const bool flies = c.model != 564 && c.model != 441;   // not the RC tiger or RC bandit
+    for (int d = 0; d < 6; d++) {
+        const int slot = d == 0 ? 4 : d == 1 ? 5 : d - 2;
+        if (flies && vm.doors[slot].found && c.doorStatus[d] != 4) SpawnFlying(ci, d, d == 0 ? 3 : d == 1 ? 4 : 2);
+        c.doorStatus[d] = 4;
+    }
+    for (int k = 0; k < 4; k++) c.lightStatus[k] = 0;
+    // BlowUpCar throws CAR_WHEEL_LF; the wheel thrown here is the one FuckCarCompletely took off, so it is not drawn twice.
+    if (flies && c.wheelStatus[wheel] != 2) SpawnFlying(ci, 13, 1, wheel);
+    c.wheelStatus[wheel] = 2;
+}
+
+namespace {
+
+// CDoor::Process: the door leaf swings with the jolt its hinge feels this frame, damped, bounced off its stops.
+// Returns true when a latching door slams shut.
+bool DoorProcess(const VehicleModel::Door& d, float& angle, float& angVel, uint8_t& hit, const Body& b, const V3& oldMv,
+                 const V3& oldTv, const V3& offset, float ts) {
+    V3 acc = b.Speed(offset) - (Cross(oldTv, offset) + oldMv);
+    acc.z += ts * (d.lowGravity ? 0.0016f : 0.008f);
+    const float al[3] = {Dot(acc, b.right), Dot(acc, b.fwd), Dot(acc, b.up)};   // into car space
+    float dir[3] = {0, 0, 0};
+    dir[d.dirn % 3] = d.dirn < 3 ? 1.0f : -1.0f;
+    const float s = std::sin(angle), cs = std::cos(angle);
+    const int a = (d.axis + 1) % 3, bi = (d.axis + 2) % 3;
+    const float na = cs * dir[a] - s * dir[bi], nb = s * dir[a] + cs * dir[bi];   // the leaf turned about the axis
+    dir[a] = na; dir[bi] = nb;
+    const float cr[3] = {al[1] * dir[2] - al[2] * dir[1], al[2] * dir[0] - al[0] * dir[2], al[0] * dir[1] - al[1] * dir[0]};
+    const float ang = cr[d.axis];
+    if (std::fabs(ang) > 0.001f || std::fabs(angVel) > 0.001f) angVel += ang;   // DOOR_SPEED_MIN_LIMIT
+    angVel *= 0.97f;                                                            // DOOR_DAMP_RATE (and _BONNET)
+    angVel = std::clamp(angVel, -0.5f, 0.5f);                                   // DOOR_SPEED_MAX_CAPPED
+    angle += angVel;
+    hit = 0;
+    const bool posOpen = d.openAngle >= 0.0f;
+    const bool hitOpen = posOpen ? angle > d.openAngle : angle < d.openAngle;
+    const bool hitClosed = posOpen ? angle < 0.0f : angle > 0.0f;
+    if (hitOpen) { angVel *= -0.8f; angle = d.openAngle; hit = 1; }
+    else if (hitClosed) {
+        angle = 0.0f;
+        if (d.based && std::fabs(angVel) > 0.1f) { angVel = 0.0f; hit = 4; return true; }   // DOOR_SLAM_SHUT_SPEED
+        angVel *= d.lowGravity ? -0.9f : -0.4f;
+        hit = 2;
+    }
+    return false;
+}
+
+// CDoor::ProcessImpact: a jolt across the leaf past 0.1 (x 0.75..1.5) pops a shut door open.
+bool DoorImpact(const VehicleModel::Door& d, const Body& b, const V3& oldMv, const V3& oldTv, const V3& offset) {
+    const V3 acc = b.Speed(offset) - (Cross(oldTv, offset) + oldMv);
+    const V3 axes[3] = {b.right, b.fwd, b.up};
+    const V3 dir = d.dirn < 3 ? axes[d.dirn] : -axes[d.dirn - 3];
+    const V3 cr = Cross(acc, dir);
+    const float ang = d.axis == 0 ? cr.x : d.axis == 1 ? cr.y : cr.z;
+    const float limit = RandRange(0.75f, 1.5f) * 0.1f;   // POP_OPEN_DOOR_ACCEL_LIMIT
+    return d.openAngle >= 0.0f ? ang > limit : ang < -limit;
+}
+
+}   // namespace
+
+void Vehicles::ProcessDoors(float dt) {
+    const float ts = dt * 50.0f;
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        VehicleInstance& c = m_cars[i];
+        CarPhys& p = c.phys;
+        if (c.removed || !p.active) continue;
+        auto mi = m_models.find(c.model);
+        const VehicleInfo* info = Info(c.model);
+        const HandlingData* h = info ? Handling(info->handling) : nullptr;
+        if (mi == m_models.end() || !h) continue;
+        const VehicleModel& vm = mi->second;
+        const Body b = Load(c, *h);
+        const V3 oldMv(p.oldMv), oldTv(p.oldTv);
+        const bool awake = p.player || p.fakePhysics < 10;
+        for (int d = 0; d < 6; d++) {   // CAutomobile::ProcessSwingingDoor
+            const int slot = d == 0 ? 4 : d == 1 ? 5 : d - 2;
+            const VehicleModel::Door& door = vm.doors[slot];
+            uint8_t& st = c.doorStatus[d];
+            if (!door.found || st == 4) continue;
+            bool open = st == 1 || st == 3;
+            if (!open && (p.lastDI <= 100.0f || d == 0 || !awake)) continue;
+            const V3 offset = b.Rot(V3(door.pivot));
+            if (!open && DoorImpact(door, b, oldMv, oldTv, offset)) {   // SetDoorOpen
+                st = st == 0 ? 1 : 3;
+                open = true;
+                c.doorAngle[d] = slot < 4 ? c.doorRatio[slot] * door.openAngle : 0.0f;
+                c.doorAngVel[d] = 0.0f;
+            }
+            if (!open) continue;
+            if (d == 0 && door.dirn == 1)   // a bonnet that opens forwards catches the wind
+                c.doorAngVel[d] += std::sin(c.doorAngle[d] + 0.1f) * 0.05f * Dot(b.fwd, b.mv);
+            if (DoorProcess(door, c.doorAngle[d], c.doorAngVel[d], c.doorHit[d], b, oldMv, oldTv, offset, ts)) {
+                st = st == 1 ? 0 : 2;   // SetDoorClosed
+                c.doorAngle[d] = 0.0f;
+                if (slot < 4) c.doorRatio[slot] = 0.0f;
+            }
+            if (d == 0 && c.doorHit[0] == 1 && Dot(b.mv, b.fwd) > 0.4f) {   // flung fully open at speed: it tears off
+                SpawnFlying(i, 0, 2);
+                if (!m_flying.empty() && m_flying.back().model == c.model) {
+                    FlyingPart& fp = m_flying.back();
+                    V3 mv = b.mv * 0.4f + b.right * 0.1f;
+                    mv += Random(2) ? b.up * 0.5f : b.up * -0.5f;
+                    mv.To(fp.mv);
+                    const V3 tv = Cross(b.fwd - V3(fp.com), b.up * 10.0f) / fp.turnMass;   // ApplyTurnForce(up * 10, forward)
+                    (V3(fp.tv) + tv).To(fp.tv);
+                }
+                st = 4;
+            }
+        }
+        std::memcpy(p.oldMv, p.mv, sizeof(p.oldMv));
+        std::memcpy(p.oldTv, p.tv, sizeof(p.oldTv));
+    }
+}
+
+void Vehicles::UpdateFlying(float dt, const VehicleWorld& world) {
+    const float total = dt * 50.0f;
+    const int steps = std::clamp((int)std::ceil(total), 1, 8);
+    const float ts = total / (float)steps;
+    for (size_t k = 0; k < m_flying.size();) {
+        FlyingPart& fp = m_flying[k];
+        fp.life -= dt;
+        if (fp.life <= 0.0f) { m_flying.erase(m_flying.begin() + (long)k); continue; }
+        V3 r(&fp.rot[0]), f(&fp.rot[3]), u(&fp.rot[6]), pos(fp.pos), mv(fp.mv), tv(fp.tv);
+        for (int s = 0; s < steps; s++) {
+            mv.z -= ts * 0.008f;                                   // ApplyGravity
+            const float air = std::pow(fp.air, ts);                // ApplyAirResistance
+            mv *= air; tv *= air;
+            pos += mv * ts;
+            const V3 dr = tv * ts;
+            r += Cross(dr, r); f += Cross(dr, f); u += Cross(dr, u);
+            r = Norm(Cross(f, u)); f = Norm(Cross(u, r)); u = Cross(r, f);
+            if (!world.sphere) continue;
+            const V3 centre = pos + r * fp.com[0] + f * fp.com[1] + u * fp.com[2];
+            const float rad = 0.25f;
+            float pt[3], nm[3];
+            if (!world.sphere(&centre.x, rad, pt, nm)) continue;
+            const V3 n(nm);
+            const float depth = rad - Len(centre - V3(pt));
+            if (depth > 0.0f) pos += n * depth;
+            const float vn = Dot(mv, n);
+            if (vn < 0.0f) {   // elasticity 0.1, and the ground drags it to a stop
+                mv -= n * (vn * 1.1f);
+                const V3 slide = mv - n * Dot(mv, n);
+                const float sl = Len(slide), drop = std::min(sl, 0.01f * ts);
+                if (sl > 0.0f) mv -= slide * (drop / sl);
+                tv *= std::pow(0.8f, ts);
+            }
+        }
+        r.To(&fp.rot[0]); f.To(&fp.rot[3]); u.To(&fp.rot[6]); pos.To(fp.pos); mv.To(fp.mv); tv.To(fp.tv);
+        k++;
+    }
+}
+
 int Vehicles::Random(int n) {
     m_rng = m_rng * 1664525u + 1013904223u;
     return (int)((m_rng >> 8) % (unsigned)n);
@@ -943,14 +1178,23 @@ void Vehicles::ApplyComponentDamage(VehicleInstance& c, int comp, float intensit
         uint8_t& st = c.panelStatus[panel];
         if (st == 2) {
             if (Random(panel == 4 ? 3 : 9) != 0) return;
+            // SetBumperDamage / SetPanelDamage: a bumper or wing comes away (the windscreen shatters instead)
+            if (panel != 4) SpawnFlying((size_t)(&c - m_cars.data()), 6 + panel, panel >= 5 ? 0 : 5);
             st = 3;
         } else if (st < 3) st++;
     };
-    if (group == 2 || group == 3 || group == 4) {   // ProgressDoorDamage
+    const size_t ci = (size_t)(&c - m_cars.data());
+    if (group == 2 || group == 3 || group == 4) {   // ProgressDoorDamage, then SetDoorDamage
         uint8_t& st = c.doorStatus[rel];
-        if (st == 0 || st == 1) { st = 2; if (rel >= 2) c.doorRatio[rel - 2] = 0.0f; }   // slammed shut
-        else if (st == 2) st = 3;
-        else if (st == 3 && Random(9) == 0) st = 4;
+        if (st == 0 || st == 1) {   // slammed shut
+            st = 2;
+            if (rel >= 2) c.doorRatio[rel - 2] = 0.0f;
+            c.doorAngle[rel] = c.doorAngVel[rel] = 0.0f;
+        } else if (st == 2) st = 3;
+        else if (st == 3 && Random(9) == 0) {
+            SpawnFlying(ci, rel, rel == 0 ? 3 : rel == 1 ? 4 : 2);
+            st = 4;
+        }
     } else if (group == 5) {
         c.lightStatus[rel] = 1;
         progressPanel(rel);
@@ -997,6 +1241,7 @@ void Vehicles::CollisionDamage(float dt, int playerCar) {
         const HandlingData* h = info ? Handling(info->handling) : nullptr;
         const float di = p.damageIntensity;
         p.damageIntensity = 0.0f;   // taken once per frame
+        p.lastDI = di;
         if (!h || c.wrecked) continue;
         // CAutomobile::VehicleDamage(0, ...): the frame's strongest knock
         if (c.rot[8] < 0.0f && (int)i != playerCar) c.health = std::max(0.0f, c.health - dt * 50.0f * 4.0f);   // lying on its roof
