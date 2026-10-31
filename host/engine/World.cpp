@@ -497,7 +497,9 @@ bool GameWorld::LoadTextIpls(const std::string& gameDir) {
             m_text[r.first] = std::move(insts);
         else
             std::fprintf(stderr, "[World] text IPL FAILED: %s\n", p.c_str());
+        IplLoader::LoadGarages(p, m_garageDefs);
     }
+    std::fprintf(stderr, "[World] garages: %zu\n", m_garageDefs.size());
     size_t total = 0;
     for (auto& kv : m_text) total += kv.second.size();
     std::fprintf(stderr, "[World] text IPLs: %zu files, %zu insts\n", m_text.size(), total);
@@ -824,6 +826,41 @@ bool GameWorld::ParseBoxes(size_t arc, size_t off, std::vector<WorldColBox>& out
         count++;
     }
     return count > 0;
+}
+
+std::vector<size_t> GameWorld::GarageDoorInsts() const {
+    std::vector<size_t> out;
+    for (size_t i = 0; i < m_insts.size(); i++) {
+        const Inst& in = m_insts[i];
+        if (in.lodLevel != 0) continue;
+        auto it = m_byName.find(in.hdModel);
+        if (it != m_byName.end() && (it->second.flags & 0x800)) out.push_back(i);
+    }
+    return out;
+}
+
+void GameWorld::InstPosition(size_t i, float out[3]) const {
+    const Inst& in = m_insts[i];
+    out[0] = in.x; out[1] = in.y; out[2] = in.z;
+}
+
+float GameWorld::InstColHeight(size_t i) {
+    Inst& in = m_insts[i];
+    if (!in.boxesIn) BuildInstBoxes(in);
+    float lo = 1e30f, hi = -1e30f;
+    for (const WorldColBox& b : in.boxes) { lo = std::min(lo, b.minZ); hi = std::max(hi, b.maxZ); }
+    for (const WorldColSphere& s : in.spheres) { lo = std::min(lo, s.z - s.r); hi = std::max(hi, s.z + s.r); }
+    return hi > lo ? hi - lo : 0.0f;
+}
+
+void GameWorld::SetInstZ(size_t i, float z) {
+    Inst& in = m_insts[i];
+    const float dz = z - in.z;
+    if (dz == 0.0f) return;
+    in.z = z;
+    for (WorldColBox& b : in.boxes) { b.minZ += dz; b.maxZ += dz; }
+    for (WorldColObb& o : in.obb) for (float& c : o.z) c += dz;
+    for (WorldColSphere& s : in.spheres) s.z += dz;
 }
 
 void GameWorld::BuildInstBoxes(Inst& inst) {

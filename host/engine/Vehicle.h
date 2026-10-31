@@ -454,6 +454,10 @@ public:
     // space), the car's move speed (per 1/50 s) and the rectangle's centre when a windscreen falls out.
     std::function<void(const float* corner, const float* fwd, const float* right, const float* vel, const float* centre)> onWindscreenShatter;
     void WindscreenShatters(size_t ci);
+    // CAutomobile::Fix / CBike::Fix: every door, panel, light and wheel back to new, loose parts reset, the fire out.
+    void Fix(size_t i);
+    // CVehicleModelInfo::ChooseVehicleColour(..., 1): the model's next carcols.dat set. True when the colours changed.
+    bool NextColours(size_t i);
     // enterable: only cars a ped can sit in (not trailers, which have no seat).
     int Nearest(float x, float y, float range, bool enterable = false) const;
     // Body extents of a loaded model: y range and the lowest z. False when the model is not loaded.

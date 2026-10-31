@@ -37,6 +37,35 @@ std::vector<std::string> IplLoader::SplitComma(const std::string& line) {
     return fields;
 }
 
+bool IplLoader::LoadGarages(const std::string& path, std::vector<IplGarage>& out) {
+    FILE* f = fopen(path.c_str(), "r");
+    if (!f) return false;
+    char lineBuf[1024];
+    bool in = false;
+    while (fgets(lineBuf, sizeof(lineBuf), f)) {
+        const std::string line = Trim(lineBuf);
+        if (line.empty() || line[0] == '#') continue;
+        const std::string low = ToLower(line);
+        if (line.find(',') == std::string::npos) { in = low == "grge"; continue; }
+        if (!in) continue;
+        const std::vector<std::string> v = SplitComma(line);
+        if (v.size() < 10) continue;
+        IplGarage g;
+        try {
+            g.x1 = std::stof(v[0]); g.y1 = std::stof(v[1]); g.z1 = std::stof(v[2]);
+            g.x2 = std::stof(v[3]); g.y2 = std::stof(v[4]);
+            g.x3 = std::stof(v[5]); g.y3 = std::stof(v[6]); g.topZ = std::stof(v[7]);
+            g.flags = std::stoi(v[8]); g.type = std::stoi(v[9]);
+        } catch (...) {
+            continue;
+        }
+        if (v.size() > 10) g.name = v[10];
+        out.push_back(std::move(g));
+    }
+    fclose(f);
+    return true;
+}
+
 bool IplLoader::Load(const std::string& path,
                      std::vector<IplInstance>& outInstances) {
     FILE* f = fopen(path.c_str(), "r");

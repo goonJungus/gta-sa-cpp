@@ -802,6 +802,37 @@ bool Vehicles::HasDoor(size_t i, int door) const {
     return it != m_models.end() && it->second.doors[door].found;
 }
 
+void Vehicles::Fix(size_t i) {
+    if (i >= m_cars.size()) return;
+    VehicleInstance& c = m_cars[i];
+    std::fill(std::begin(c.doorStatus), std::end(c.doorStatus), (uint8_t)0);
+    std::fill(std::begin(c.panelStatus), std::end(c.panelStatus), (uint8_t)0);
+    std::fill(std::begin(c.lightStatus), std::end(c.lightStatus), (uint8_t)0);
+    std::fill(std::begin(c.wheelStatus), std::end(c.wheelStatus), (uint8_t)0);
+    std::fill(std::begin(c.doorAngle), std::end(c.doorAngle), 0.0f);
+    std::fill(std::begin(c.doorAngVel), std::end(c.doorAngVel), 0.0f);
+    std::fill(std::begin(c.doorHit), std::end(c.doorHit), (uint8_t)0);
+    for (VehicleInstance::BouncingPanel& p : c.panels) p = VehicleInstance::BouncingPanel{};
+    c.burnTime = 0.0f;
+}
+
+bool Vehicles::NextColours(size_t i) {
+    if (i >= m_cars.size()) return false;
+    VehicleInstance& c = m_cars[i];
+    const VehicleInfo* info = Info(c.model);
+    if (!info) return false;
+    auto cc = m_carColours.find(info->dff);
+    if (cc == m_carColours.end() || cc->second.empty()) return false;
+    const std::vector<std::array<int, 4>>& sets = cc->second;
+    size_t at = 0;
+    for (size_t k = 0; k < sets.size(); k++)
+        if (sets[k][0] == c.paint[0] && sets[k][1] == c.paint[1]) { at = k; break; }
+    const std::array<int, 4>& next = sets[(at + 1) % sets.size()];
+    bool changed = false;
+    for (int k = 0; k < 4; k++) { changed = changed || c.paint[k] != next[(size_t)k]; c.paint[k] = next[(size_t)k]; }
+    return changed;
+}
+
 bool Vehicles::Footprint(size_t i, float* halfX, float* minY, float* maxY) const {
     if (i >= m_cars.size()) return false;
     auto it = m_models.find(m_cars[i].model);

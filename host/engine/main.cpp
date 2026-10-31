@@ -52,6 +52,7 @@
 #include "Hud.h"
 #include "Vehicle.h"
 #include "CarGenerators.h"
+#include "Garages.h"
 #include "Script.h"
 #include "ScriptGame.h"
 #include "Radio.h"
@@ -623,6 +624,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 static std::string g_gameDir;
 static Vehicles g_vehicles;
 static CarGenerators g_carGens;   // the IPL parked cars
+static Garages g_garages;         // CGarages: the IPL garages, the Pay 'n' Spray
+static bool g_garageFreeze = false;   // a garage door is coming down on the player (CPad::DisablePlayerControls)
 // The world as the car physics sees it (CWorld::ProcessLineOfSight / CCollision::ProcessColModels).
 static VehicleWorld CarWorld() {
     VehicleWorld w;
@@ -3902,6 +3905,28 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                                   [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); });
                 if (getenv("GTA_CARDBG") && frame % 100 == 0) Log("CARGEN parked %d cars %zu", g_carGens.ParkedCars(), g_vehicles.Count());
             }
+            if (worldReady && g_vehicles.Ready()) {   // CGarages::Update
+                static bool s_garInit = false;
+                if (!s_garInit) { g_garages.Init(g_world); s_garInit = true; Log("GARAGES: %zu", g_garages.Count()); }
+                Garages::Env ge;
+                ge.cars = &g_vehicles;
+                ge.playerCar = g_driveCar;
+                ge.player[0] = playerX; ge.player[1] = playerY; ge.player[2] = playerZ - EYE_HEIGHT;
+                ge.leavingCar = g_vehTransCar >= 0 && !g_vehTransEnter;
+                ge.money = &g_money;
+                ge.wanted = &g_wanted;
+                ge.message = [](const char* key) {
+                    Log("GARAGE message %s", key);
+                    if (g_hudReady) { const std::string t = g_hud.Text().Get(key); if (!t.empty()) g_hud.ShowMessage(t, 4.0f); }
+                };
+                ge.nowMs = (uint32_t)g_bulletMs;
+                ge.ts = dt * 50.0f;
+                g_garageFreeze = g_garages.Update(g_world, ge);
+                if (getenv("GTA_GARAGEDBG") && frame % 20 == 0)
+                    for (size_t gi = 0; gi < g_garages.Count(); gi++)
+                        if (g_garages.TypeOf(gi) == Garages::kPayNSpray && g_garages.State(gi) != Garages::kOpen)
+                            Log("GARAGE %s state %d door %.2f money %d wanted %d", g_garages.Name(gi).c_str(), g_garages.State(gi), g_garages.DoorPosition(gi), g_money, g_wanted);
+            }
             if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
             if (worldReady && g_vehicles.Ready() && g_trains.Loaded()) {   // CTrain::UpdateTrains
                 static uint32_t s_prevTrainMs = 0;
@@ -4001,7 +4026,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
             {
                 static bool s_prevF = false;
-                const bool fDown = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen();
+                const bool fDown = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen() && !g_garageFreeze;
                 const bool fJust = fDown && !s_prevF;
                 s_prevF = fDown;
                 if (fJust && g_driveCar < 0 && g_vehTransCar < 0 && g_vehGoToCar < 0) {
@@ -4155,10 +4180,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         g_vehicles.Car((size_t)g_driveCar).radioStation = g_radio.IdOf(g_radioStation);
                         if (g_hudReady) g_hud.ShowMessage(g_radio.StationName(g_radioStation), 2.5f);
                     }
-                    const float th = (RawGameKey('W') & 0x8000) ? 1.0f : 0.0f;
-                    const float br = (RawGameKey('S') & 0x8000) ? 1.0f : 0.0f;
-                    const float st = ((RawGameKey('D') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('A') & 0x8000) ? 1.0f : 0.0f);
-                    const bool hb = (RawGameKey(VK_SPACE) & 0x8000) != 0;
+                    const bool padOn = !g_garageFreeze;   // CPad::DisablePlayerControls (a garage door coming down)
+                    const float th = padOn && (RawGameKey('W') & 0x8000) ? 1.0f : 0.0f;
+                    const float br = padOn && (RawGameKey('S') & 0x8000) ? 1.0f : 0.0f;
+                    const float st = padOn ? ((RawGameKey('D') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('A') & 0x8000) ? 1.0f : 0.0f) : 0.0f;
+                    const bool hb = padOn && (RawGameKey(VK_SPACE) & 0x8000) != 0;
                     // a bike rider's weight: the pad's steer up / down (num 8 / num 5, or the arrows)
                     const float leanFwd = ((RawGameKey(VK_NUMPAD8) & 0x8000) || (RawGameKey(VK_UP) & 0x8000) ? 1.0f : 0.0f) -
                                           ((RawGameKey(VK_NUMPAD5) & 0x8000) || (RawGameKey(VK_DOWN) & 0x8000) ? 1.0f : 0.0f);

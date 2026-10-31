@@ -159,6 +159,14 @@ public:
     struct ProbeHit { float p[3], n[3]; };
     bool SphereProbe(float cx, float cy, float cz, float r, ProbeHit& out) const;
 
+    // CGarages: the "grge" entries of the map IPLs, and the placements whose IDE flags mark a garage door
+    // (bIsGarageDoor, 0x800). A door slides by moving its placement and collision.
+    const std::vector<IplGarage>& GarageDefs() const { return m_garageDefs; }
+    std::vector<size_t> GarageDoorInsts() const;
+    void InstPosition(size_t i, float out[3]) const;
+    float InstColHeight(size_t i);   // the height of its collision boxes (built if not yet)
+    void SetInstZ(size_t i, float z);
+
     size_t LoadedModelCount() const { return m_cache.size(); }
     size_t VisibleInstances() const { return m_visInsts; }
     size_t SolidBoxCount() const { return m_worldBoxes.size(); }
@@ -306,6 +314,7 @@ private:
 
     // Text IPL region arrays: region key (lower) -> inst array.
     std::unordered_map<std::string, std::vector<IplInstance>> m_text;
+    std::vector<IplGarage> m_garageDefs;
     // Region key -> m_insts index of each text IPL line (-1 = not placed), so
     // binary stream LOD indices and text-to-text LOD indices resolve.
     std::unordered_map<std::string, std::vector<int32_t>> m_textInst;
