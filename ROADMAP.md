@@ -102,7 +102,7 @@ Source: CVehicle, CAutomobile, CBike, CBmx, CBoat, CPlane, CHeli, CTrain, CTrail
 - [ ] Trains and trams on track nodes, freight train driving, stations, derail, passengers (w 3)
 - [ ] Trailers and towing: tow truck, articulated trucks, fuel trailers, baggage trains (w 2)
 - [ ] Special vehicles: fire truck water cannon, rhino tank guns, swat van ropes, forklift, tractor, streetsweeper, RC vehicles, dozer, dumper, monster trucks (w 3)
-- [ ] Vehicle lights: headlights, brake, indicators, reverse, sirens, light damage and coronas, neon, nitro flames (w 2)
+- [~] Vehicle lights: headlights, brake, indicators, reverse, sirens, light damage and coronas, neon, nitro flames; done: CVehicle::GetVehicleLightsStatus (per-car seed minute after 20:00 / before 7:00, fog and wet roads), head and tail light coronas from the headlights / taillights (2) dummies with retail sizes and colours (halogen blue, 128 red braking with a driver, 96 with the lights on), bEngineOn, smashed lights (both rear lights read the rear left, as retail), stallion / sabre bumper lights; left: headlight ground reflections and beams, sirens and light bars, nitro flames (w 2)
 - [ ] Vehicle modification garages: TransFender, Loco Low Co, Wheel Arch Angels, parts, paint, respray, Pay'n'Spray, bomb shop (CGarage, CVehicleModelInfo upgrades) (w 4)
 - [ ] Vehicle radio: station choice per vehicle, cassette, horn, stereo UI (w 1)
 - [ ] Car generators and parked cars with their plate numbers and colours (CCarGenerator, CCustomCarPlateMgr) (w 1)

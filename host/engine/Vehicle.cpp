@@ -471,6 +471,13 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         if (w.frames[i].name == "ped_frontseat") {   // the dummy sits on the passenger side; the driver mirrors it
             vm.seatFound = true;
             vm.seatPos[0] = -std::fabs(glob[i][12]); vm.seatPos[1] = glob[i][13]; vm.seatPos[2] = glob[i][14];
+        } else {
+            static const char* kLight[4] = {"headlights", "taillights", "headlights2", "taillights2"};
+            for (int k = 0; k < 4; k++)
+                if (w.frames[i].name == kLight[k]) {
+                    vm.lightFound[k] = true;
+                    vm.lightPos[k][0] = std::fabs(glob[i][12]); vm.lightPos[k][1] = glob[i][13]; vm.lightPos[k][2] = glob[i][14];
+                }
         }
     ParseVehicleCol(dffData, 0, dffData.size(), vm);
     // GetSizeOfWheel (eCarWheel order: front left, rear left, front right, rear right): the vehicles.ide
@@ -571,6 +578,7 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
         const std::array<int, 4>& set = cc->second[(m_rng >> 8) % cc->second.size()];
         for (int k = 0; k < 4; k++) c.paint[k] = set[(size_t)k];
     }
+    c.randomSeed = (uint16_t)Random(65536);
     m_cars.push_back(c);
     return (int)m_cars.size() - 1;
 }

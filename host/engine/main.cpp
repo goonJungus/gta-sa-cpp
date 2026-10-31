@@ -4082,6 +4082,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
 
 
+            {   // bEngineOn and the driver: the player's car starts when he takes the wheel and keeps running after
+                static int s_driven = -1;
+                if (s_driven != g_driveCar && s_driven >= 0 && (size_t)s_driven < g_vehicles.Count()) g_vehicles.Car((size_t)s_driven).hasDriver = false;
+                if (g_driveCar >= 0) { VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar); dc.engineOn = true; dc.hasDriver = true; }
+                s_driven = g_driveCar;
+            }
+
             // ---- V cycles the camera views (Camera.h) ----
             const int camStyle = g_menu.Settings().cameraStyle;
             bool vDown = (GameKey('V') & 0x8000) != 0;
@@ -4403,6 +4410,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             float lampI = (0.55f - g_lightSunFade) / 0.45f;
             lampI = lampI < 0.0f ? 0.0f : (lampI > 1.0f ? 1.0f : lampI);
             g_world.RenderLamps(g_renderer, camPosX, camPosY, camPosZ, lampI);
+            if (g_vehicles.Ready()) {   // head and tail lights
+                Vehicles::LightEnv le;
+                const int clockMin = (int)(g_gameSeconds / 60.0f) % (24 * 60);
+                le.hour = clockMin / 60; le.minute = clockMin % 60;
+                const char* wn = g_timecycOk ? g_timecyc.WeatherName(g_weatherIdx).c_str() : "";
+                le.foggy = strstr(wn, "FOG") ? 1.0f : 0.0f;
+                le.wet = strstr(wn, "RAIN") || strstr(wn, "STORM") ? 1.0f : 0.0f;
+                const float cam[3] = {camPosX, camPosY, camPosZ};
+                g_vehicles.RenderLights(g_renderer, cam, le);
+            }
             // Traffic signals (lit vehicle bulb + ped walk/don't-walk), day and
             // night. The SA cycle runs on real wall-clock time (~32.8s), so use
             // GetTickCount; GTA_TLMS overrides it to inspect a specific state.

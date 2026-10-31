@@ -90,6 +90,9 @@ struct VehicleModel {
     float bbHalfX = 0;                          // body half width
     float seatPos[3] = {-0.45f, 0.1f, 0.35f};   // ped_frontseat dummy in car space (driver side)
     bool seatFound = false;
+    // headlights, taillights, headlights2, taillights2 dummies (CVehicleModelInfo m_avDummyPos 0..3), right side
+    float lightPos[4][3] = {};
+    bool lightFound[4] = {false, false, false, false};
     // The misc_a, misc_b and misc_c frames (eCarNodes CAR_MISC_A..C): tank turret, barrel and muzzle, fire truck nozzle.
     struct Node { bool found = false; int parent = -1; float local[16] = {}; float base[16] = {}; };
     Node nodes[3];
@@ -182,6 +185,9 @@ struct VehicleInstance {
     uint8_t panelStatus[7] = {0, 0, 0, 0, 0, 0, 0};
     uint8_t lightStatus[4] = {0, 0, 0, 0};
     uint8_t wheelStatus[4] = {0, 0, 0, 0};   // eCarWheel order (fl, rl, fr, rr): 0 ok, 1 burst, 2 missing
+    uint16_t randomSeed = 0;          // CEntity::m_nRandomSeed (picks the minute its lights come on)
+    bool engineOn = false;            // bEngineOn: started by a driver, keeps running when he leaves
+    bool hasDriver = false;           // someone at the wheel (brake lights need a foot on the pedal)
     // CDoor per eDoors (bonnet, boot, lf, rf, lr, rr) while it swings loose: angle, angular speed, eDoorState.
     float doorAngle[6] = {0, 0, 0, 0, 0, 0}, doorAngVel[6] = {0, 0, 0, 0, 0, 0};
     uint8_t doorHit[6] = {0, 0, 0, 0, 0, 0};
@@ -205,6 +211,12 @@ public:
     size_t Count() const { return m_cars.size(); }
     VehicleInstance& Car(size_t i) { return m_cars[i]; }
     void Draw(D3DRenderer& r);
+    // The clock and weather the lights read (CClock, CWeather::Foggyness / WetRoads).
+    struct LightEnv { int hour = 12, minute = 0; float foggy = 0.0f, wet = 0.0f; };
+    // CVehicle::GetVehicleLightsStatus.
+    static bool LightsOn(const VehicleInstance& c, const LightEnv& env);
+    // CVehicle::DoVehicleLights: head and tail light coronas of the cars near the camera.
+    void RenderLights(D3DRenderer& r, const float cam[3], const LightEnv& env) const;
 
     // Arcade driving from the handling line: throttle and brake 0..1, steer -1 (left) .. 1 (right).
     // groundAt(x, y, z) gives the road height or a value below -1e5 when unknown; blocked(newX, newY, oldX, oldY, z)
