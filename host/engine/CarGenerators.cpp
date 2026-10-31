@@ -31,7 +31,7 @@ void CarGenerators::Init(const std::vector<BinIplCarGen>& gens) {
 }
 
 int CarGenerators::CreateScript(float x, float y, float z, float angleDeg, int model, int colour1, int colour2, bool forceSpawn,
-                                int alarmChance, int doorLockChance, int minDelay, int maxDelay) {
+                                int alarmChance, int doorLockChance, int minDelay, int maxDelay, const std::string& plate) {
     if (model != -1 && (model < 400 || model > 611)) return -1;   // MODEL_LANDSTAL .. the last vehicle
     Gen e;
     e.file.x = x; e.file.y = y; e.file.z = z;
@@ -42,6 +42,7 @@ int CarGenerators::CreateScript(float x, float y, float z, float angleDeg, int m
     e.file.alarmChance = alarmChance; e.file.doorLockChance = doorLockChance;
     e.file.minDelay = minDelay; e.file.maxDelay = maxDelay;
     e.count = 0;                            // CCarGenerator::Setup
+    e.plate = plate;
     m_gens.push_back(e);
     return (int)(m_gens.size() - m_iplCount - 1);
 }
@@ -127,6 +128,7 @@ void CarGenerators::Process(Vehicles& v, D3DRenderer& r, const float player[3], 
             if (g.file.colour1 >= 0) c.paint[0] = g.file.colour1;
             if (g.file.colour2 >= 0) c.paint[1] = g.file.colour2;
         }
+        if (!g.plate.empty()) v.SetCustomPlate(r, (size_t)n, g.plate);
         if (GenRand(100) < g.file.alarmChance) c.alarmMs = -1;         // armed
         if (GenRand(100) < g.file.doorLockChance) c.locked = true;    // CARLOCK_LOCKED
         g.car = n;

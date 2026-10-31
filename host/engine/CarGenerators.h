@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "BinaryIpl.h"
@@ -26,7 +27,7 @@ public:
     // CTheCarGenerators::CreateCarGenerator for the script: angle in degrees, -1 model for a random car, -1 colours
     // for the model's own. Returns the handle, or -1 for a model that is no vehicle. It starts switched off.
     int CreateScript(float x, float y, float z, float angleDeg, int model, int colour1, int colour2, bool forceSpawn,
-                     int alarmChance, int doorLockChance, int minDelay, int maxDelay);
+                     int alarmChance, int doorLockChance, int minDelay, int maxDelay, const std::string& plate = {});
     // SWITCH_CAR_GENERATOR: 0 off, 1..100 that many cars, above that for ever.
     void SwitchScript(int handle, int count, uint32_t nowMs);
     // groundZ(x, y, fromZ) gives the ground under a point (below -1e5 if none). playerVel in m/s.
@@ -43,6 +44,7 @@ private:
         uint32_t nextGenMs = 0;       // m_nNextGenTime
         bool waitUntilFar = false;    // bWaitUntilFarFromPlayer
         int count = -1;               // m_nGenerateCount: 0 off, -1 for ever
+        std::string plate;            // CSpecialPlateHandler: the script's plate text for its cars
     };
     std::vector<Gen> m_gens;          // the IPL generators, then the script's
     size_t m_iplCount = 0;

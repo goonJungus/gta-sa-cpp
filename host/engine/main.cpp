@@ -4003,6 +4003,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             oc.doorStatus[0], oc.doorStatus[1], oc.doorStatus[2], oc.doorStatus[3], oc.doorStatus[4], oc.doorStatus[5],
                             oc.panelStatus[0], oc.panelStatus[1], oc.panelStatus[2], oc.panelStatus[3], oc.panelStatus[4], oc.panelStatus[5], oc.panelStatus[6]);
                 }
+            {   // CCustomCarPlateMgr::GetMapRegionPlateDesign
+                const int wr = WeatherRegionAt(playerX, playerY);   // 0 LA, 1 SF, 2 LV, 3 desert, 4 countryside
+                g_vehicles.plateDesign = wr == 0 ? 2 : wr == 2 || wr == 3 ? 1 : 0;
+            }
             g_vehicles.UpdateDamage(dt, g_driveCar, [](const float* p, float dark) { g_fx.Smoke(p, dark); }, [](const float* p) { g_fx.Fire(p); },
                                     [](const float* p, bool rocket) { (rocket ? g_aircraftBooms : g_carBooms).push_back({p[0], p[1], p[2]}); });
             {   // CEventKnockOffBike: the rider leaves the bike at its speed, falls, and gets up

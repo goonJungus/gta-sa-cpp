@@ -106,6 +106,7 @@ struct VehicleModel {
     std::vector<VehiclePart> parts;   // body parts
     D3DRenderMesh* wheelMesh = nullptr;
     std::vector<IDirect3DTexture9*> textures;
+    IDirect3DTexture9* plateTex = nullptr;   // the model's "carplate": one random plate for every car of it
     struct PaintPart { D3DRenderMesh* mesh; std::vector<MeshVertex> verts; int slot; };
     std::vector<PaintPart> paintParts;   // meshes whose colour follows the car's paint
     float wheelPos[4][3] = {};        // lf, rf, lb, rb in car space
@@ -276,6 +277,7 @@ struct VehicleInstance {
     // CDamageManager::m_nEngineStatus: 225 once the engine catches fire (no other fire takes the car then), 250 a
     // wreck, 0 after a repair. Above 225 with the health over 250 the health drains 2 a frame.
     uint8_t engineStatus = 0;
+    IDirect3DTexture9* plateTex = nullptr;   // CVehicle::m_pCustomCarPlate: a script plate (null: the model's)
     bool wrecked = false;
     bool removed = false;             // deleted by the script: not drawn, shot or entered
     float doomV = 0.0f, doomH = 0.05f;   // m_fDoomVerticalRotation / m_fDoomHorizontalRotation: turret yaw and pitch
@@ -347,6 +349,11 @@ public:
 
     // Spawn a car of this model id (loads the model on first use). Returns an instance index or -1.
     int Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading);
+    // CCustomCarPlateMgr: the plate back a model loaded from now on takes, by CWeather::WeatherRegion
+    // (GetMapRegionPlateDesign: 0 San Fierro and the country, 1 Las Venturas and the desert, 2 Los Santos).
+    int plateDesign = 2;
+    // CVehicle::CustomCarPlate_TextureCreate with a plate text: this car shows that plate (up to 8 characters).
+    void SetCustomPlate(D3DRenderer& r, size_t i, const std::string& text);
     void Clear() { m_cars.clear(); }
     size_t Count() const { return m_cars.size(); }
     VehicleInstance& Car(size_t i) { return m_cars[i]; }
@@ -563,6 +570,9 @@ private:
     std::unordered_map<int, VehicleModel> m_models;
     std::vector<VehicleInstance> m_cars;
     std::vector<uint8_t> m_sharedTxd;
+    std::vector<uint8_t> m_plateCharset;   // vehicle.txd "platecharset": 32 x 256 X8R8G8B8, 4 x 16 characters of 8 x 16
+    std::unordered_map<std::string, IDirect3DTexture9*> m_customPlates;
+    IDirect3DTexture9* CreatePlateTexture(D3DRenderer& r, const char* text);
     std::vector<std::array<uint8_t, 3>> m_colours;                  // carcols.dat colour table
     std::unordered_map<std::string, std::vector<std::array<int, 4>>> m_carColours;   // model name -> allowed paint sets
     unsigned m_rng = 7;

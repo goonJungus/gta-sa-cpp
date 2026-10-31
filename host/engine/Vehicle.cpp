@@ -15,6 +15,17 @@
 
 namespace {
 
+// CCustomCarPlateMgr::GeneratePlateText: "LL00 0LL" with retail's ranges (letters A..W, digits 0..8).
+void GeneratePlateText(char out[9]) {
+    auto inRange = [](int lo, int hi) { return (char)(lo + std::rand() % (hi - lo)); };   // CGeneral::GetRandomNumberInRange
+    out[0] = inRange('A', 'X'); out[1] = inRange('A', 'X');
+    out[2] = inRange('0', '9'); out[3] = inRange('0', '9');
+    out[4] = ' ';
+    out[5] = inRange('0', '9');
+    out[6] = inRange('A', 'X'); out[7] = inRange('A', 'X');
+    out[8] = 0;
+}
+
 std::string Lower(std::string s) {
     for (char& c : s) c = (char)std::tolower((unsigned char)c);
     return s;
@@ -466,6 +477,11 @@ bool Vehicles::Init(D3DRenderer&, const std::string& gameDir) {
             m_sharedTxd.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
         }
     }
+    if (!m_sharedTxd.empty())
+        for (const TxdTexture& x : TxdLoader::LoadFromMemory(m_sharedTxd.data(), m_sharedTxd.size()))
+            if (TxdLoader::KeyOf(x.name) == "platecharset" && x.width == 32 && x.height == 256 && x.mip0.size() >= 32u * 256u * 4u &&
+                (x.d3dFormat == D3DFMT_X8R8G8B8 || x.d3dFormat == D3DFMT_A8R8G8B8))
+                m_plateCharset = x.mip0;
     m_ready = !m_info.empty() && !m_handling.empty();
     std::fprintf(stderr, "[VEH] %zu models, %zu handling lines, shared txd %zu bytes\n", m_info.size(), m_handling.size(),
                  m_sharedTxd.size());
@@ -478,6 +494,8 @@ void Vehicles::Shutdown(D3DRenderer& r) {
         if (kv.second.wheelMesh) r.DestroyMesh(kv.second.wheelMesh);
         for (IDirect3DTexture9* t : kv.second.textures) if (t) r.DestroyTexture(t);
     }
+    for (auto& kv : m_customPlates) if (kv.second) r.DestroyTexture(kv.second);
+    m_customPlates.clear();
     m_models.clear();
     m_cars.clear();
 }
@@ -513,9 +531,17 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         auto it = tex.find(key);
         if (it != tex.end()) return it->second;
         IDirect3DTexture9* t = nullptr;
+        if (key == "carplate" && !m_plateCharset.empty()) {   // CVehicleModelInfo::SetCarCustomPlate: a random plate
+            char text[9] = {};
+            GeneratePlateText(text);
+            t = vm.plateTex = CreatePlateTexture(r, text);
+            if (t) vm.textures.push_back(t);
+        }
+        // CCustomCarPlateMgr::SetupMaterialPlatebackTexture: the region's plate back
+        const std::string look = key == "carpback" ? "plateback" + std::to_string(std::clamp(plateDesign, 0, 2) + 1) : key;
         for (const std::vector<TxdTexture>* set : {&own, &shared})
             for (const TxdTexture& x : *set) {
-                if (t || TxdLoader::KeyOf(x.name) != key) continue;
+                if (t || TxdLoader::KeyOf(x.name) != look) continue;
                 t = r.CreateTexture(x.width, x.height, x.d3dFormat, x.mip0.data(), (uint32_t)x.mip0.size(), &x.extraMips);
                 if (t) vm.textures.push_back(t);
             }
@@ -802,6 +828,30 @@ bool Vehicles::HasDoor(size_t i, int door) const {
     return it != m_models.end() && it->second.doors[door].found;
 }
 
+// CCustomCarPlateMgr::CreatePlateTexture / RenderLicenseplateTextToRaster: 8 characters of 8 x 16 side by side.
+IDirect3DTexture9* Vehicles::CreatePlateTexture(D3DRenderer& r, const char* text) {
+    if (m_plateCharset.empty()) return nullptr;
+    std::vector<uint8_t> px(64u * 16u * 4u, 0);
+    bool ended = false;
+    for (int k = 0; k < 8; k++) {
+        const char ch = ended || !text[k] ? ' ' : (char)std::toupper((unsigned char)text[k]);
+        ended = ended || !text[k];
+        // GetCharacterPositionInCharSet: A..Z then 0..9, four to a row; anything else the blank after them
+        const int idx = ch >= 'A' && ch <= 'Z' ? ch - 'A' : ch >= '0' && ch <= '9' ? 26 + (ch - '0') : 36;
+        const int col = idx % 4, row = idx / 4;
+        for (int y = 0; y < 16; y++)
+            std::memcpy(&px[((size_t)y * 64u + (size_t)k * 8u) * 4u], &m_plateCharset[((size_t)(row * 16 + y) * 32u + (size_t)col * 8u) * 4u], 8u * 4u);
+    }
+    return r.CreateTexture(64, 16, D3DFMT_X8R8G8B8, px.data(), (uint32_t)px.size());
+}
+
+void Vehicles::SetCustomPlate(D3DRenderer& r, size_t i, const std::string& text) {
+    if (i >= m_cars.size() || text.empty()) return;
+    auto it = m_customPlates.find(text);
+    if (it == m_customPlates.end()) it = m_customPlates.emplace(text, CreatePlateTexture(r, text.c_str())).first;
+    m_cars[i].plateTex = it->second;
+}
+
 void Vehicles::Fix(size_t i) {
     if (i >= m_cars.size()) return;
     VehicleInstance& c = m_cars[i];
@@ -929,7 +979,13 @@ void Vehicles::Draw(D3DRenderer& r) {
             else PartToCar(c, vm, p, pc);
             Mul(pc, body, &out._11);
             dev->SetTransform(D3DTS_WORLD, &out);
-            r.DrawMesh(p.mesh);
+            if (c.plateTex && vm.plateTex && p.mesh->texture == vm.plateTex) {   // this car's own plate
+                p.mesh->texture = c.plateTex;
+                r.DrawMesh(p.mesh);
+                p.mesh->texture = vm.plateTex;
+            } else {
+                r.DrawMesh(p.mesh);
+            }
         }
         if (!vm.wheelMesh) continue;
         for (int k = 0; k < 4; k++) {

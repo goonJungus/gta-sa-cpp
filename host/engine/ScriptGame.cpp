@@ -935,9 +935,8 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0623: Stats::Set(c.I(0), Stats::Get(c.I(0)) + (float)c.I(1)); return true;       // INCREMENT_INT_STAT
     case 0x0625: Stats::Set(c.I(0), Stats::Get(c.I(0)) - (float)c.I(1)); return true;       // DECREMENT_INT_STAT
     case 0x014B: case 0x09E2: {   // CREATE_CAR_GENERATOR(x y z angle model c1 c2 force alarm lock min max) (_WITH_PLATE: + plate)
-        // the plate text is not used: number plates are not drawn
         const int h = carGens ? carGens->CreateScript(c.F(0), c.F(1), c.F(2), c.F(3), c.I(4), c.I(5), c.I(6), c.I(7) != 0,
-                                                      c.I(8), c.I(9), c.I(10), c.I(11)) : -1;
+                                                      c.I(8), c.I(9), c.I(10), c.I(11), c.op == 0x09E2 ? c.S(12) : std::string()) : -1;
         c.Out(c.op == 0x09E2 ? 13 : 12, h);
         return true;
     }
