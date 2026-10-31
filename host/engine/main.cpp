@@ -4210,8 +4210,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const bool gearDown = (RawGameKey('2') & 0x8000) != 0, gearJust = gearDown && !s_prevGear;
                     s_prevGear = gearDown;
                     const bool onRails = g_trains.CarriageOfCar(g_driveCar) >= 0 && !g_vehicles.Car((size_t)g_driveCar).derailed;   // UpdateTrains drives it
-                    // the special control up / down (VEHICLE_TURRETUP / DOWN: num 8 / num 2), a tow truck's hoist
-                    const float gunUpDown = ((RawGameKey(VK_NUMPAD8) & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey(VK_NUMPAD2) & 0x8000) ? 1.0f : 0.0f);
+                    // the special control (CPad::GetCarGunUpDown): VEHICLE_TURRETUP is num 2 (+128), TURRETDOWN num 8 (-128)
+                    const float gunUpDown = ((RawGameKey(VK_NUMPAD2) & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey(VK_NUMPAD8) & 0x8000) ? 1.0f : 0.0f);
                     {   // hydraulics: num 6 / num 4, the horn (H / Caps Lock) just pressed, the sub-mission key (2) held to jump
                         const float gunLR = ((RawGameKey(VK_NUMPAD6) & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey(VK_NUMPAD4) & 0x8000) ? 1.0f : 0.0f);
                         static bool s_hornWas = false;

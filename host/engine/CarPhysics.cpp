@@ -426,6 +426,16 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         TowTruckControl(self, ts);
         b = Load(c, h);
     }
+    if (player) MiscComponentControl(self, ts);
+    if (c.model == 524 && !c.wrecked) {   // CAutomobile::PreRender: the mixer drum turns, faster as the control winds it up
+        c.propRot += ((float)c.hoist / 2500.0f + 0.5f) * ts * 0.02f;
+        if (c.propRot > 6.2831855f) c.propRot -= 6.2831855f;
+    }
+    if (c.model == 532) {   // the combine's reel: at least 0.1 a step going forward, still in reverse
+        const float s = Dot(b.mv, b.fwd);
+        c.propRot -= (s < 0.0f ? 0.0f : std::max(s, 0.1f)) * ts;
+        if (c.propRot < -6.2831855f) c.propRot += 6.2831855f;
+    }
     if (player && c.hyd.on && !heli && !plane) HydraulicControl(c, vm, h);
     const Lines L = LinesOf(c, vm);
     const bool hydGeom = c.hyd.on && (h.handlingFlags & 0x10000u);   // HYDRAULIC_GEOM with hydraulics in

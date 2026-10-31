@@ -20,6 +20,8 @@ using namespace physics;
 
 constexpr int kLinerun = 403, kPetro = 514, kRdTrain = 515, kTowtruck = 525, kTractor = 531, kUtility = 552, kBaggage = 485;
 constexpr int kTug = 583, kArtict3 = 591, kBagboxA = 606, kBagboxB = 607, kTugStair = 608, kFarmTr1 = 610, kUtilTr1 = 611;
+constexpr int kDumper = 406, kPacker = 443, kDozer = 486, kCement = 524, kForklift = 530;
+constexpr int kExtendLimit = 2500;                    // DEFAULT_COLLISION_EXTENDLIMIT (0x8D314C)
 constexpr int kHoistDown = 20000, kHoistUp = 10000;   // TOWTRUCK_HOIST_DOWN_LIMIT (0x8D313C) / TOWTRUCK_HOIST_UP_LIMIT (0x8D3140)
 constexpr float kTowbarOffsetY = -0.05f;              // TRAILER_TOWBAR_OFFSET_Y (0x871C20)
 constexpr float kRelinkXY = 0.4f, kRelinkZ = 1.0f;    // RELINK_TRAILER_DIFF_LIMIT_XY / _Z (0x8D3470 / 0x8D3474)
@@ -261,6 +263,25 @@ void Vehicles::ScanTrailers(float ts) {
         if (c.removed || c.wrecked || c.towedBy >= 0 || !IsTrailer(c.model)) continue;
         if (c.phys.supportExt > 0.5f || Bagbox(c.model)) ScanForTowLink(i, ts);
     }
+}
+
+// CAutomobile::UpdateMovingCollision(-1) for the player: the special control swings the dozer's shovel, the dumper's
+// bed and the packer's ramp (10 per step at full stick) and runs the forklift's forks up (10) or down (20), between 0
+// and 2500 (DEFAULT_COLLISION_EXTENDLIMIT). The cement truck's drum speeds up while TURRETDOWN is held and winds down
+// on its own. (The moving part's collision is not updated.)
+void Vehicles::MiscComponentControl(size_t i, float ts) {
+    VehicleInstance& c = m_cars[i];
+    if (c.model != kDumper && c.model != kPacker && c.model != kDozer && c.model != kCement && c.model != kForklift) return;
+    const float g = c.phys.inGunUpDown * 128.0f;
+    if (c.model == kCement) {
+        if (g < -10.0f) c.hoist = std::min(kExtendLimit, c.hoist - (int)(2.0f * (g / 128.0f) * 10.0f * ts));
+        else if (c.hoist) c.hoist = std::max(0, c.hoist - (int)((g + 100.0f) * 10.0f * ts / 128.0f));
+        return;
+    }
+    if (std::fabs(g) <= 10.0f) return;
+    float mult = 10.0f;
+    if (c.model == kForklift) mult *= g >= 0.0f ? -2.0f : -1.0f;
+    c.hoist = std::clamp(c.hoist + (int)(g / 128.0f * mult * ts), 0, kExtendLimit);
 }
 
 // CAutomobile::TowTruckControl: the special control raises (up, 2 per step at full stick) or lowers (6) the hoist;

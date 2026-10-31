@@ -237,7 +237,7 @@ struct CarPhys {
     // landing gear key this frame (the pad's R3)
     float planePropSpeed = 0.0f, gearStatus = 0.0f;
     bool inGear = false;
-    float inGunUpDown = 0.0f;         // the pad's special control up (+1) / down (-1): a tow truck's hoist
+    float inGunUpDown = 0.0f;         // GetCarGunUpDown / 128: VEHICLE_TURRETUP (num 2) +1, TURRETDOWN (num 8) -1
     float inGunLeftRight = 0.0f;      // special control right (+1) / left (-1)
     bool inHornJust = false, inHydJump = false;   // the horn went down this frame; the hydraulic jump key held
     // STATUS_PHYSICS: an AI driver's pedals and steering (CCarCtrl::SteerAICarWithPhysics), radians + left
@@ -314,7 +314,8 @@ struct VehicleInstance {
     // m_pTowingVehicle / m_pVehicleBeingTowed as car indices (-1 none), and a tow truck's or tractor's hoist
     // (m_wMiscComponentAngle: 0 raised .. 20000 lowered)
     int towedBy = -1, towing = -1;
-    int hoist = 0;
+    int hoist = 0;                    // m_wMiscComponentAngle: also the dozer / dumper / packer / forklift part and the mixer drum speed
+    float propRot = 0.0f;             // m_fPropRotate: the cement mixer's drum angle
     // Hydraulics (bHydraulicInst, CVehicle::m_aSpecialHydraulicData and the car's own copy of the suspension lines,
     // m_aSpecialColModel): state is m_wMiscComponentAngle (0 idle, 20..60 pumped, 500..504 raised); the limits are
     // worked out on first use (extUp 100 until then); prevSpeed is m_PrevSpeed (last frame's forward speed).
@@ -389,7 +390,7 @@ public:
     // leanFwd: a bike rider's weight, -1 back .. 1 forward (the pad's steer up / down).
     // skid: look right (+1) / left (-1), a helicopter's tail rotor.
     // gear: the landing gear key went down this frame.
-    // gunUpDown: the special control up (+1) / down (-1), a tow truck's hoist.
+    // gunUpDown: GetCarGunUpDown / 128 (VEHICLE_TURRETUP +1, TURRETDOWN -1): hoists, shovels, forks, hydraulics.
     bool ProcessCar(size_t i, float dt, float accel, float brake, float steer, bool handbrake, const VehicleWorld& world, float leanFwd = 0.0f,
                     float skid = 0.0f, bool gear = false, float gunUpDown = 0.0f);
     bool IsTrailer(int model) const;          // CTrailer (vehicles.ide type trailer)
@@ -519,6 +520,7 @@ private:
     void ScanForTowLink(size_t trailer, float ts);
     void ScanTrailers(float ts);
     void TowTruckControl(size_t i, float ts);
+    void MiscComponentControl(size_t i, float ts);   // UpdateMovingCollision(-1): the player moves a special vehicle's part
     // CAutomobile::HydraulicControl for the player's car (each step, before the suspension).
     void HydraulicControl(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h);
     // A component (0..5 eDoors, 6..12 6 + ePanels, 13 a wheel) of car ci comes off as a flying object (collision type

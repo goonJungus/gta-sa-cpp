@@ -172,14 +172,31 @@ int DamageComp(const std::string& n, bool* damaged) {
 
 // CAutomobile::PreRender: the rhino and swat van turret (misc_a yaws about Z by the vertical doom angle, misc_b pitches
 // about X by the horizontal one), the fire truck nozzle (misc_a pitches about X, then yaws about Z) and the tow truck's
-// and tractor's hoist (misc_a pitches about X, 0.4 rad (0x8D3144) when fully lowered). The rotation replaces the
-// frame's own and keeps its position.
+// and tractor's hoist (misc_a pitches about X, 0.4 rad (0x8D3144) when fully lowered), the dozer's shovel and the
+// dumper's bed (misc_a about X, 0.0002 per unit of m_wMiscComponentAngle), the packer's ramp (-0.0001) and the cement
+// mixer (misc_a tilted back 10 degrees, the drum misc_b spun about Y by m_fPropRotate, then tilted the same). The
+// rotation replaces the frame's own and keeps its position. The combine's reel (misc_b) turns about X.
 bool TurretRot(const VehicleInstance& c, int node, float r[9]) {
     const int model = c.model;
-    if ((model == 525 || model == 531) && node == 0) {
-        const float a = (float)c.hoist * 0.4f / 20000.0f, ca = std::cos(a), sa = std::sin(a);
+    auto setRx = [&](float a) {
+        const float ca = std::cos(a), sa = std::sin(a);
         const float rx[9] = {1, 0, 0, 0, ca, sa, 0, -sa, ca};
         std::memcpy(r, rx, sizeof(rx));
+    };
+    if ((model == 525 || model == 531) && node == 0) { setRx((float)c.hoist * 0.4f / 20000.0f); return true; }
+    if ((model == 486 || model == 406) && node == 0) { setRx((float)c.hoist * 0.0002f); return true; }
+    if (model == 443 && node == 0) { setRx((float)c.hoist * -0.0001f); return true; }
+    if (model == 524 && node == 0) { setRx(-0.17453294f); return true; }
+    if (model == 532 && node == 1) { setRx(c.propRot); return true; }   // the combine's reel
+    if (model == 524 && node == 1) {   // SetRotateYOnly(prop), then RotateX(-10 degrees) of each axis
+        const float cy = std::cos(c.propRot), sy = std::sin(c.propRot), cx = std::cos(-0.17453294f), sx = std::sin(-0.17453294f);
+        const float ry[9] = {cy, 0, -sy, 0, 1, 0, sy, 0, cy};
+        for (int i = 0; i < 3; i++) {
+            const float* v = ry + i * 3;
+            r[i * 3 + 0] = v[0];
+            r[i * 3 + 1] = v[1] * cx - v[2] * sx;
+            r[i * 3 + 2] = v[1] * sx + v[2] * cx;
+        }
         return true;
     }
     const float doomV = c.doomV, doomH = c.doomH;
@@ -204,6 +221,7 @@ void NodeCarSpace(const VehicleModel& vm, const VehicleInstance& c, int node, fl
     float r[9];
     if (TurretRot(c, node, r))
         for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) loc[i * 4 + j] = r[i * 3 + j];
+    if (c.model == 530 && node == 0) loc[14] += (float)c.hoist * 0.0006f;   // the forklift's forks ride up misc_a
     if (vm.trailerLegs && node == 0 && vm.supportStart[0][1] != 0.0f) {   // CTrailer::PreRender: the legs follow their extension
         const float ext = std::min((c.phys.supportRatio[0] + c.phys.supportRatio[1]) * 0.5f, c.phys.supportExt);
         const float travel = ext * (vm.supportEnd[0][2] - vm.supportStart[0][2]);
