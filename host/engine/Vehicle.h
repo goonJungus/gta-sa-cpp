@@ -147,6 +147,9 @@ struct VehicleModel {
     // and a plane's control surfaces: 19 rudder, 20 elevator_l, 21 elevator_r, 22 aileron_l, 23 aileron_r,
     // 24 gear_l, 25 gear_r (ePlaneNodes 16..22), 26 / 27 the Hydra's nozzles, 28 misc_a, 29 misc_b (PLANE_MISC_A / B)
     static constexpr int kMoveNodes = 30;
+    // CHeli::ProcessFlyingCarStuff's blade disc: the static_rotor frame's place on the model and its atomic's
+    // bounding sphere radius (0: no rotor)
+    float rotorPos[3] = {}, rotorRadius = 0.0f;
     BikeNode bikeNodes[kMoveNodes];
     bool isBike = false, isBoat = false, isHeli = false, isPlane = false, isTrailer = false;
     float hookup[3] = {0, 0, 0};      // the hookup dummy (DUMMY_TRAILER_ATTACH): where a trailer hangs on its tractor
@@ -493,6 +496,8 @@ public:
     // CGlass::CarWindscreenShatters: called with the glass rectangle (bottom corner, up and across edges, world
     // space), the car's move speed (per 1/50 s) and the rectangle's centre when a windscreen falls out.
     std::function<void(const float* corner, const float* fwd, const float* right, const float* vel, const float* centre)> onWindscreenShatter;
+    // CVehicle::BladeColSectorList: sparks where a rotor blade strikes (point, direction, speed m/s)
+    std::function<void(const float* point, const float* dir, float speed)> onBladeSparks;
     void WindscreenShatters(size_t ci);
     // CAutomobile::Fix / CBike::Fix: every door, panel, light and wheel back to new, loose parts reset, the fire out.
     void Fix(size_t i);
@@ -529,6 +534,7 @@ private:
     void HeliInputs(VehicleInstance& c, const HandlingData& h, bool player);
     void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void HeliRotors(VehicleInstance& c, float ts);
+    void HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);
     void HeliFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const;
     // CPlane::ProcessControlInputs (once a frame; the wheel brake and nose-wheel steering it sets), CPlane::
     // ProcessFlyingCarStuff + FlyingControl FLIGHT_MODEL_PLANE (each step) and CPlane::PreRender's moving parts.

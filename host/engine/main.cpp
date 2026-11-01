@@ -1728,6 +1728,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_enex.Load(GameDir());
             g_enex.setArea = [](int a) { g_world.SetArea(a); };
             if (const char* ga = getenv("GTA_AREA")) { g_enex.ForceArea(atoi(ga)); Log("DEV: start in area %d", atoi(ga)); }   // test: begin inside an interior
+            g_vehicles.onBladeSparks = [](const float* p, const float* dir, float speed) {   // FxManager AddSparks(16)
+                g_fx.Sparks(p, dir, speed, 16);
+            };
             g_vehicles.onWindscreenShatter = [](const float* corner, const float* fwd, const float* right, const float* vel, const float* centre) {
                 const float gz = g_world.GetGroundHeight(corner[0], corner[1], corner[2]);   // CWorld::FindGroundZFor3DCoord
                 g_fx.GlassPanes(corner, fwd, right, vel, centre, 0.1f, gz > -500.0f ? gz : corner[2] - 2.0f);

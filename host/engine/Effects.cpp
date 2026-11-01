@@ -58,6 +58,17 @@ void Effects::Impact(const float p[3], float nz) {
     }
 }
 
+void Effects::Sparks(const float p[3], const float dir[3], float speed, int count) {
+    for (int i = 0; i < count; i++) {
+        Puff f = {};
+        for (int k = 0; k < 3; k++) { f.p[k] = p[k]; f.v[k] = (dir[k] + Rnd(-0.2f, 0.2f)) * speed * Rnd(0.5f, 1.0f); }
+        f.life = Rnd(0.15f, 0.35f);
+        f.size0 = 0.05f; f.size1 = 0.02f;
+        f.rgb = 0xFFD070; f.alpha = 1.0f; f.spark = true;
+        m_puffs.push_back(f);
+    }
+}
+
 void Effects::Splash(const float p[3], float strength) {
     const int foam = 3 + (int)(6 * strength), drops = 4 + (int)(14 * strength);
     for (int i = 0; i < foam; i++) {

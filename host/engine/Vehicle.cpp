@@ -706,6 +706,18 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         const int fr = at ? at->frame : -1;
         const std::string name = fr >= 0 && (size_t)fr < w.frames.size() ? w.frames[(size_t)fr].name : std::string();
         const bool wheel = name == "wheel";
+        if (name == "static_rotor" && fr >= 0 && (size_t)fr < glob.size()) {   // RpMorphTargetCalcBoundingSphere: box centre, farthest vertex
+            float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+            for (const DffVertex& v : dm.vertices) {
+                lo[0] = std::min(lo[0], v.x); lo[1] = std::min(lo[1], v.y); lo[2] = std::min(lo[2], v.z);
+                hi[0] = std::max(hi[0], v.x); hi[1] = std::max(hi[1], v.y); hi[2] = std::max(hi[2], v.z);
+            }
+            const float cx = (lo[0] + hi[0]) * 0.5f, cy = (lo[1] + hi[1]) * 0.5f, cz = (lo[2] + hi[2]) * 0.5f;
+            float r2 = 0.0f;
+            for (const DffVertex& v : dm.vertices) r2 = std::max(r2, (v.x - cx) * (v.x - cx) + (v.y - cy) * (v.y - cy) + (v.z - cz) * (v.z - cz));
+            vm.rotorRadius = std::sqrt(r2);
+            for (int k = 0; k < 3; k++) vm.rotorPos[k] = glob[(size_t)fr][12 + (size_t)k];
+        }
         bool damagedMesh = false;
         const int comp = DamageComp(name, &damagedMesh);
         if (!wheel && comp < 0 && HiddenPart(name)) continue;

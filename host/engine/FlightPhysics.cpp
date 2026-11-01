@@ -217,6 +217,65 @@ void Vehicles::HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, flo
     Store(b, c);
 }
 
+// CHeli::ProcessFlyingCarStuff -> CVehicle::DoBladeCollision / BladeColSectorList (the player's heli, rotor past
+// 0.015): retail tests a sphere of the rotor's radius at static_rotor and keeps the colpoints within 0.1 of the
+// blade disc; here 16 spokes across that disc find the nearest strike in its plane. A spinning rotor (over 0.15) is
+// knocked back by a soft collision (elasticity 1) and a turn force against the blade's sweep, then drops to 0.15;
+// a slow one bounces back when it is under 0.075. Each strike sparks and records damage of at least
+// 100 x mass / 3000. Only the map is struck here: peds and other vehicles are not yet.
+void Vehicles::HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world) {
+    CarPhys& p = c.phys;
+    if (p.rotorSpeed <= 0.015f || vm.rotorRadius <= 0.1f || !world.line) return;
+    constexpr float kSoftDepthMin = 0.5f, kSoftDepthMult = 2.0f, kSoftSpeedMult = 0.95f;   // SOFTCOL_*
+    Body b = Load(c, h);
+    const V3 centre = b.pos + b.Rot(V3(vm.rotorPos));
+    const V3 rotorUp = -b.up;   // rotorType -3: the disc faces down
+    // the disc swept by 16 spokes (the nearest strike), each hit in the blade plane as the filter keeps
+    float best = 1.0f;
+    V3 point, normal;
+    for (int k = 0; k < 16; k++) {
+        const float a = (float)k * (6.2831853f / 16.0f);
+        const V3 spoke = b.right * std::cos(a) + b.fwd * std::sin(a);
+        const V3 end = centre + spoke * vm.rotorRadius;
+        float n[3];
+        const float t = world.line(&centre.x, &end.x, n);
+        if (t < best) { best = t; point = centre + spoke * (vm.rotorRadius * t); normal = V3(n); }
+    }
+    if (best >= 1.0f) return;
+    const float onUp = Dot(point - centre, rotorUp);
+    const V3 onRotor = point - rotorUp * onUp;
+    const V3 rotorSize = b.up * -0.2f;
+    V3 force = Cross(rotorSize, onRotor - centre) + b.mv;
+    const float speed = Len(force);
+    if (speed > 0.0f && onBladeSparks) {
+        const V3 dir = force / speed;
+        onBladeSparks(&onRotor.x, &dir.x, speed * 15.0f);
+    }
+    float di = 0.0f;
+    if (p.rotorSpeed <= 0.15f) {
+        if (p.rotorSpeed < 0.075f && p.rotorSpeed > 0.0f) p.rotorSpeed = -p.rotorSpeed;
+    } else {
+        // CPhysical::ApplySoftCollision against a building (its collision mass uses |normal|^2, as retail)
+        const V3 at = point - b.pos;
+        const float along = Dot(b.Speed(at), normal);
+        const float colMass = 1.0f / (1.0f / b.turnMass + 1.0f / b.mass);
+        const float depth = std::max(0.0f, vm.rotorRadius - Len(centre - point));
+        if (along < 0.0f) {
+            di = std::min(kSoftDepthMin, depth) * ts * kSoftDepthMult * colMass * 0.008f - colMass * along * kSoftSpeedMult;
+            if (di != 0.0f) { b.ApplyMoveForce(normal * di); b.ApplyTurnForce(normal * di, at); }
+            di = std::fabs(di);
+        }
+        b.ApplyTurnForce(force * (b.turnMass * -0.0005f), onRotor - centre);
+        p.rotorSpeed = 0.15f;
+    }
+    Store(b, c);
+    const float record = std::max(di, 100.0f * b.mass / 3000.0f);   // SetDamagedPieceRecord
+    if (record > p.damageIntensity) {
+        p.damageIntensity = record; p.damager = -1;
+        point.To(p.impactPos); normal.To(p.impactNormal);
+    }
+}
+
 // CHeli::PreRender: the main rotor turns about z (faster on the big helis), the tail rotor about x.
 void Vehicles::HeliRotors(VehicleInstance& c, float ts) {
     CarPhys& p = c.phys;

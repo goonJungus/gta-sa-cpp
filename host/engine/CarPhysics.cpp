@@ -786,7 +786,11 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         p.supportMin = c.towedBy >= 0 && ext < kTrailerTowedMinRatio ? kTrailerTowedMinRatio : ext;
         p.supportRatio[0] = p.supportRatio[1] = p.supportMin;
     }
-    if (heli) { HeliFlyingCarStuff(c, h, ts, player, world); HeliRotors(c, ts); }
+    if (heli) {
+        HeliFlyingCarStuff(c, h, ts, player, world);
+        if (player) HeliBladeCollision(c, vm, h, ts, world);
+        HeliRotors(c, ts);
+    }
     if (plane) PlaneFlyingCarStuff(c, vm, h, ts, player, world);
     if (collide) CarCollision(c, vm, h, ts, world);
 }

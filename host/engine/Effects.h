@@ -36,6 +36,8 @@ public:
     // and its "propellor" bubbles. vel: the boat's velocity (m/s), which the local particles share.
     void BoatProp(const float p[3], const float fwd[3], const float up[3], const float vel[3], float t, float dt);
     void Fire(const float p[3]);
+    // Fx_c::AddSparks: count bright specks thrown along dir (unit) at about speed m/s, falling.
+    void Sparks(const float p[3], const float dir[3], float speed, int count);
     void Explosion(const float p[3]);
     // CExplosion fx systems: 0 explosion_tiny, 1 _small, 2 _medium, 3 _large, 4 _molotov.
     void Explosion(const float p[3], int kind);
