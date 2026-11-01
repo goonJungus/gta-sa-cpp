@@ -4361,6 +4361,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const bool hornNow = ((RawGameKey('H') | RawGameKey(VK_CAPITAL)) & 0x8000) != 0;
                         g_vehicles.SetHydraulicPad((size_t)g_driveCar, gunLR, hornNow && !s_hornWas, (RawGameKey('2') & 0x8000) != 0, hornNow);
                         s_hornWas = hornNow;
+                        if (const char* fm = getenv("GTA_FLYMOUSE")) {   // dev: "dx,dy" mouse counts every frame while flying
+                            float mx = 0.0f, my = 0.0f;
+                            if (sscanf(fm, "%f,%f", &mx, &my) == 2) { g_flyMouseDX = mx; g_flyMouseDY = my; }
+                        }
                         g_vehicles.SetMouseFly((size_t)g_driveCar, g_flyMouseDX, g_flyMouseDY);
                     }
                     if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust, gunUpDown)))
