@@ -150,12 +150,15 @@ bool Vehicles::AddUpgrade(D3DRenderer& r, size_t ci, const std::string& componen
                 const std::array<uint8_t, 3> rgb = idx >= 0 && (size_t)idx < m_colours.size() ? m_colours[(size_t)idx] : std::array<uint8_t, 3>{200, 200, 200};
                 tint = 0xFF000000u | ((uint32_t)rgb[0] << 16) | ((uint32_t)rgb[1] << 8) | rgb[2];
             }
+            const uint32_t matAlpha = dm.materialColor >> 24;   // translucent glass blends
+            if (matAlpha < 0xFFu) tint = (matAlpha << 24) | (tint & 0x00FFFFFFu);
             for (DffVertex& v : dm.vertices) v.color = tint;
             D3DRenderMesh* mesh = r.CreateMesh(reinterpret_cast<const MeshVertex*>(dm.vertices.data()), (uint32_t)dm.vertices.size(),
                                                dm.indices.data(), (uint32_t)dm.indices.size());
             if (!mesh) continue;
             mesh->texture = texture(dm.textureName);
             mesh->doubleSided = true;
+            mesh->alphaBlend = matAlpha < 0xFFu;
             vm.upgradeMeshes.push_back(mesh);
             VehiclePart p;
             p.mesh = mesh;

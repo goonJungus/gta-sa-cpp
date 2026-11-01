@@ -109,12 +109,15 @@ public:
         float lookYaw = 0.0f, lookPitch = 0.0f;   // mouse / stick look this frame (radians)
         bool reset = false;                       // just got in: start behind the vehicle
         int look = kLookAhead;                    // CCam::LookLeft / LookRight / LookBehind
+        float seat[3] = {0.0f, 0.5f, 0.3f};       // the driver's seat dummy (a boat: its front light), model space
         std::function<float(const float a[3], const float b[3])> ray;
     };
 
     // V: zoom 1 -> 2 -> 3 (CCamera::m_nCarZoom).
-    void Cycle() { m_zoom = m_zoom % 3 + 1; }
+    // The fourth view is the first-person one (CCam::Process_1stPerson), from the driver's seat.
+    void Cycle() { if (m_first) { m_first = false; m_zoom = 1; } else if (m_zoom == 3) m_first = true; else m_zoom = m_zoom % 3 + 1; }
     int Zoom() const { return m_zoom; }
+    bool FirstPerson() const { return m_first; }
 
     PlayerCamera::Output Update(const Input& in);
     // The view as yaw / pitch (the on-foot convention), for whoever takes over next.
@@ -123,6 +126,7 @@ public:
 
 private:
     int m_zoom = 2;                     // CCamera::m_nCarZoom
+    bool m_first = false, m_wasFirst = false;   // the first-person view, and that it was up last frame (the chase view restarts behind)
     float m_zoomSmoothed = -1e9f;       // m_fCarZoomSmoothed
     float m_beta = 0.0f, m_alpha = 0.0f;           // m_fHorizontalAngle / m_fVerticalAngle
     float m_betaSpeed = 0.0f, m_alphaSpeed = 0.0f;

@@ -268,8 +268,27 @@ float WrapNear(float a, float ref) {
 
 }  // namespace
 
-PlayerCamera::Output CarCamera::Update(const Input& in) {
+PlayerCamera::Output CarCamera::Update(const Input& inRaw) {
+    Input in = inRaw;
+    if (m_wasFirst && !m_first) { in.reset = true; m_wasFirst = false; }   // back to the chase view: start behind again
     PlayerCamera::Output out;
+    if (m_first) {   // CCam::Process_1stPerson: the seat dummy (x ignored) plus (0, 0.08, 0.62), at 60 degrees
+        m_wasFirst = true;
+        float eye[3];
+        const float ly = in.seat[1] + 0.08f, lz = in.seat[2] + 0.62f + (in.kind == kBoat ? 0.5f : 0.0f);
+        for (int k = 0; k < 3; k++) eye[k] = in.pos[k] + in.fwd[k] * ly + in.up[k] * lz;
+        if (in.up[2] < 0.0f) eye[2] += 0.5f;   // upside down: lifted clear of the ground
+        const float* d = in.look == kLookLeft ? nullptr : in.look == kLookRight ? in.right : in.look == kLookBehind ? nullptr : in.fwd;
+        for (int k = 0; k < 3; k++) {
+            out.eye[k] = eye[k];
+            out.dir[k] = d ? d[k] : in.look == kLookLeft ? -in.right[k] : -in.fwd[k];
+        }
+        out.nearClip = 0.15f;
+        out.firstPerson = true;
+        out.hideHead = true;
+        out.fovScale = std::tan(30.0f * 3.14159265f / 180.0f) / std::tan(35.0f * 3.14159265f / 180.0f);
+        return out;
+    }
     const float ts = in.dt * 50.0f;
     const float* s = kCarCamSet[std::clamp(in.kind, 0, 5)];
     const int ap = std::clamp(in.arrPos, 0, 4), zi = std::clamp(m_zoom, 1, 3) - 1;

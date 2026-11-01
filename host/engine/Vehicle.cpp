@@ -104,6 +104,17 @@ void Mul(const float* a, const float* b, float* o) {   // 4x4 row vectors: o = a
     std::memcpy(o, t, sizeof(t));
 }
 
+// Translucent glass takes its alpha from the vertex colour (the material's 0x80) as well as the texture's.
+void DrawPartMesh(IDirect3DDevice9* dev, D3DRenderer& r, D3DRenderMesh* m) {
+    if (m->alphaBlend) {
+        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+    }
+    r.DrawMesh(m);
+    if (m->alphaBlend) dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+}
+
 bool HasUpgradeSlot(const VehicleInstance& c, int slot) {
     for (const VehicleInstance::Upgrade& u : c.upgrades) if (u.slot == slot) return true;
     return false;
@@ -754,13 +765,17 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         const uint32_t mc = dm.materialColor & 0x00FFFFFFu;
         int slot = -1;
         if (mc == 0x003CFF00u) slot = 0; else if (mc == 0x00FF00AFu) slot = 1; else if (mc == 0x0000FFFFu) slot = 2; else if (mc == 0x00FF00FFu) slot = 3;
-        const uint32_t tint = !dm.textureName.empty() ? 0xFFFFFFFFu : (slot >= 0 ? 0xFFFFFFFFu : (0xFF000000u | mc));
+        uint32_t tint = !dm.textureName.empty() ? 0xFFFFFFFFu : (slot >= 0 ? 0xFFFFFFFFu : (0xFF000000u | mc));
+        // glass is a translucent material (80ffffff): blended, so the cabin shows through it
+        const uint32_t matAlpha = dm.materialColor >> 24;
+        if (matAlpha < 0xFFu) tint = (matAlpha << 24) | (tint & 0x00FFFFFFu);
         for (DffVertex& v : dm.vertices) v.color = tint;
         D3DRenderMesh* mesh = r.CreateMesh(reinterpret_cast<const MeshVertex*>(dm.vertices.data()), (uint32_t)dm.vertices.size(),
                                            dm.indices.data(), (uint32_t)dm.indices.size());
         if (!mesh) continue;
         mesh->texture = texture(dm.textureName);
         mesh->doubleSided = true;
+        mesh->alphaBlend = matAlpha < 0xFFu;
         if (slot >= 0) {
             VehicleModel::PaintPart pp;
             pp.mesh = mesh; pp.slot = slot;
@@ -981,6 +996,17 @@ bool Vehicles::SeatWorld(size_t i, float out[3], bool* low, bool passenger) cons
     return true;
 }
 
+bool Vehicles::EyeDummy(size_t i, float out[3]) const {
+    if (i >= m_cars.size()) return false;
+    auto it = m_models.find(m_cars[i].model);
+    if (it == m_models.end()) return false;
+    const VehicleModel& vm = it->second;
+    const bool boat = vm.isBoat || UsesBoatPhysics(m_cars[i].model);
+    const float* s = boat && vm.lightFound[0] ? vm.lightPos[0] : vm.seatPos;
+    for (int k = 0; k < 3; k++) out[k] = s[k];
+    return true;
+}
+
 void Vehicles::Draw(D3DRenderer& r) {
     IDirect3DDevice9* dev = r.GetDevice();
     if (!dev) return;
@@ -1015,7 +1041,7 @@ void Vehicles::Draw(D3DRenderer& r) {
             if ((p.exhaustOk && HasUpgradeSlot(c, 101)) || (p.bumper >= 0 && HasUpgradeSlot(c, 102 + p.bumper))) continue;   // replaced
             if (p.node >= 0) {   // a turret part follows its (rotated) frame
                 float nm[16];
-                if (NodeMatrix((size_t)(&c - m_cars.data()), p.node, nm)) { dev->SetTransform(D3DTS_WORLD, reinterpret_cast<D3DMATRIX*>(nm)); r.DrawMesh(p.mesh); continue; }
+                if (NodeMatrix((size_t)(&c - m_cars.data()), p.node, nm)) { dev->SetTransform(D3DTS_WORLD, reinterpret_cast<D3DMATRIX*>(nm)); DrawPartMesh(dev, r, p.mesh); continue; }
             }
             float pc[16];
             if (vm.isBoat && (p.bikeNode == 11 || p.bikeNode == 13) && propSpeed >= 0.6f) continue;
@@ -1028,10 +1054,10 @@ void Vehicles::Draw(D3DRenderer& r) {
             dev->SetTransform(D3DTS_WORLD, &out);
             if (c.plateTex && vm.plateTex && p.mesh->texture == vm.plateTex) {   // this car's own plate
                 p.mesh->texture = c.plateTex;
-                r.DrawMesh(p.mesh);
+                DrawPartMesh(dev, r, p.mesh);
                 p.mesh->texture = vm.plateTex;
             } else {
-                r.DrawMesh(p.mesh);
+                DrawPartMesh(dev, r, p.mesh);
             }
         }
         for (const VehicleInstance::Upgrade& up : c.upgrades) {   // the add-on components fitted
@@ -1041,7 +1067,7 @@ void Vehicles::Draw(D3DRenderer& r) {
                 PartToCar(c, vm, p, pc);
                 Mul(pc, body, &out._11);
                 dev->SetTransform(D3DTS_WORLD, &out);
-                r.DrawMesh(p.mesh);
+                DrawPartMesh(dev, r, p.mesh);
             }
         }
         const VehicleInstance::Upgrade* wheelUp = nullptr;   // new wheels

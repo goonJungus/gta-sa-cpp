@@ -561,6 +561,8 @@ public:
     bool ModelBounds(int id, float* minY, float* maxY, float* minZ) const;
     // The driver's seat (ped_frontseat, or its passenger-side twin) of car i in the world, and whether the car sits low.
     bool SeatWorld(size_t i, float out[3], bool* low = nullptr, bool passenger = false) const;
+    // The driver's seat dummy in model space (a boat: its front light), for the first-person camera.
+    bool EyeDummy(size_t i, float out[3]) const;
     // Car i's model has this side door hinge (0 lf, 1 rf, 2 lr, 3 rr).
     bool HasDoor(size_t i, int door) const;
     // Car i's body footprint in car space: half width and the y range. False when the model is not loaded.

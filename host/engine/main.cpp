@@ -112,6 +112,7 @@ CarCamera g_carCam;                // in-vehicle chase camera (V zooms)
 static int g_carCamCar = -1;       // the car g_carCam last followed
 static float g_carCamYaw = 0.0f, g_carCamPitch = 0.0f;   // the view it handed back
 static bool g_hideCjHead = false;         // first-person view
+static bool g_carFirstPerson = false;     // the in-car first-person view: the driver is not drawn (CPed::PreRender)
 static float g_nearClip = 0.5f;
 static float g_fovDeg = 70.0f;           // vertical FOV in use (rewrite can change it)
 static int  g_forceStyle = -1;            // --classic / --rewrite (not saved)
@@ -4546,6 +4547,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             float cp = cosf(pitch), sp = sinf(pitch);
             float dirX = cosf(yaw) * cp, dirY = sinf(yaw) * cp, dirZ = sp;
             g_hideCjHead = false;
+            g_carFirstPerson = false;
             float nearClip = 0.5f;
             if (g_driveCar < 0) g_carCamCar = -1;
             if (cjReady && !scripted && !flyover && g_driveCar >= 0) {   // CCam::Process_FollowCar_SA
@@ -4581,7 +4583,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
                 if (worldReady && !g_devNoClip)
                     ki.ray = [](const float a[3], const float b[3]) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]); };
+                g_vehicles.EyeDummy((size_t)g_driveCar, ki.seat);
                 const PlayerCamera::Output co = g_carCam.Update(ki);
+                g_hideCjHead = co.hideHead;   // first person: the driver's head would fill the view
+                g_carFirstPerson = co.firstPerson;
                 g_carCamCar = g_driveCar;
                 yaw = g_carCam.Yaw(); pitch = std::clamp(g_carCam.Pitch(), -1.5f, 1.5f);
                 while (yaw > 3.14159265f) yaw -= 6.28318531f;
@@ -4808,7 +4813,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
             if (g_cutHideCj) return;
-            if (cjReady && !scripted && !flyover) { g_cj.SetHideGun(g_scoped); g_cj.Draw(g_renderer, playerX, playerY, feetZ, g_hideCjHead); return; }
+            if (cjReady && !scripted && !flyover) { if (!g_carFirstPerson) { g_cj.SetHideGun(g_scoped); g_cj.Draw(g_renderer, playerX, playerY, feetZ, g_hideCjHead); } return; }
             if (!thirdPerson) return;
             if (!playerMesh) return;
             float hy = yaw * 0.5f;
