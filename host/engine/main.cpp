@@ -473,6 +473,7 @@ static const wchar_t* WINDOW_TITLE = L"GTA SA C++ (Playable)";
 // warp. g_rawMouseAbs tracks the last absolute position for devices that only
 // send MOUSE_MOVE_ABSOLUTE (precision touchpads, RDP, some tablets).
 static volatile long g_rawMouseDX = 0, g_rawMouseDY = 0;
+static float g_flyMouseDX = 0.0f, g_flyMouseDY = 0.0f;   // this frame's mouse counts when they fly a heli or plane (not look)
 static bool g_rawMouseHaveAbs = false;
 static long g_rawMouseAbsX = 0, g_rawMouseAbsY = 0;
 static bool g_cursorCentred = false;   // the cursor was pinned to the window centre last frame
@@ -2993,6 +2994,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
             // ---- Mouse look ----
+            g_flyMouseDX = g_flyMouseDY = 0.0f;
             if (mouseLook && !g_devPaused && !g_scriptedRun) {   // (a scripted run: no mouse, as no keyboard)
                 int dx = 0, dy = 0;
                 // Raw deltas first (no acceleration bias). Trackpads often send no raw
@@ -3058,12 +3060,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const float wl = sqrtf(g_wheelX * g_wheelX + g_wheelY * g_wheelY);
                     if (wl > 1.0f) { g_wheelX /= wl; g_wheelY /= wl; }
                 } else if (dx != 0 || dy != 0) {
-                    // Post-mirror-fix sign: mouse right (dx>0) must turn the view right.
                     const FeSettings& ms = g_menu.Settings();
+                    // CVehicle::m_bEnableMouseFlying (on by default): in a heli or plane the mouse moves the stick, and
+                    // only the vehicle mouse-look button (the right one here) lets it turn the camera instead
+                    const int fm = g_driveCar >= 0 ? g_vehicles.Car((size_t)g_driveCar).model : 0;
+                    if (fm && (g_vehicles.UsesHeliPhysics(fm) || g_vehicles.UsesPlanePhysics(fm)) && !(RawGameKey(VK_RBUTTON) & 0x8000)) {
+                        g_flyMouseDX = (float)dx;
+                        g_flyMouseDY = (float)dy * (ms.invertY ? -1.0f : 1.0f);
+                    } else {
+                    // Post-mirror-fix sign: mouse right (dx>0) must turn the view right.
                     yaw   -= dx * MOUSE_SENS * ms.mouseSens;
                     pitch -= dy * MOUSE_SENS * ms.mouseSens * (ms.invertY ? -1.0f : 1.0f);
                     if (pitch >  1.5f) pitch =  1.5f;
                     if (pitch < -1.5f) pitch = -1.5f;
+                    }
                 }
             } else {
                 // Not looking (paused / menu): drop any raw motion so it can't
@@ -4316,6 +4326,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         const bool hornNow = ((RawGameKey('H') | RawGameKey(VK_CAPITAL)) & 0x8000) != 0;
                         g_vehicles.SetHydraulicPad((size_t)g_driveCar, gunLR, hornNow && !s_hornWas, (RawGameKey('2') & 0x8000) != 0, hornNow);
                         s_hornWas = hornNow;
+                        g_vehicles.SetMouseFly((size_t)g_driveCar, g_flyMouseDX, g_flyMouseDY);
                     }
                     if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust, gunUpDown)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now

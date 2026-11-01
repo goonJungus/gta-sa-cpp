@@ -259,6 +259,10 @@ struct CarPhys {
     float inGunLeftRight = 0.0f;      // special control right (+1) / left (-1)
     bool inHornJust = false, inHydJump = false;   // the horn went down this frame; the hydraulic jump key held
     bool inHorn = false;                          // the horn held (CPad::GetHorn)
+    // CPad::NewMouseControllerState.m_AmountMoved this frame while the mouse flies the aircraft, and whether the last
+    // input was the mouse (CVehicle::m_nLastControlInput == MOUSE)
+    float inMouseDX = 0.0f, inMouseDY = 0.0f;
+    bool lastInputMouse = false;
     // STATUS_PHYSICS: an AI driver's pedals and steering (CCarCtrl::SteerAICarWithPhysics), radians + left
     bool ai = false, aiHandbrake = false;
     float aiGas = 0.0f, aiBrake = 0.0f, aiSteer = 0.0f;
@@ -435,6 +439,10 @@ public:
     void ClearAIControls(size_t i) { if (i < m_cars.size()) m_cars[i].phys.ai = false; }
     // A recorded playback lets go of car i: the simulation takes it on where it is, as it is turned, at its speed.
     void EndPlayback(size_t i);
+    // CVehicle::m_bEnableMouseFlying: the mouse's movement this frame (counts) for a heli or plane's stick.
+    void SetMouseFly(size_t i, float dx, float dy) {
+        if (i < m_cars.size()) { m_cars[i].phys.inMouseDX = dx; m_cars[i].phys.inMouseDY = dy; }
+    }
     void SetHydraulicPad(size_t i, float leftRight, bool hornJust, bool jump, bool horn) {
         if (i < m_cars.size()) {
             m_cars[i].phys.inGunLeftRight = leftRight; m_cars[i].phys.inHornJust = hornJust; m_cars[i].phys.inHydJump = jump;
@@ -531,7 +539,7 @@ private:
     void BoatFrameMatrices(const VehicleInstance& c, const VehicleModel& vm, float nodes[VehicleModel::kMoveNodes][16]) const;
     // CHeli::ProcessControlInputs (once a frame), CHeli::ProcessFlyingCarStuff + CVehicle::FlyingControl (each step,
     // at the end of CAutomobile::ProcessControl) and CHeli::PreRender's rotors (FlightPhysics.cpp).
-    void HeliInputs(VehicleInstance& c, const HandlingData& h, bool player);
+    void HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player);
     void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void HeliRotors(VehicleInstance& c, float ts);
     void HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);

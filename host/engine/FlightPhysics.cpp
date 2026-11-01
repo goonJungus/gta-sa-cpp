@@ -178,12 +178,29 @@ bool Vehicles::UsesHeliPhysics(int model) const {
 // steer left / right, the tail rotor on look left / right. Holding the horn (upright) flies the hover assist: no
 // tail rotor, and pitch and roll set against the drift along the level forward and side (by the pitch / roll
 // stabilities, at most 2 either way). A burning heli loses its lift and swings its tail.
-void Vehicles::HeliInputs(VehicleInstance& c, const HandlingData& h, bool player) {
+void Vehicles::HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player) {
     CarPhys& p = c.phys;
     if (!player) { p.flyAccel = p.flyUpDown = p.flyLeftRight = p.flySkid = 0.0f; return; }
     p.flyAccel = p.inAccel - p.inBrake;
-    p.flyUpDown = std::clamp(-p.inLeanFwd, -1.0f, 1.0f);       // steer up (num 8) is the stick forward: nose down
-    p.flyLeftRight = std::clamp(-p.inSteer, -1.0f, 1.0f);
+    // Mouse flying (CVehicle::m_bEnableMouseFlying, on by default): the mouse's movement is added to the stick
+    // (0.0025 a count; right rolls right, down pulls back) and, while it is small, eased back by 0.98 a step; the
+    // stick stays where the mouse left it until a key takes over.
+    const bool padSteer = p.inSteer != 0.0f || p.inLeanFwd != 0.0f;
+    const bool moved = p.inMouseDX != 0.0f || p.inMouseDY != 0.0f;
+    if (moved || (p.lastInputMouse && !padSteer && (p.flyLeftRight != 0.0f || p.flyUpDown != 0.0f))) {
+        p.lastInputMouse = true;
+        p.flyLeftRight -= p.inMouseDX * 0.0025f;
+        p.flyUpDown += p.inMouseDY * 0.0025f;
+        const float ease = std::pow(0.98f, ts);
+        if (std::fabs(p.flyLeftRight) < 0.5f) p.flyLeftRight *= ease;
+        if (std::fabs(p.flyUpDown) < 0.5f) p.flyUpDown *= ease;
+    } else if (!(p.lastInputMouse && !padSteer)) {
+        p.lastInputMouse = false;
+        p.flyUpDown = -p.inLeanFwd;       // steer up (num 8) is the stick forward: nose down
+        p.flyLeftRight = -p.inSteer;
+    }
+    p.flyUpDown = std::clamp(p.flyUpDown, -1.0f, 1.0f);
+    p.flyLeftRight = std::clamp(p.flyLeftRight, -1.0f, 1.0f);
     p.flySkid = std::clamp(p.inSkid, -1.0f, 1.0f);
     if (p.inHorn && c.rot[8] > 0.0f) {
         p.flySkid = 0.0f;
@@ -329,8 +346,23 @@ void Vehicles::PlaneInputs(VehicleInstance& c, const HandlingData& h, float ts, 
     if ((c.model == 512 || c.model == 513) && p.inGear && !p.prevGearKey) p.smokeEjector = !p.smokeEjector;
     p.prevGearKey = p.inGear;
     if (!c.engineOn) p.smokeEjector = false;
-    p.flyLeftRight = std::clamp(p.flyLeftRight + (p.inSteer - p.flyLeftRight) * ts * 0.2f, -1.0f, 1.0f);
-    p.flyUpDown = std::clamp(p.flyUpDown + (-p.inLeanFwd - p.flyUpDown) * ts * 0.2f, -1.0f, 1.0f);   // steer up: nose down
+    // Mouse flying as the heli's, with 0.0015 a count and the 0.99 ease below 0.15; keys ease the stick a fifth a step.
+    const bool padSteer = p.inSteer != 0.0f || p.inLeanFwd != 0.0f;
+    const bool moved = p.inMouseDX != 0.0f || p.inMouseDY != 0.0f;
+    if (moved || (p.lastInputMouse && !padSteer && (p.flyLeftRight != 0.0f || p.flyUpDown != 0.0f))) {
+        p.lastInputMouse = true;
+        p.flyLeftRight += p.inMouseDX * 0.0015f;
+        p.flyUpDown += p.inMouseDY * 0.0015f;
+        const float ease = std::pow(0.99f, ts);
+        if (std::fabs(p.flyLeftRight) < 0.15f) p.flyLeftRight *= ease;
+        if (std::fabs(p.flyUpDown) < 0.15f) p.flyUpDown *= ease;
+    } else if (!(p.lastInputMouse && !padSteer)) {
+        p.lastInputMouse = false;
+        p.flyLeftRight += (p.inSteer - p.flyLeftRight) * ts * 0.2f;
+        p.flyUpDown += (-p.inLeanFwd - p.flyUpDown) * ts * 0.2f;   // steer up: nose down
+    }
+    p.flyLeftRight = std::clamp(p.flyLeftRight, -1.0f, 1.0f);
+    p.flyUpDown = std::clamp(p.flyUpDown, -1.0f, 1.0f);
     const float skidPad = c.model == MODEL_VORTEX ? p.inSteer : p.inSkid;   // the Vortex: the steering, not the look keys
     p.flySkid = std::clamp(p.flySkid + (skidPad - p.flySkid) * ts * 0.2f, -1.0f, 1.0f);
     p.flyAccel = p.inAccel - p.inBrake;
