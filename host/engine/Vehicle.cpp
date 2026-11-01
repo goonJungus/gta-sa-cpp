@@ -104,6 +104,11 @@ void Mul(const float* a, const float* b, float* o) {   // 4x4 row vectors: o = a
     std::memcpy(o, t, sizeof(t));
 }
 
+bool HasUpgradeSlot(const VehicleInstance& c, int slot) {
+    for (const VehicleInstance::Upgrade& u : c.upgrades) if (u.slot == slot) return true;
+    return false;
+}
+
 void FrameMatrix(const float* m12, float* o) {
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 3; j++) o[i * 4 + j] = m12[i * 3 + j];
@@ -492,6 +497,7 @@ void Vehicles::Shutdown(D3DRenderer& r) {
     for (auto& kv : m_models) {
         for (VehiclePart& p : kv.second.parts) if (p.mesh) r.DestroyMesh(p.mesh);
         if (kv.second.wheelMesh) r.DestroyMesh(kv.second.wheelMesh);
+        for (D3DRenderMesh* m : kv.second.upgradeMeshes) if (m) r.DestroyMesh(m);
         for (IDirect3DTexture9* t : kv.second.textures) if (t) r.DestroyTexture(t);
     }
     for (auto& kv : m_customPlates) if (kv.second) r.DestroyTexture(kv.second);
@@ -633,6 +639,25 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
             else { std::memset(bm.base, 0, sizeof(bm.base)); bm.base[0] = bm.base[5] = bm.base[10] = bm.base[15] = 1.0f; }
             for (int c = 0; c < 3; c++) bm.pos[c] = glob[i][12 + (size_t)c];
         }
+    {   // CVehicleModelInfo::PreprocessHierarchy: each ug_* frame is an upgrade slot (RwObjectNameIdAssocation order)
+        static const char* kUg[16] = {"ug_bonnet", "ug_bonnet_left", "ug_bonnet_right", "ug_bonnet_dam", "ug_bonnet_left_dam", "ug_bonnet_right_dam",
+                                      "ug_spoiler", "ug_spoiler_dam", "ug_wing_left", "ug_wing_right", "ug_frontbullbar", "ug_backbullbar",
+                                      "ug_lights", "ug_lights_dam", "ug_roof", "ug_nitro"};
+        for (size_t i = 0; i < w.frames.size(); i++)
+            for (int s = 0; s < 16; s++) {
+                if (w.frames[i].name != kUg[s]) continue;
+                VehicleModel::UpgradePos& up = vm.upgradePos[s];
+                up.found = true;
+                FrameMatrix(w.frames[i].m, up.local);
+                const int p = w.frames[i].parent;
+                if (p >= 0 && (size_t)p < i) Mul(up.local, glob[(size_t)p].data(), up.full);
+                else std::memcpy(up.full, up.local, sizeof(up.full));
+                if (p >= 0 && (size_t)p < w.frames.size()) {
+                    for (int k = 0; k < 6; k++) if (vm.doors[k].found && vm.doors[k].frame == p) up.door = k;
+                    for (int k = 0; k < 2; k++) if (vm.bumpers[k].found && vm.bumpers[k].frame == p) up.bumper = k;
+                }
+            }
+    }
     {   // CBike::SetupModelNodes: the frames that steer, spring and spin
         // and CBoat's: the rudder and rear flaps turn with the steering, the propellers spin
         // and CHeli's: the rotors spin
@@ -752,6 +777,7 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         VehiclePart p;
         p.mesh = mesh;
         p.comp = comp; p.damagedMesh = damagedMesh;
+        p.exhaustOk = name == "exhaust_ok";
         {
             const float oy = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][13] : 0.0f, oz = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][14] : 0.0f;
             const float ox = fr >= 0 && (size_t)fr < glob.size() ? glob[(size_t)fr][12] : 0.0f;
@@ -986,6 +1012,7 @@ void Vehicles::Draw(D3DRenderer& r) {
         }
         for (const VehiclePart& p : vm.parts) {
             if (!PartVisible(c, p)) continue;
+            if ((p.exhaustOk && HasUpgradeSlot(c, 101)) || (p.bumper >= 0 && HasUpgradeSlot(c, 102 + p.bumper))) continue;   // replaced
             if (p.node >= 0) {   // a turret part follows its (rotated) frame
                 float nm[16];
                 if (NodeMatrix((size_t)(&c - m_cars.data()), p.node, nm)) { dev->SetTransform(D3DTS_WORLD, reinterpret_cast<D3DMATRIX*>(nm)); r.DrawMesh(p.mesh); continue; }
@@ -1007,6 +1034,18 @@ void Vehicles::Draw(D3DRenderer& r) {
                 r.DrawMesh(p.mesh);
             }
         }
+        for (const VehicleInstance::Upgrade& up : c.upgrades) {   // the add-on components fitted
+            for (const VehiclePart& p : up.parts) {
+                if (!PartVisible(c, p)) continue;
+                float pc[16];
+                PartToCar(c, vm, p, pc);
+                Mul(pc, body, &out._11);
+                dev->SetTransform(D3DTS_WORLD, &out);
+                r.DrawMesh(p.mesh);
+            }
+        }
+        const VehicleInstance::Upgrade* wheelUp = nullptr;   // new wheels
+        for (const VehicleInstance::Upgrade& up : c.upgrades) if (up.slot == 100 && !up.parts.empty()) wheelUp = &up;
         if (!vm.wheelMesh) continue;
         for (int k = 0; k < 4; k++) {
             static const int kSaWheelOf[4] = {0, 2, 1, 3};   // lf, rf, lb, rb -> eCarWheel
@@ -1024,10 +1063,12 @@ void Vehicles::Draw(D3DRenderer& r) {
             wm[12] = vm.wheelPos[k][0]; wm[13] = vm.wheelPos[k][1];
             wm[14] = c.phys.active && vm.suspReady ? c.phys.wheelZ[kSaWheel[k]] : vm.wheelPos[k][2];   // on its spring
             float t[16];
+            if (wheelUp) for (int a = 0; a < 3; a++) for (int b2 = 0; b2 < 3; b2++) wm[a * 4 + b2] *= wheelUp->scale;
             Mul(wm, body, t);
             std::memcpy(&out._11, t, sizeof(t));
             dev->SetTransform(D3DTS_WORLD, &out);
-            r.DrawMesh(vm.wheelMesh);
+            if (wheelUp) for (const VehiclePart& wp : wheelUp->parts) r.DrawMesh(wp.mesh);   // tyre, rim and the rest
+            else r.DrawMesh(vm.wheelMesh);
         }
     }
     for (const FlyingPart& fp : m_flying) {   // parts that came off, in their car's paint

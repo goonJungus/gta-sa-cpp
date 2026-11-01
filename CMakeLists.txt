@@ -94,6 +94,7 @@ if(WIN32)
         host/engine/FlightPhysics.cpp
         host/engine/TowPhysics.cpp
         host/engine/VehicleLights.cpp
+        host/engine/VehicleUpgrades.cpp
         host/engine/CarGenerators.cpp
         host/engine/Garages.cpp
         host/engine/Script.cpp

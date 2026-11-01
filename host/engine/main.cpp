@@ -2604,6 +2604,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (ci >= 0 && getenv("GTA_CARSHATTER")) { g_vehicles.Car((size_t)ci).panelStatus[4] = 3; g_vehicles.WindscreenShatters((size_t)ci); }   // dev
                 if (const char* ty = getenv("GTA_CARTYRES"); ty && ci >= 0)   // dev: "flrlfrrr" wheel states (0 ok, 1 burst, 2 missing)
                     for (int k = 0; k < 4 && ty[k]; k++) g_vehicles.Car((size_t)ci).wheelStatus[k] = (uint8_t)(ty[k] - '0');
+                if (const char* ug = getenv("GTA_UPGRADES"); ug && ci >= 0) {   // dev: "spl_b_bab_m,nto_b_l": fit those components
+                    std::istringstream us(ug);
+                    std::string comp;
+                    while (std::getline(us, comp, ',')) if (!g_vehicles.AddUpgrade(g_renderer, (size_t)ci, comp)) Log("DEV: upgrade %s not fitted", comp.c_str());
+                }
                 if (const char* nt = getenv("GTA_NITRO"); nt && ci >= 0) g_vehicles.InstallNitro((size_t)ci, atoi(nt));   // dev: a nitro bottle with that many boosts
                 if (ci >= 0 && getenv("GTA_WARPIN")) {   // dev: straight into the driver's seat (WARP_CHAR_INTO_CAR)
                     g_driveCar = ci;

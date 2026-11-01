@@ -100,6 +100,7 @@ struct VehiclePart {
     float doorLocal[16] = {};         // part frame -> door hinge frame
     int bumper = -1;                  // 0 / 1 when the part hangs under bump_front_dummy / bump_rear_dummy
     float bumperLocal[16] = {};       // part frame -> bumper frame
+    bool exhaustOk = false;           // the exhaust_ok frame's part: an exhaust upgrade replaces it
     int bikeNode = -1;                // a bike's moving frame the part hangs under (VehicleModel::BikeNode order)
     float bikeLocal[16] = {};         // part frame -> that frame
 };
@@ -143,6 +144,13 @@ struct VehicleModel {
     // bump_front_dummy, bump_rear_dummy (CAR_BUMP_FRONT / CAR_BUMP_REAR): the frames a loose bumper bounces on.
     struct Bumper { bool found = false; int frame = -1; float local[16] = {}; float base[16] = {}; float pos[3] = {}; };
     Bumper bumpers[2];
+    // eVehicleUpgradePosn: the ug_* frames (m_aUpgrades): where each add-on slot's part sits, its frame matrix under
+    // the parent, the hinge it hangs under (a door slot 0..5 as vm.doors, or a bumper 0 / 1) and its place on the
+    // car. Slots 0 bonnet, 1 / 2 bonnet left / right, 3..5 their damaged twins, 6 spoiler (7 damaged), 8 / 9 wings,
+    // 10 / 11 bull bars, 12 lights (13 damaged), 14 roof, 15 nitro.
+    struct UpgradePos { bool found = false; float local[16] = {}, full[16] = {}; int door = -1, bumper = -1; };
+    UpgradePos upgradePos[16];
+    std::vector<D3DRenderMesh*> upgradeMeshes;   // the upgrade components' meshes built for cars of this model
     // eBikeNodes that move: 0 forks_front, 1 forks_rear, 2 handlebars, 3 wheel_front, 4 wheel_rear. parent is the
     // node above (wheel_front hangs on the front forks), else base is the fixed frame's matrix in bike space.
     struct BikeNode { bool found = false; int frame = -1, parent = -1; float local[16] = {}; float base[16] = {}; };
@@ -301,6 +309,12 @@ struct VehicleInstance {
     float x = 0, y = 0, z = 0, heading = 0;
     float wheelSpin = 0.0f;
     int paint[4] = {0, 0, 0, 0};      // carcols.dat colour indices: primary, secondary, tertiary, quaternary
+    // CVehicle::AddUpgrade: the add-on components fitted, by slot (see VehicleModel::upgradePos), each with the
+    // parts it draws (the intact one and, where the model has a twin slot, the damaged one).
+    // The replacement parts (CVehicle::AddReplacementUpgrade) take the slots 100 wheels, 101 exhaust, 102 / 103 front /
+    // rear bumper; a wheel's scale fits its mesh to the car's own wheel size.
+    struct Upgrade { std::string name; int slot = -1; float scale = 1.0f; std::vector<VehiclePart> parts; };
+    std::vector<Upgrade> upgrades;
     float speed = 0.0f;               // m/s along the heading, negative in reverse
     float steer = 0.0f;               // current front wheel angle, radians
     float health = 1000.0f;           // below 250 it smokes, at 0 it burns and blows up
@@ -455,6 +469,12 @@ public:
     void ClearAIControls(size_t i) { if (i < m_cars.size()) m_cars[i].phys.ai = false; }
     // A recorded playback lets go of car i: the simulation takes it on where it is, as it is turned, at its speed.
     void EndPlayback(size_t i);
+    // CVehicle::AddVehicleUpgrade for an add-on component by model name (spl_*, bnt_*, lgt_*, nto_* ...): builds
+    // its mesh on car ci's ug_ frame for the name's slot, replacing what filled it, and its linked twin (a left wing
+    // brings the right). False when the car has no such slot or the component is not found.
+    bool AddUpgrade(D3DRenderer& r, size_t ci, const std::string& component);
+    void RemoveUpgrade(D3DRenderer& r, size_t ci, int slot);
+    std::string GetUpgrade(size_t ci, int slot) const;
     // CVehicle::SetVehicleUpgradeFlags case 15 -> CAutomobile::NitrousControl(boosts): the nitro installed with
     // 2 (small bottle), 5 (large) or 10 (double) boosts; negative takes it out.
     void InstallNitro(size_t i, int boosts);
@@ -645,6 +665,7 @@ private:
     std::unordered_map<std::string, IDirect3DTexture9*> m_customPlates;
     IDirect3DTexture9* CreatePlateTexture(D3DRenderer& r, const char* text);
     std::vector<std::array<uint8_t, 3>> m_colours;                  // carcols.dat colour table
+    std::unordered_map<std::string, std::string> m_upgradeLinks;    // carmods.dat link pairs (a left wing and its right twin)
     std::unordered_map<std::string, std::vector<std::array<int, 4>>> m_carColours;   // model name -> allowed paint sets
     unsigned m_rng = 7;
     void ApplyPaint(D3DRenderer& r, VehicleModel& vm, const int paint[4]);
