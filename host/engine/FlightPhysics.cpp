@@ -88,8 +88,9 @@ void FlyingControlHeli(Body& b, const HandlingData::Fly& f, float ts, const floa
 // stabilisation, wing lift from the angle of attack, then the turn resistance and caps.
 // skid: rudder, upDown: elevators, leftRight: ailerons (-1 .. 1), accel: throttle; airborne: no wheel touches.
 void FlyingControlPlane(Body& b, const HandlingData::Fly& f, float tailY, float ts, const float wind[3], bool airborne, float gearStatus,
-                        float skid, float upDown, float leftRight, float accel, float nozzle = -1.0f, bool vortex = false) {
+                        float skid, float upDown, float leftRight, float accel, float nozzle = -1.0f, bool vortex = false, bool baron = false) {
     if (ts <= 0.0f) return;
+    if (baron) b.ApplyMoveForce(V3(0.0f, 0.0f, 0.004f) * (b.mass * ts));   // FLIGHT_MODEL_BARON: a constant helping lift
     const V3 vel = b.mv - V3(wind) * f.windMult;
     const V3 com = b.ComW();
     // a diagonal stick is not weaker than a straight one
@@ -135,14 +136,15 @@ void FlyingControlPlane(Body& b, const HandlingData::Fly& f, float tailY, float 
     // lift: the angle of attack and the wing's own lift, with the square of the airspeed
     const float attack = -std::asin(std::clamp(Dot(vel, b.up) / std::max(0.01f, Len(vel)), -1.0f, 1.0f));
     float form = f.formLift;
-    if (gearStatus < 1.0f) form *= f.gearDownL;
+    if (baron) { if (0.004f < airSpeed2 * form) form = 0.004f / airSpeed2; }   // the Baron's wing lift tops out at 0.5 x 0.008
+    else if (gearStatus < 1.0f) form *= f.gearDownL;
     float lift = (attack * f.attackLift + form) * b.mass * ts * airSpeed2;
     if (lift > ts * b.mass * 0.008f) {
         const float above = HeightAboveCeiling(b.pos.z, false);
         if (above > 0.0f) lift = std::max(0.0f, 1.0f - above * 0.02f) * b.mass * ts * 0.008f;
     }
     b.ApplyMoveForce(b.up * lift);
-    TurnResistance(b, f, ts, Len(b.mv) * 2.0f);
+    TurnResistance(b, f, ts, Len(b.mv) * (baron ? 6.0f : 2.0f));
 }
 
 // FlyingControl's shared tail: turn resistance per body axis (plain decay, or with a speed resistance a pull that
@@ -330,7 +332,6 @@ void SetGear(VehicleInstance& c, bool up) {   // CPlane::SetGearUp / SetGearDown
 }  // namespace
 
 bool Vehicles::UsesPlanePhysics(int model) const {
-    if (model == MODEL_RCBARON) return false;
     const VehicleInfo* info = Info(model);
     if (!info) return false;
     std::string t = info->type;
@@ -373,7 +374,7 @@ void Vehicles::PlaneInputs(VehicleInstance& c, const HandlingData& h, float ts, 
         c.hoist = std::min(5000, std::max(0, c.hoist + d));
     }
     const bool airborne = p.compPrev[0] == 1.0f && p.compPrev[1] == 1.0f && p.compPrev[2] == 1.0f && p.compPrev[3] == 1.0f;
-    if (p.inGear && airborne && h.fly.gearUpR < 1.0f) {
+    if (p.inGear && airborne && h.fly.gearUpR < 1.0f && c.model != MODEL_RCBARON) {   // the Baron's wheels never fold
         if (p.gearStatus == 0.0f) { for (uint8_t& w : c.wheelStatus) w = 2; p.gearStatus += ts * 0.02f; }
         else if (p.gearStatus == 1.0f) p.gearStatus = ts * 0.02f - 1.0f;
         else p.gearStatus = -p.gearStatus;
@@ -431,7 +432,8 @@ void Vehicles::PlaneFlyingCarStuff(VehicleInstance& c, const VehicleModel& vm, c
         p.flyAccel = std::max(-1.0f, p.flyAccel - above * 0.04f);
     }
     p.planePropSpeed += (target - p.planePropSpeed) * ts * kPropRoc;
-    if (!c.engineOn || !(p.planePropSpeed > kPropMin || Len2(V3(p.mv)) > 0.05f)) return;
+    // (the RC Baron flies whenever its engine is on)
+    if (!c.engineOn || (c.model != MODEL_RCBARON && !(p.planePropSpeed > kPropMin || Len2(V3(p.mv)) > 0.05f))) return;
     Body b = Load(c, h);
     bool airborne = p.compPrev[0] == 1.0f && p.compPrev[1] == 1.0f && p.compPrev[2] == 1.0f && p.compPrev[3] == 1.0f;
     if (c.model == 460 && p.boatInWater) {   // FlyingControl: a Skimmer sitting in the water idles without thrust
@@ -450,7 +452,8 @@ void Vehicles::PlaneFlyingCarStuff(VehicleInstance& c, const VehicleModel& vm, c
         }
         return;
     }
-    FlyingControlPlane(b, h.fly, vm.colMin[1], ts, world.wind, airborne, p.gearStatus, skid, upDown, leftRight, p.flyAccel, nozzle, c.model == MODEL_VORTEX);
+    FlyingControlPlane(b, h.fly, vm.colMin[1], ts, world.wind, airborne, p.gearStatus, skid, upDown, leftRight, p.flyAccel, nozzle, c.model == MODEL_VORTEX,
+                       c.model == MODEL_RCBARON);
     Store(b, c);
 }
 
