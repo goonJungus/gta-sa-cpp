@@ -538,7 +538,8 @@ void Vehicles::PlaneFrameMatrices(const VehicleInstance& c, const VehicleModel& 
     for (int k = 0; k < VehicleModel::kMoveNodes; k++) {
         const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
         const bool gearMoves = gearAxis >= 0 && (k == 24 || k == 25 || (k == 28 && miscA != 0.0f) || (k == 29 && miscB > 0.0f));
-        const bool moves = (k >= 11 && k <= 14) || (k >= 19 && k <= 23) || (c.model == 520 && (k == 26 || k == 27)) || gearMoves;
+        const bool cargoDoor = c.model == 592 && k == 29;   // the Andromada's cargo ramp (misc_b) follows m_wMiscComponentAngle
+        const bool moves = (k >= 11 && k <= 14) || (k >= 19 && k <= 23) || (c.model == 520 && (k == 26 || k == 27)) || gearMoves || cargoDoor;
         if (!bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
         const VehicleInstance::BouncingPanel* loose = nullptr;   // CBouncingPanel on this frame
         for (const VehicleInstance::BouncingPanel& bp : c.panels) if (bp.node == k) loose = &bp;
@@ -553,7 +554,7 @@ void Vehicles::PlaneFrameMatrices(const VehicleInstance& c, const VehicleModel& 
             break;
         }
         case 28: RotX(fold * miscA, m); break;
-        case 29: RotX(fold * miscB, m); break;
+        case 29: RotX(cargoDoor ? (float)c.hoist * 0.00015f : fold * miscB, m); break;   // ANDROM_COL_ANGLE_MULT
         case 11: case 12: RotY(2.0f * p.propAngle, m); break;
         case 13: case 14: RotY(-2.0f * p.propAngle, m); break;
         case 19: RotZ(p.flySkid * 0.6981317f, m); break;
