@@ -29,6 +29,10 @@ public:
     // The heli_dust fx system (effects.fxp) held at const time t (0..1) at p for dt seconds: prim 0 "normal" dust,
     // 1 "sand", 2 "water". acc carries the part-particle emission between frames.
     void HeliDust(const float p[3], float t, int prim, float dt, float& acc);
+    // The "nitro" fx system at an exhaust for dt seconds at const time = power: a bright flame jet aft once power is
+    // over 0.5 (10 to 100 a second) and a cold blue haze (30 a second) while it recharges below 0.4. vel: the car's
+    // velocity in m/s, which the local particles share; acc carries the emission between frames.
+    void Nitro(const float p[3], const float back[3], const float vel[3], float power, float dt, float* acc);
     // prt_boatsplash (FxSystem_c::AddParticle with an FxPrtMult): life and size are the multipliers, alpha 0..1;
     // falls at 9.8 m/s^2.
     void BoatSplash(const float p[3], const float v[3], float lifeMult, float sizeMult, float alpha);

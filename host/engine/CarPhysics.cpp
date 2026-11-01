@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -190,7 +192,7 @@ void Transmission::InitGearRatios() {
 
 // cTransmission::CalculateDriveAcceleration (no cheats)
 float Transmission::DriveAcceleration(float gas, uint8_t& gear, float velocity, float* inertia1, float* inertia2, bool allWheelsOnGround,
-                                      float timeStep) const {
+                                      float timeStep, bool nitro) const {
     if (velocity < maxReverseVelocity) return 0.0f;
     while (velocity <= maxVelocity) {
         const Gear& g = gears[gear];
@@ -211,7 +213,7 @@ float Transmission::DriveAcceleration(float gas, uint8_t& gear, float velocity, 
                 mult = (handlingFlags & 0x1u) ? n * 5.0f : (handlingFlags & 0x2u) ? n * 4.0f : n * 3.0f;
                 mult += 1.0f;
             } else mult = 4.5f;   // reverse
-            float drive = mult * engineAccel * 0.4f * gas * timeStep;
+            float drive = mult * engineAccel * (nitro ? 2.0f : 1.0f) * 0.4f * gas * timeStep;
             if (inertia1 && inertia2) {
                 if (allWheelsOnGround) {
                     float cur, span;
@@ -690,7 +692,8 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
     }
     float acceleration = 0.0f;
     if ((player || p.ai) && !heli && !plane)   // the engine runs while someone drives (aircraft have no driven wheels)
-        acceleration = tr.DriveAcceleration(p.gas, p.gear, speedForward, &p.inertia1, &p.inertia2, p.driveWheelsOnGround != 0, ts);
+        acceleration = tr.DriveAcceleration(p.gas, p.gear, speedForward, &p.inertia1, &p.inertia2, p.driveWheelsOnGround != 0, ts,
+                                            p.nosInst && p.nitroTemp < 0.0f);   // a nitro burn in progress
     const float traction = h.tractionMult / 250.0f * 0.25f * (c.model == 539 && p.flyAccel == 0.0f ? 4.0f : 1.0f);   // a coasting Vortex grips
     {   // the player's steering is cut back to what the tyres can hold at speed
         float steer = 1.0f;
@@ -786,6 +789,7 @@ void Vehicles::CarStep(VehicleInstance& c, const VehicleModel& vm, const Handlin
         p.supportMin = c.towedBy >= 0 && ext < kTrailerTowedMinRatio ? kTrailerTowedMinRatio : ext;
         p.supportRatio[0] = p.supportRatio[1] = p.supportMin;
     }
+    if (p.nosInst && !heli && !plane) NitrousControl(c, ts, player);
     if (heli) {
         HeliFlyingCarStuff(c, h, ts, player, world);
         if (player) HeliBladeCollision(c, vm, h, ts, world);
@@ -926,7 +930,11 @@ void Vehicles::Activate(VehicleInstance& c) {
     const float cs = std::cos(c.heading), sn = std::sin(c.heading);
     const float r[9] = {cs, sn, 0, -sn, cs, 0, 0, 0, 1};
     std::memcpy(c.rot, r, sizeof(r));
+    const bool nos = p.nosInst;   // an installed nitro (like the hydraulics) belongs to the car, not to a simulation run
+    const int boosts = p.nitroBoosts;
+    const float temp = p.nitroTemp;
     p = CarPhys{};
+    p.nosInst = nos; p.nitroBoosts = boosts; p.nitroTemp = temp;
     p.mv[0] = c.vx / 50.0f; p.mv[1] = c.vy / 50.0f;
     p.active = true;
 }
@@ -1798,4 +1806,58 @@ int Vehicles::PushPedOut(float* x, float* y, float z, float radius, float height
         }
     }
     return touched;
+}
+
+// CAutomobile::NitrousControl (boost 0): the fire key lights a burn that runs 1000 steps (m_fTireTemperature from
+// -0.000001 down to -1) with the drive doubled, then the nitro recharges at a quarter to full rate with the throttle
+// off until it reads 1 again; a bottle with no boosts left comes out when the burn ends.
+void Vehicles::NitrousControl(VehicleInstance& c, float ts, bool player) {
+    CarPhys& p = c.phys;
+    p.nitroPower = -1.0f;
+    if (p.nitroTemp == 1.0f && p.nitroBoosts > 0) {
+        if (!player || !p.inFire) return;
+        p.nitroTemp = -0.000001f;
+        if (p.nitroBoosts < 101) p.nitroBoosts--;   // 101 and up never run out
+        return;
+    }
+    if (p.nitroTemp >= 0.0f) {   // recharging
+        p.nitroTemp = std::min(1.0f, p.nitroTemp + std::max(0.25f, 1.0f - p.gas) * (ts / 100.0f));
+        p.nitroPower = (1.0f - p.nitroTemp) / 2.0f;
+        return;
+    }
+    p.nitroTemp -= ts / 1000.0f;   // burning
+    if (p.nitroTemp < -1.0f) {
+        p.nitroTemp = 0.000001f;
+        if (p.nitroBoosts == 0) { p.nosInst = false; p.nitroTemp = 1.0f; }   // RemoveUpgrade(UPGRADE_NITRO)
+    }
+    p.nitroPower = p.gas <= 0.0f ? 0.5f : std::fabs(p.gas) / 2.0f + 0.5f;
+}
+
+void Vehicles::InstallNitro(size_t i, int boosts) {
+    if (i >= m_cars.size()) return;
+    CarPhys& p = m_cars[i].phys;
+    p.nosInst = boosts > 0;
+    p.nitroTemp = 1.0f;
+    p.nitroBoosts = std::max(0, boosts);
+    p.nitroPower = -1.0f;
+}
+
+void Vehicles::NitroEffects(float dt, const std::function<void(const float*, const float*, const float*, float, float, float*)>& onFlame) {
+    for (VehicleInstance& c : m_cars) {
+        CarPhys& p = c.phys;
+        if (c.removed || c.wrecked || !p.nosInst || p.nitroPower < 0.0f || p.touchingWater) continue;
+        auto mi = m_models.find(c.model);
+        if (mi == m_models.end() || !mi->second.exhaustFound) continue;
+        const VehicleInfo* info = Info(c.model);
+        const HandlingData* h = info ? Handling(info->handling) : nullptr;
+        V3 right, fwd, up;
+        CarFrame(c, right, fwd, up);
+        const V3 back = -fwd, mv = V3(p.mv) * 50.0f;
+        const float* e = mi->second.exhaustPos;
+        const bool twin = h && (h->modelFlags & 0x2000u);   // MF_DOUBLE_EXHAUST
+        for (int k = 0; k < (twin ? 2 : 1); k++) {
+            const V3 at = V3(c.x, c.y, c.z) + right * (k ? -e[0] : e[0]) + fwd * e[1] + up * e[2];
+            onFlame(&at.x, &back.x, &mv.x, p.nitroPower, dt, &p.nitroAcc[k]);
+        }
+    }
 }

@@ -2604,6 +2604,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (ci >= 0 && getenv("GTA_CARSHATTER")) { g_vehicles.Car((size_t)ci).panelStatus[4] = 3; g_vehicles.WindscreenShatters((size_t)ci); }   // dev
                 if (const char* ty = getenv("GTA_CARTYRES"); ty && ci >= 0)   // dev: "flrlfrrr" wheel states (0 ok, 1 burst, 2 missing)
                     for (int k = 0; k < 4 && ty[k]; k++) g_vehicles.Car((size_t)ci).wheelStatus[k] = (uint8_t)(ty[k] - '0');
+                if (const char* nt = getenv("GTA_NITRO"); nt && ci >= 0) g_vehicles.InstallNitro((size_t)ci, atoi(nt));   // dev: a nitro bottle with that many boosts
                 if (ci >= 0 && getenv("GTA_WARPIN")) {   // dev: straight into the driver's seat (WARP_CHAR_INTO_CAR)
                     g_driveCar = ci;
                     float sp[3]; bool low = false;
@@ -4077,6 +4078,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const float dp[3] = {hc.x, hc.y, groundZ};
                 g_fx.HeliDust(dp, hp.dustTimeConst, onWater ? 2 : g_sandSurface[surf & 255] ? 1 : 0, dt, hp.dustAcc);
             }
+            if (g_driveCar >= 0) {   // VEHICLE_FIREWEAPON lights the nitro, unless the player is looking aside
+                const bool fire = ((RawGameKey(VK_LBUTTON) | RawGameKey(VK_RCONTROL) | RawGameKey(VK_LMENU)) & 0x8000) != 0;
+                const bool look = ((RawGameKey('Q') | RawGameKey('E') | RawGameKey(VK_MBUTTON)) & 0x8000) != 0;
+                g_vehicles.SetFireKey((size_t)g_driveCar, fire && !look && !g_menu.IsOpen());
+            }
+            g_vehicles.NitroEffects(dt, [](const float* p, const float* back, const float* vel, float power, float fdt, float* acc) {
+                g_fx.Nitro(p, back, vel, power, fdt, acc);
+            });
             {   // CBoat::PreRender boat_prop and CVehicle::DoBoatSplashes (no in-car first-person view yet)
                 const float cam[3] = {camPosX, camPosY, camPosZ};
                 g_vehicles.BoatEffects(dt, cam, false,

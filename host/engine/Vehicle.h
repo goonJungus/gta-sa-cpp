@@ -26,7 +26,9 @@ struct Transmission {
     float maxVelocity = 0.0f, maxFlatVelocity = 0.0f, maxReverseVelocity = 0.0f;
     void InitGearRatios();
     // CalculateDriveAcceleration: the drive force for this frame; shifts gear, smooths the inertia terms.
-    float DriveAcceleration(float gas, uint8_t& gear, float velocity, float* inertia1, float* inertia2, bool allWheelsOnGround, float timeStep) const;
+    // nitro: CHEAT_HANDLING_NITROS, the drive doubled (TRANSMISSION_NITROS_MULT)
+    float DriveAcceleration(float gas, uint8_t& gear, float velocity, float* inertia1, float* inertia2, bool allWheelsOnGround, float timeStep,
+                            bool nitro = false) const;
 };
 
 // One handling.cfg line (tHandlingData::InitFromData). The raw numbers keep their file units; the
@@ -124,6 +126,8 @@ struct VehicleModel {
     bool lightFound[4] = {false, false, false, false};
     float enginePos[3] = {0, 0, 0};   // the engine dummy: where the fire and overheat smoke come from
     bool engineFound = false;
+    float exhaustPos[3] = {0, 0, 0};  // the exhaust dummy: where the nitro flames come out (a double exhaust mirrors it)
+    bool exhaustFound = false;
     // The misc_a, misc_b and misc_c frames (eCarNodes CAR_MISC_A..C): tank turret, barrel and muzzle, fire truck nozzle.
     struct Node { bool found = false; int parent = -1; float local[16] = {}; float base[16] = {}; };
     Node nodes[3];
@@ -259,6 +263,12 @@ struct CarPhys {
     float inGunLeftRight = 0.0f;      // special control right (+1) / left (-1)
     bool inHornJust = false, inHydJump = false;   // the horn went down this frame; the hydraulic jump key held
     bool inHorn = false;                          // the horn held (CPad::GetHorn)
+    // CAutomobile::NitrousControl: the nitro installed (bNosInst), boosts left (101 and up: never run out), the
+    // m_fTireTemperature the burn and recharge run on (1 ready, below 0 burning, in between recharging), the fire
+    // key held (VEHICLE_FIREWEAPON with no look key), this frame's exhaust flame power (-1 none) and its emission carry.
+    bool nosInst = false, inFire = false;
+    int nitroBoosts = 0;
+    float nitroTemp = 1.0f, nitroPower = -1.0f, nitroAcc[2] = {0.0f, 0.0f};
     // CPad::NewMouseControllerState.m_AmountMoved this frame while the mouse flies the aircraft, and whether the last
     // input was the mouse (CVehicle::m_nLastControlInput == MOUSE)
     float inMouseDX = 0.0f, inMouseDY = 0.0f;
@@ -445,6 +455,14 @@ public:
     void ClearAIControls(size_t i) { if (i < m_cars.size()) m_cars[i].phys.ai = false; }
     // A recorded playback lets go of car i: the simulation takes it on where it is, as it is turned, at its speed.
     void EndPlayback(size_t i);
+    // CVehicle::SetVehicleUpgradeFlags case 15 -> CAutomobile::NitrousControl(boosts): the nitro installed with
+    // 2 (small bottle), 5 (large) or 10 (double) boosts; negative takes it out.
+    void InstallNitro(size_t i, int boosts);
+    // The driver's fire key (VEHICLE_FIREWEAPON, not while looking aside) lights the nitro.
+    void SetFireKey(size_t i, bool fire) { if (i < m_cars.size()) m_cars[i].phys.inFire = fire; }
+    // CAutomobile::DoNitroEffect each frame: the exhaust flames of every nitro car (position, direction aft, the
+    // car's velocity in m/s, power 0..1, seconds).
+    void NitroEffects(float dt, const std::function<void(const float*, const float*, const float*, float, float, float*)>& onFlame);
     // CVehicle::m_bEnableMouseFlying: the mouse's movement this frame (counts) for a heli or plane's stick.
     void SetMouseFly(size_t i, float dx, float dy) {
         if (i < m_cars.size()) { m_cars[i].phys.inMouseDX = dx; m_cars[i].phys.inMouseDY = dy; }
@@ -547,6 +565,7 @@ private:
     // at the end of CAutomobile::ProcessControl) and CHeli::PreRender's rotors (FlightPhysics.cpp).
     void HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player);
     void PlaneDamage(VehicleInstance& c, const HandlingData& h, const VehicleModel& vm, float di, bool player, bool byPlayer);
+    void NitrousControl(VehicleInstance& c, float ts, bool player);
     void PlaneStumpFire(VehicleInstance& c, float dt, const std::function<void(const float*)>& onFire) const;
     void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void HeliRotors(VehicleInstance& c, float ts);

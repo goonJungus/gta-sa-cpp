@@ -112,6 +112,26 @@ void Effects::HeliDust(const float p[3], float t, int prim, float dt, float& acc
     }
 }
 
+void Effects::Nitro(const float p[3], const float back[3], const float vel[3], float power, float dt, float* acc) {
+    const bool burn = power > 0.5f;
+    const float rate = burn ? 10.0f + 90.0f * (power - 0.5f) / 0.5f : (power < 0.4f ? 30.0f : 0.0f);
+    for (*acc += rate * dt; *acc >= 1.0f; *acc -= 1.0f) {
+        // a cone of 10 degrees about the aft direction, at about 1 m/s (0.5 either way) for the flame
+        float d[3];
+        for (int k = 0; k < 3; k++) d[k] = back[k] + Rnd(-0.18f, 0.18f);
+        const float l = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        const float sp = burn ? 1.0f + Rnd(-0.5f, 0.5f) : 1.0f;
+        Puff f = {};
+        for (int k = 0; k < 3; k++) { f.p[k] = p[k]; f.v[k] = d[k] / l * sp + vel[k]; }
+        f.life = burn ? 1.0f : 0.2f;
+        f.size0 = burn ? 0.15f : 0.05f; f.size1 = burn ? 0.5f : 0.4f; f.sizeMid = -1.0f;
+        f.rgb = burn ? 0xB4CCFFu : 0x8C8CE6u;
+        f.alpha = burn ? 0.6f : 0.5f;
+        f.fall = true; f.grav = 0.0f;   // local to the car: no drag, no fall
+        m_puffs.push_back(f);
+    }
+}
+
 void Effects::BoatSplash(const float p[3], const float v[3], float lifeMult, float sizeMult, float alpha) {
     Puff f = {};
     for (int k = 0; k < 3; k++) { f.p[k] = p[k]; f.v[k] = v[k]; }

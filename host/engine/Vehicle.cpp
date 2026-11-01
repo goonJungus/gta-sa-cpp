@@ -679,6 +679,9 @@ VehicleModel* Vehicles::Model(D3DRenderer& r, int id) {
         if (w.frames[i].name == "engine") {
             vm.engineFound = true;
             vm.enginePos[0] = glob[i][12]; vm.enginePos[1] = glob[i][13]; vm.enginePos[2] = glob[i][14];
+        } else if (w.frames[i].name == "exhaust") {
+            vm.exhaustFound = true;
+            vm.exhaustPos[0] = glob[i][12]; vm.exhaustPos[1] = glob[i][13]; vm.exhaustPos[2] = glob[i][14];
         } else if (w.frames[i].name == "ped_frontseat") {   // the dummy sits on the passenger side; the driver mirrors it
             vm.seatFound = true;
             vm.seatPos[0] = -std::fabs(glob[i][12]); vm.seatPos[1] = glob[i][13]; vm.seatPos[2] = glob[i][14];
