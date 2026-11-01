@@ -4089,6 +4089,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 const bool look = ((RawGameKey('Q') | RawGameKey('E') | RawGameKey(VK_MBUTTON)) & 0x8000) != 0;
                 g_vehicles.SetFireKey((size_t)g_driveCar, fire && !look && !g_menu.IsOpen());
             }
+            if (g_driveCar >= 0) {   // CVehicle::BladeColSectorList: the heli's blade disc against peds and the other cars
+                float bc[3], ba[3], br = 0.0f;
+                if (g_vehicles.BladeDisc((size_t)g_driveCar, bc, ba, &br)) {
+                    for (size_t i = 0; g_peds.Ready() && i < g_peds.Count(); i++) {
+                        if (!g_peds.Alive(i)) continue;
+                        const float pp[3] = {g_peds.X(i), g_peds.Y(i), g_peds.Z(i) + 0.9f};   // the ped's middle
+                        const float d[3] = {pp[0] - bc[0], pp[1] - bc[1], pp[2] - bc[2]};
+                        const float along = d[0] * ba[0] + d[1] * ba[1] + d[2] * ba[2];
+                        const float inPlane2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - along * along;
+                        if (std::fabs(along) > 1.0f || inPlane2 > (br + 0.3f) * (br + 0.3f)) continue;   // WEAPON_RUNOVERBYCAR 1000
+                        g_peds.Shoot((int)i, 1000.0f, false, false);
+                        g_fx.Blood(pp);
+                        g_vehicles.BladeStrikeAt((size_t)g_driveCar, dt, pp, ba);
+                    }
+                    float hit[3];
+                    if (g_vehicles.BladeHitCar((size_t)g_driveCar, bc, ba, br, hit) >= 0) g_vehicles.BladeStrikeAt((size_t)g_driveCar, dt, hit, ba);
+                }
+            }
             g_vehicles.NitroEffects(dt, [](const float* p, const float* back, const float* vel, float power, float fdt, float* acc) {
                 g_fx.Nitro(p, back, vel, power, fdt, acc);
             });

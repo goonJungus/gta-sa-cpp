@@ -247,10 +247,10 @@ void Vehicles::HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, flo
 void Vehicles::HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world) {
     CarPhys& p = c.phys;
     if (p.rotorSpeed <= 0.015f || vm.rotorRadius <= 0.1f || !world.line) return;
-    constexpr float kSoftDepthMin = 0.5f, kSoftDepthMult = 2.0f, kSoftSpeedMult = 0.95f;   // SOFTCOL_*
     Body b = Load(c, h);
     const V3 centre = b.pos + b.Rot(V3(vm.rotorPos));
     const V3 rotorUp = -b.up;   // rotorType -3: the disc faces down
+    (void)rotorUp;
     // the disc swept by 16 spokes (the nearest strike), each hit in the blade plane as the filter keeps
     float best = 1.0f;
     V3 point, normal;
@@ -263,6 +263,18 @@ void Vehicles::HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, co
         if (t < best) { best = t; point = centre + spoke * (vm.rotorRadius * t); normal = V3(n); }
     }
     if (best >= 1.0f) return;
+    BladeStrike(c, vm, h, ts, &point.x, &normal.x);
+}
+
+// One strike of the blade disc on `point` (surface normal out of it): sparks, the soft collision and turn force
+// when the rotor is spinning fast, the rotor knocked to 0.15 or a slow one bounced back, and the damage record.
+void Vehicles::BladeStrike(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const float pointIn[3], const float normalIn[3]) {
+    CarPhys& p = c.phys;
+    const V3 point(pointIn), normal(normalIn);
+    constexpr float kSoftDepthMin = 0.5f, kSoftDepthMult = 2.0f, kSoftSpeedMult = 0.95f;   // SOFTCOL_*
+    Body b = Load(c, h);
+    const V3 centre = b.pos + b.Rot(V3(vm.rotorPos));
+    const V3 rotorUp = -b.up;
     const float onUp = Dot(point - centre, rotorUp);
     const V3 onRotor = point - rotorUp * onUp;
     const V3 rotorSize = b.up * -0.2f;
@@ -295,6 +307,55 @@ void Vehicles::HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, co
         p.damageIntensity = record; p.damager = -1;
         point.To(p.impactPos); normal.To(p.impactNormal);
     }
+}
+
+// The player's blade disc for the host to test peds and vehicles against: its centre, the axis it spins about and
+// the radius; false while the rotor is not turning (CHeli::ProcessFlyingCarStuff's > 0.015 gate).
+bool Vehicles::BladeDisc(size_t ci, float centre[3], float axis[3], float* radius) const {
+    if (ci >= m_cars.size()) return false;
+    const VehicleInstance& c = m_cars[ci];
+    auto mi = m_models.find(c.model);
+    if (mi == m_models.end() || c.removed || c.wrecked || !c.phys.active || c.phys.rotorSpeed <= 0.015f || mi->second.rotorRadius <= 0.1f) return false;
+    V3 r, f, u;
+    CarFrame(c, r, f, u);
+    const V3 at = V3(c.x, c.y, c.z) + r * mi->second.rotorPos[0] + f * mi->second.rotorPos[1] + u * mi->second.rotorPos[2];
+    at.To(centre); u.To(axis);
+    *radius = mi->second.rotorRadius;
+    return true;
+}
+
+int Vehicles::BladeHitCar(size_t self, const float centre[3], const float axis[3], float radius, float hit[3]) const {
+    const V3 ctr(centre), ax(axis);
+    for (size_t i = 0; i < m_cars.size(); i++) {
+        const VehicleInstance& o = m_cars[i];
+        if (i == self || o.removed) continue;
+        auto mi = m_models.find(o.model);
+        if (mi == m_models.end()) continue;
+        const float dx = o.x - ctr.x, dy = o.y - ctr.y;
+        if (dx * dx + dy * dy > (radius + mi->second.probeRadius) * (radius + mi->second.probeRadius)) continue;
+        V3 r, f, u;
+        CarFrame(o, r, f, u);
+        for (const VehicleModel::ColSphere& sp : mi->second.probes) {
+            const V3 w = V3(o.x, o.y, o.z) + r * sp.c[0] + f * sp.c[1] + u * sp.c[2];
+            const float along = Dot(w - ctr, ax), inPlane2 = Len2(w - ctr) - along * along;
+            // within the blade's thickness (0.1) of the sphere, and inside the disc's reach
+            if (std::fabs(along) > sp.r + 0.1f || inPlane2 > (radius + sp.r * 0.5f) * (radius + sp.r * 0.5f)) continue;
+            (w - ax * along).To(hit);
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+// A strike the host found (a vehicle's body in the disc): the same reaction as the map's.
+void Vehicles::BladeStrikeAt(size_t ci, float dt, const float point[3], const float normal[3]) {
+    if (ci >= m_cars.size()) return;
+    VehicleInstance& c = m_cars[ci];
+    auto mi = m_models.find(c.model);
+    const VehicleInfo* info = Info(c.model);
+    const HandlingData* h = info ? Handling(info->handling) : nullptr;
+    if (mi == m_models.end() || !h) return;
+    BladeStrike(c, mi->second, *h, dt * 50.0f, point, normal);
 }
 
 // CHeli::PreRender: the main rotor turns about z (faster on the big helis), the tail rotor about x.

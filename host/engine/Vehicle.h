@@ -478,6 +478,11 @@ public:
     // CVehicle::SetVehicleUpgradeFlags case 15 -> CAutomobile::NitrousControl(boosts): the nitro installed with
     // 2 (small bottle), 5 (large) or 10 (double) boosts; negative takes it out.
     void InstallNitro(size_t i, int boosts);
+    // The player's heli blade disc (centre, spin axis, radius) and a strike the host found in it (a car, a ped).
+    bool BladeDisc(size_t ci, float centre[3], float axis[3], float* radius) const;
+    void BladeStrikeAt(size_t ci, float dt, const float point[3], const float normal[3]);
+    // Another car whose body spheres cross the disc (within the blade's thickness): its index and the contact, else -1.
+    int BladeHitCar(size_t self, const float centre[3], const float axis[3], float radius, float hit[3]) const;
     // The driver's fire key (VEHICLE_FIREWEAPON, not while looking aside) lights the nitro.
     void SetFireKey(size_t i, bool fire) { if (i < m_cars.size()) m_cars[i].phys.inFire = fire; }
     // CAutomobile::DoNitroEffect each frame: the exhaust flames of every nitro car (position, direction aft, the
@@ -589,6 +594,7 @@ private:
     void PlaneDamage(VehicleInstance& c, const HandlingData& h, const VehicleModel& vm, float di, bool player, bool byPlayer);
     void NitrousControl(VehicleInstance& c, float ts, bool player);
     void PlaneStumpFire(VehicleInstance& c, float dt, const std::function<void(const float*)>& onFire) const;
+    void BladeStrike(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const float pointIn[3], const float normalIn[3]);
     void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void HeliRotors(VehicleInstance& c, float ts);
     void HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);
