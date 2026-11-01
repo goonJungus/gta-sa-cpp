@@ -65,6 +65,8 @@ bool Vehicles::UsesSiren(int model) {
 
 void Vehicles::RenderLights(D3DRenderer& r, const float cam[3], const LightEnv& env) const {
     std::vector<D3DRenderer::GlowSprite> glow;
+    std::vector<D3DRenderer::ColorTexVertex> beamVerts;
+    std::vector<uint16_t> beamIdx;
     const uint32_t ms = (uint32_t)GetTickCount();
     for (const VehicleInstance& c : m_cars) {
         if (c.siren && !c.removed && !c.wrecked) {
@@ -165,13 +167,53 @@ void Vehicles::RenderLights(D3DRenderer& r, const float cam[3], const LightEnv& 
             const float red = (braking ? 128.0f : 96.0f) * facing;
             push(p, std::max(0.0f, 1.0f - dist / 150.0f) * 0.2f * facing, Argb(0x80, (int)red, 0, 0));
         };
+        // CVehicle::DoHeadLightBeam (from CAutomobile::Render / CBike::Render): a faint additive fan of five points
+        // ahead of the lit main headlight, 3 m long and 1 m across at the far edge, brightest (32) seen from the side.
+        const bool beams = !vm.isHeli && c.model != 441 && c.model != 432;   // not the RC Bandit or the Rhino
+        auto beam = [&](bool right) {
+            if (!beams || !vm.lightFound[0]) return;
+            const float* lp = vm.lightPos[0];
+            const float l[3] = {right ? lp[0] : -lp[0], lp[1], lp[2]};
+            float p[3];
+            world(l, p);
+            float v[3] = {cam[0] - p[0], cam[1] - p[1], cam[2] - p[2]};
+            const float dist = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            if (dist < 1e-4f) return;
+            for (float& e : v) e /= dist;
+            const int a = (int)((1.0f - std::fabs(v[0] * fw[0] + v[1] * fw[1] + v[2] * fw[2])) * 32.0f);
+            const float drop = c.model == 530 ? 0.5f : 0.15f;   // the forklift's forks tilt further
+            float n[3] = {fw[0] - up[0] * drop, fw[1] - up[1] * drop, fw[2] - up[2] * drop};
+            const float nl = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            for (float& e : n) e /= nl;
+            float s[3] = {n[1] * v[2] - n[2] * v[1], n[2] * v[0] - n[0] * v[2], n[0] * v[1] - n[1] * v[0]};
+            const float sl = std::sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
+            if (sl < 1e-5f) return;
+            for (float& e : s) e /= sl;
+            float o[3];
+            for (int k = 0; k < 3; k++) o[k] = p[k] - fw[k] * 0.1f;
+            auto at = [&](float along, float side, float out[3]) { for (int k = 0; k < 3; k++) out[k] = o[k] + n[k] * along + s[k] * side; };
+            float pts[5][3];
+            at(0.0f, -0.05f, pts[0]); at(0.0f, 0.05f, pts[1]); at(3.0f, -0.5f, pts[2]); at(3.0f, 0.5f, pts[3]); at(0.2f, 0.0f, pts[4]);
+            const int al[5] = {a, a, 0, 0, a};
+            const uint16_t base = (uint16_t)beamVerts.size();
+            for (int k = 0; k < 5; k++) {
+                const uint32_t g = (uint32_t)std::clamp(al[k], 0, 255);   // alpha x white, added: the blend is ONE / ONE
+                beamVerts.push_back({pts[k][0], pts[k][1], pts[k][2], 0xFF000000u | (g << 16) | (g << 8) | g, 0.5f, 0.5f});
+            }
+            for (uint16_t i : {0, 1, 4, 1, 3, 4, 2, 3, 4, 0, 2, 4}) beamIdx.push_back((uint16_t)(base + i));
+        };
         if (on) {
-            if (head(0, true, !frOk)) head(2, true, !frOk);
-            if (twin && head(0, false, !flOk)) head(2, false, !flOk);
+            if (head(0, true, !frOk)) { head(2, true, !frOk); beam(true); }
+            if (twin && head(0, false, !flOk)) { head(2, false, !flOk); beam(false); }
         }
         tail(1, true, !rearOk, on);
         tail(3, true, !rearOk, on);
         if (twin) { tail(1, false, !rearOk, on); tail(3, false, !rearOk, on); }
+    }
+    if (!beamIdx.empty()) {
+        static IDirect3DTexture9* s_white = nullptr;   // the beams are flat colour: one white texel
+        if (!s_white) { const uint32_t px = 0xFFFFFFFFu; s_white = r.CreateTexture(1, 1, D3DFMT_A8R8G8B8, &px, 4); }
+        r.DrawBlendedTriangles(beamVerts.data(), (uint32_t)beamVerts.size(), beamIdx.data(), (uint32_t)beamIdx.size(), s_white, true);
     }
     if (!glow.empty()) r.DrawCoronas(glow.data(), (int)glow.size());
 }
