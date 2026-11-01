@@ -1525,8 +1525,17 @@ void Vehicles::ProcessDoors(float dt) {
             }
         }
         for (VehicleInstance::BouncingPanel& bp : c.panels) {   // CBouncingPanel::ProcessPanel
-            if (bp.bumper < 0 || !vm.bumpers[bp.bumper].found) continue;
-            const V3 pos = b.Rot(V3(vm.bumpers[bp.bumper].pos));
+            V3 local;
+            if (bp.node >= 0) {   // a plane's loose control surface: its frame's place on the model
+                const VehicleModel::BikeNode& bn = vm.bikeNodes[bp.node];
+                if (!bn.found) continue;
+                float g[16];
+                Mul4(bn.local, bn.base, g);
+                local = V3(g[12], g[13], g[14]);
+            } else if (bp.bumper >= 0 && vm.bumpers[bp.bumper].found) {
+                local = V3(vm.bumpers[bp.bumper].pos);
+            } else continue;
+            const V3 pos = b.Rot(local);
             const V3 w = b.Speed(pos) - (oldMv + Cross(oldTv, pos));
             const float av[3] = {Dot(w, b.right), Dot(w, b.fwd), Dot(w, b.up)};
             auto change = [&](float v) { return std::clamp(v, -0.1f, 0.1f) * bp.limit; };   // BOUNCE_VEL_CHANGE_LIMIT
@@ -1650,7 +1659,7 @@ void Vehicles::ApplyComponentDamage(VehicleInstance& c, int comp, float intensit
             if (st == 1 && panel >= 5 && !(hd && (hd->modelFlags & 0x10000000u))) {   // BOUNCE_PANELS
                 for (VehicleInstance::BouncingPanel& bp : c.panels) {
                     if (bp.bumper == panel - 5) break;
-                    if (bp.bumper >= 0) continue;
+                    if (bp.bumper >= 0 || bp.node >= 0) continue;
                     bp = VehicleInstance::BouncingPanel();
                     bp.bumper = panel - 5;
                     bp.axis = 0;
@@ -1725,6 +1734,11 @@ void Vehicles::CollisionDamage(float dt, int playerCar) {
         if (di == 0.0f) continue;
         if (UsesBikePhysics(c.model)) { BikeDamage(c, *h, di, (int)i == playerCar); continue; }
         if (UsesBoatPhysics(c.model)) { BoatDamage(c, *h, di, (int)i == playerCar); continue; }
+        if (UsesPlanePhysics(c.model) && c.model != 539) {   // CPlane::VehicleDamage (the Vortex is a CAutomobile)
+            auto mi = m_models.find(c.model);
+            if (mi != m_models.end()) PlaneDamage(c, *h, mi->second, di, (int)i == playerCar, p.damager >= 0 && p.damager == playerCar);
+            continue;
+        }
         const float minDi = h->mass / 1500.0f * 25.0f;
         const V3 up(&c.rot[6]);
         if (p.damager < 0 && Dot(V3(p.impactNormal), up) > 0.6f) continue;   // landing on the ground

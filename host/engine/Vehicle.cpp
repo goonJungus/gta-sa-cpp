@@ -878,6 +878,8 @@ void Vehicles::Fix(size_t i) {
     std::fill(std::begin(c.doorAngVel), std::end(c.doorAngVel), 0.0f);
     std::fill(std::begin(c.doorHit), std::end(c.doorHit), (uint8_t)0);
     for (VehicleInstance::BouncingPanel& p : c.panels) p = VehicleInstance::BouncingPanel{};
+    std::fill(std::begin(c.aeroDamage), std::end(c.aeroDamage), (uint8_t)0);
+    c.planeFireNode = -1; c.planeFireMs = 0.0f;
     c.burnTime = 0.0f;
     c.engineStatus = 0;   // CDamageManager::ResetDamageStatus
 }
@@ -1190,6 +1192,7 @@ void Vehicles::UpdateDamage(float dt, int playerCar, const std::function<void(co
         if (c.removed) continue;
         // CAutomobile::VehicleDamage (0x6A83DF): under 250 the engine status goes to 225 and the burn timer restarts
         if (!c.wrecked && c.health < 250.0f && c.engineStatus < 225) { c.engineStatus = 225; c.burnTime = 0.0f; }
+        PlaneStumpFire(c, dt, onFire);
         if (c.wrecked) {   // a burnt out shell keeps smoking
             const float p[3] = {c.x, c.y, c.z + 0.6f};
             if (std::fmod(c.burnTime += dt, 0.12f) < dt) onSmoke(p, 1.0f);

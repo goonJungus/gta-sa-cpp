@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -474,9 +476,12 @@ void Vehicles::PlaneFrameMatrices(const VehicleInstance& c, const VehicleModel& 
         const bool gearMoves = gearAxis >= 0 && (k == 24 || k == 25 || (k == 28 && miscA != 0.0f) || (k == 29 && miscB > 0.0f));
         const bool moves = (k >= 11 && k <= 14) || (k >= 19 && k <= 23) || (c.model == 520 && (k == 26 || k == 27)) || gearMoves;
         if (!bn.found) { std::memset(nodes[k], 0, sizeof(nodes[k])); nodes[k][0] = nodes[k][5] = nodes[k][10] = nodes[k][15] = 1.0f; continue; }
-        if (!moves) { Mul4(bn.local, bn.parent >= 0 ? nodes[bn.parent] : bn.base, nodes[k]); continue; }   // as modelled
+        const VehicleInstance::BouncingPanel* loose = nullptr;   // CBouncingPanel on this frame
+        for (const VehicleInstance::BouncingPanel& bp : c.panels) if (bp.node == k) loose = &bp;
+        if (!moves && !loose) { Mul4(bn.local, bn.parent >= 0 ? nodes[bn.parent] : bn.base, nodes[k]); continue; }   // as modelled
         float m[16];
-        switch (k) {
+        if (!moves) std::memcpy(m, bn.local, sizeof(m));
+        else switch (k) {
         case 26: case 27: RotX((float)c.hoist * 1.5707964f / 5000.0f, m); break;   // CPlane::PreRender: the Hydra's nozzles
         case 24: case 25: {
             const float a = fold * (k == 24 ? gearL : gearR);
@@ -493,6 +498,81 @@ void Vehicles::PlaneFrameMatrices(const VehicleInstance& c, const VehicleModel& 
         default: RotX(-p.flyLeftRight * 0.5235988f, m); break;
         }
         for (int a = 12; a < 15; a++) m[a] = bn.local[a];
+        if (loose) {   // CBouncingPanel::ProcessPanel writes its rotation into two entries of the frame matrix
+            if (loose->axis == 0) { m[1] = loose->rot[2]; m[2] = loose->rot[1]; }
+            else if (loose->axis == 1) { m[4] = loose->rot[2]; m[6] = loose->rot[0]; }
+            else { m[9] = loose->rot[0]; m[8] = loose->rot[1]; }
+        }
         Mul4(m, bn.parent >= 0 ? nodes[bn.parent] : bn.base, nodes[k]);
     }
+}
+
+// The fire_med CPlane::VehicleDamage leaves on the part it hit: flames at the frame for the timer's 2 to 4 s.
+void Vehicles::PlaneStumpFire(VehicleInstance& c, float dt, const std::function<void(const float*)>& onFire) const {
+    if (c.planeFireMs <= 0.0f || c.planeFireNode < 0) return;
+    c.planeFireMs -= dt * 1000.0f;
+    auto mi = m_models.find(c.model);
+    if (mi == m_models.end()) return;
+    const VehicleModel::BikeNode& bn = mi->second.bikeNodes[c.planeFireNode];
+    if (!bn.found) return;
+    float g[16];
+    Mul4(bn.local, bn.base, g);
+    V3 right, fwd, up;
+    CarFrame(c, right, fwd, up);
+    const V3 at = V3(c.x, c.y, c.z) + right * g[12] + fwd * g[13] + up * g[14];
+    const float p[3] = {at.x, at.y, at.z};
+    onFire(p);
+}
+
+// CPlane::VehicleDamage (collisions): the knock times the handling's collision multiplier costs health (halved for
+// the player's plane, a quarter for the others' or two thirds when the player rammed them); a knock over
+// 5000 x mass / 10000, or one that takes the last health, blows the plane up. One over 500 x max(1, mass / 10000)
+// on a plane over a tonne damages the nearest of its parts (props, rudder, elevators, ailerons, gear, misc): the
+// part goes loose (a control surface flaps on a CBouncingPanel) and the stump burns for 2 to 4 s.
+void Vehicles::PlaneDamage(VehicleInstance& c, const HandlingData& h, const VehicleModel& vm, float di, bool player, bool byPlayer) {
+    const float scale = h.mass / 10000.0f;
+    const float destroy = scale * 5000.0f, threshold = std::max(scale, 1.0f) * 500.0f;
+    float loss = di * h.collisionDamageGame;
+    loss *= player ? 0.5f : byPlayer ? 0.6666667f : 0.25f;
+    const float before = c.health;
+    c.health -= loss;
+    if (c.health <= 0.0f && before > 0.0f) c.health = 1.0f;
+    if (di > destroy || (c.health < 1.0f && before > 0.0f)) {   // BlowUpCar
+        c.health = 0.0f; c.engineStatus = 225; c.burnTime = 5.0f;
+        return;
+    }
+    if (di <= threshold || h.mass <= 1000.0f) return;
+    // the part nearest the knock (ePlaneNodes 12..24 on this model's frames)
+    static const int kParts[13] = {11, 12, 13, 14, 19, 20, 21, 22, 23, 24, 25, 28, 29};
+    const V3 right(&c.rot[0]), fwd(&c.rot[3]), up(&c.rot[6]);
+    const V3 d = V3(c.phys.impactPos) - V3(c.x, c.y, c.z);
+    const V3 hit(Dot(d, right), Dot(d, fwd), Dot(d, up));
+    int part = -1;
+    float best = 1000.0f * 1000.0f;
+    for (int k : kParts) {
+        const VehicleModel::BikeNode& bn = vm.bikeNodes[k];
+        if (!bn.found) continue;
+        float g[16];
+        Mul4(bn.local, bn.base, g);
+        const float d2 = Len2(V3(g[12], g[13], g[14]) - hit);
+        if (d2 < best) { best = d2; part = k; }
+    }
+    if (part < 0) return;
+    if (part == 19 && (RandInt(2) & 1)) {   // the rudder: half the time an elevator takes it
+        if (vm.bikeNodes[20].found && (RandInt(2) & 1)) part = 20;
+        else if (vm.bikeNodes[21].found) part = 21;
+    }
+    uint8_t& st = c.aeroDamage[part];
+    if (st < 2) {   // CDamageManager::ProgressAeroplaneDamage
+        st++;
+        if (st == 1 && part >= 19 && part <= 25) {   // the control surfaces and gear legs flap loose
+            bool have = false;
+            for (const VehicleInstance::BouncingPanel& bp : c.panels) have = have || bp.node == part;
+            if (!have)
+                for (VehicleInstance::BouncingPanel& bp : c.panels)
+                    if (bp.bumper < 0 && bp.node < 0) { bp = VehicleInstance::BouncingPanel(); bp.node = part; bp.limit = -0.02f; break; }
+        }
+    }
+    c.planeFireNode = part;
+    c.planeFireMs = (float)(2000 + RandInt(2001));
 }

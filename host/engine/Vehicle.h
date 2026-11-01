@@ -337,8 +337,14 @@ struct VehicleInstance {
     uint8_t doorHit[6] = {0, 0, 0, 0, 0, 0};
     // CAutomobile m_panels (CBouncingPanel): a loose bumper wobbles on its frame. bumper -1 unused, else 0 front
     // 1 rear; axis picks which two matrix entries the rotation drives; rot and vel are m_vecRotation / m_vecPos.
-    struct BouncingPanel { int bumper = -1; int axis = 0; float limit = 0.0f; float rot[3] = {0, 0, 0}, vel[3] = {0, 0, 0}; };
-    BouncingPanel panels[3];
+    // A plane's panels (CPlane m_panels, four) hang on a moving frame instead (node: VehicleModel::bikeNodes index).
+    struct BouncingPanel { int bumper = -1; int node = -1; int axis = 0; float limit = 0.0f; float rot[3] = {0, 0, 0}, vel[3] = {0, 0, 0}; };
+    BouncingPanel panels[4];
+    // CDamageManager aeroplane component status per bikeNodes index (0 ok, 1 damaged, 2 hit again), and the burning
+    // stump of the last part hit (CPlane::m_pSmokeParticle fire_med for m_nSmokeTimer ms).
+    uint8_t aeroDamage[VehicleModel::kMoveNodes] = {};
+    int planeFireNode = -1;
+    float planeFireMs = 0.0f;
     // m_pTowingVehicle / m_pVehicleBeingTowed as car indices (-1 none), and a tow truck's or tractor's hoist
     // (m_wMiscComponentAngle: 0 raised .. 20000 lowered)
     int towedBy = -1, towing = -1;
@@ -540,6 +546,8 @@ private:
     // CHeli::ProcessControlInputs (once a frame), CHeli::ProcessFlyingCarStuff + CVehicle::FlyingControl (each step,
     // at the end of CAutomobile::ProcessControl) and CHeli::PreRender's rotors (FlightPhysics.cpp).
     void HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player);
+    void PlaneDamage(VehicleInstance& c, const HandlingData& h, const VehicleModel& vm, float di, bool player, bool byPlayer);
+    void PlaneStumpFire(VehicleInstance& c, float dt, const std::function<void(const float*)>& onFire) const;
     void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void HeliRotors(VehicleInstance& c, float ts);
     void HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);
