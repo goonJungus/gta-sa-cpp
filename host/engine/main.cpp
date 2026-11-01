@@ -2610,6 +2610,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     std::string comp;
                     while (std::getline(us, comp, ',')) if (!g_vehicles.AddUpgrade(g_renderer, (size_t)ci, comp)) Log("DEV: upgrade %s not fitted", comp.c_str());
                 }
+                if (const char* bm = getenv("GTA_BOMB"); bm && ci >= 0) g_vehicles.InstallBomb((size_t)ci, atoi(bm));   // dev: 1 timed, 2 ignition
                 if (const char* nt = getenv("GTA_NITRO"); nt && ci >= 0) g_vehicles.InstallNitro((size_t)ci, atoi(nt));   // dev: a nitro bottle with that many boosts
                 if (ci >= 0 && getenv("GTA_WARPIN")) {   // dev: straight into the driver's seat (WARP_CHAR_INTO_CAR)
                     g_driveCar = ci;
@@ -4107,6 +4108,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (g_vehicles.BladeHitCar((size_t)g_driveCar, bc, ba, br, hit) >= 0) g_vehicles.BladeStrikeAt((size_t)g_driveCar, dt, hit, ba);
                 }
             }
+            g_vehicles.onMessage = [](const char* key) { if (g_hudReady) { const std::string t = g_hud.Text().Get(key); if (!t.empty()) g_hud.ShowMessage(t, 3.0f); } };
             g_vehicles.NitroEffects(dt, [](const float* p, const float* back, const float* vel, float power, float fdt, float* acc) {
                 g_fx.Nitro(p, back, vel, power, fdt, acc);
             });

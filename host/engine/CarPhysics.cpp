@@ -931,10 +931,11 @@ void Vehicles::Activate(VehicleInstance& c) {
     const float r[9] = {cs, sn, 0, -sn, cs, 0, 0, 0, 1};
     std::memcpy(c.rot, r, sizeof(r));
     const bool nos = p.nosInst;   // an installed nitro (like the hydraulics) belongs to the car, not to a simulation run
-    const int boosts = p.nitroBoosts;
+    const int boosts = p.nitroBoosts, bomb = p.bomb, bombTimer = p.bombTimer;
     const float temp = p.nitroTemp;
     p = CarPhys{};
     p.nosInst = nos; p.nitroBoosts = boosts; p.nitroTemp = temp;
+    p.bomb = bomb; p.bombTimer = bombTimer;
     p.mv[0] = c.vx / 50.0f; p.mv[1] = c.vy / 50.0f;
     p.active = true;
 }
@@ -1733,6 +1734,7 @@ void Vehicles::CollisionDamage(float dt, int playerCar) {
         if (!p.active || c.removed) continue;
         const VehicleInfo* info = Info(c.model);
         const HandlingData* h = info ? Handling(info->handling) : nullptr;
+        if (p.bomb) ProcessBomb(c, dt, (int)i == playerCar);
         const float di = p.damageIntensity;
         p.damageIntensity = 0.0f;   // taken once per frame
         p.lastDI = di;
@@ -1859,5 +1861,25 @@ void Vehicles::NitroEffects(float dt, const std::function<void(const float*, con
             const V3 at = V3(c.x, c.y, c.z) + right * (k ? -e[0] : e[0]) + fwd * e[1] + up * e[2];
             onFlame(&at.x, &back.x, &mv.x, p.nitroPower, dt, &p.nitroAcc[k]);
         }
+    }
+}
+
+// CVehicle::ActivateBomb (the fire key just down in the player's car), ActivateBombWhenEntered (an armed ignition bomb
+// gets a 1 s fuse when a driver gets in) and ProcessDelayedExplosion (the fuse runs 100 / 6 ms a time step; at 0 the
+// car blows up).
+void Vehicles::ProcessBomb(VehicleInstance& c, float dt, bool player) {
+    CarPhys& p = c.phys;
+    if (c.removed || c.wrecked) return;
+    const bool justDown = player && p.inFire && !p.prevFire;
+    p.prevFire = p.inFire;
+    if (justDown && (p.bomb == 1 || p.bomb == 2)) {
+        if (p.bomb == 1) { p.bomb = 4; p.bombTimer = 7000; } else p.bomb = 5;
+        if (onMessage) onMessage("GA_12");   // "Bomb armed"
+    }
+    if (c.hasDriver && !p.driverLast && p.bomb == 5) p.bombTimer = 1000;
+    p.driverLast = c.hasDriver;
+    if (p.bombTimer > 0) {
+        p.bombTimer = std::max(0, p.bombTimer - (int)(dt * 50.0f * (100.0f / 6.0f)));
+        if (p.bombTimer == 0) { c.health = 0.0f; c.engineStatus = 225; c.burnTime = 5.0f; p.bomb = 0; }   // BlowUpCar
     }
 }

@@ -274,6 +274,10 @@ struct CarPhys {
     // CAutomobile::NitrousControl: the nitro installed (bNosInst), boosts left (101 and up: never run out), the
     // m_fTireTemperature the burn and recharge run on (1 ready, below 0 burning, in between recharging), the fire
     // key held (VEHICLE_FIREWEAPON with no look key), this frame's exhaust flame power (-1 none) and its emission carry.
+    // eBombState (CVehicle::m_nBombOnBoard): 0 none, 1 timed, 2 ignition, 3 sticky, 4 timed armed, 5 ignition armed; the
+    // ms left on its fuse (m_wBombTimer) and the edges the bomb reads (the driver last frame, the fire key last frame).
+    int bomb = 0, bombTimer = 0;
+    bool driverLast = false, prevFire = false;
     bool nosInst = false, inFire = false;
     int nitroBoosts = 0;
     float nitroTemp = 1.0f, nitroPower = -1.0f, nitroAcc[2] = {0.0f, 0.0f};
@@ -478,6 +482,9 @@ public:
     // CVehicle::SetVehicleUpgradeFlags case 15 -> CAutomobile::NitrousControl(boosts): the nitro installed with
     // 2 (small bottle), 5 (large) or 10 (double) boosts; negative takes it out.
     void InstallNitro(size_t i, int boosts);
+    // The bomb shop's product (CVehicle::m_nBombOnBoard: 1 timed, 2 ignition, 3 sticky, 0 takes it off).
+    void InstallBomb(size_t i, int kind) { if (i < m_cars.size()) { m_cars[i].phys.bomb = kind; m_cars[i].phys.bombTimer = 0; } }
+    std::function<void(const char*)> onMessage;   // a GXT key to show (CGarages::TriggerMessage)
     // The player's heli blade disc (centre, spin axis, radius) and a strike the host found in it (a car, a ped).
     bool BladeDisc(size_t ci, float centre[3], float axis[3], float* radius) const;
     void BladeStrikeAt(size_t ci, float dt, const float point[3], const float normal[3]);
@@ -593,6 +600,7 @@ private:
     void HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player);
     void PlaneDamage(VehicleInstance& c, const HandlingData& h, const VehicleModel& vm, float di, bool player, bool byPlayer);
     void NitrousControl(VehicleInstance& c, float ts, bool player);
+    void ProcessBomb(VehicleInstance& c, float dt, bool player);
     void PlaneStumpFire(VehicleInstance& c, float dt, const std::function<void(const float*)>& onFire) const;
     void BladeStrike(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const float pointIn[3], const float normalIn[3]);
     void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
