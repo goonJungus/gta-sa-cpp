@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 
 namespace {
@@ -108,6 +109,19 @@ void Effects::HeliDust(const float p[3], float t, int prim, float dt, float& acc
         f.life = life;
         f.size0 = 0.0f; f.size1 = 16.0f;   // SIZEX 32 is the full width (RenderInfo sprite -0.5..0.5)
         f.rgb = kRgb[prim]; f.alpha = kAlpha[prim]; f.ring = true;
+        m_puffs.push_back(f);
+    }
+}
+
+void Effects::MuzzleFlash(const float p[3], const float dir[3]) {
+    for (int i = 0; i < 3; i++) {   // the sprite rect runs from just behind the muzzle to half a metre past it
+        Puff f = {};
+        for (int k = 0; k < 3; k++) f.p[k] = p[k] + dir[k] * (0.1f + 0.2f * (float)i);
+        f.life = 0.07f;
+        f.size0 = 0.25f - 0.05f * (float)i; f.size1 = 0.7f - 0.2f * (float)i; f.sizeMid = -1.0f;
+        f.rgb = i == 0 ? 0xFFF0B0u : 0xFFB050u;   // white-yellow at the muzzle, orange beyond (ALPHA 128 fading)
+        f.alpha = 0.9f;
+        f.fall = true; f.grav = 0.0f; f.add = true;
         m_puffs.push_back(f);
     }
 }
@@ -504,6 +518,7 @@ void Effects::Render(D3DRenderer& r) {
         quad(cp, rx, ux, ((uint32_t)(a * 255.0f) << 24) | 0x0A0806);
     }
     for (const Puff& f : m_puffs) {
+        if (f.add) continue;   // the additive batch below
         const float t = f.age / f.life;
         float s = f.size0 + (f.size1 - f.size0) * t;
         float a = f.alpha * (1.0f - t) * (f.spark ? 1.0f : std::min(1.0f, t * 8.0f));
@@ -551,4 +566,13 @@ void Effects::Render(D3DRenderer& r) {
         for (uint16_t k : q) ix.push_back(base + k);
     }
     if (!ix.empty()) r.DrawBlendedTriangles(vs.data(), (uint32_t)vs.size(), ix.data(), (uint32_t)ix.size(), m_tex);
+    vs.clear(); ix.clear();
+    for (const Puff& f : m_puffs) {   // flashes add their light: colour x alpha, the blend ONE / ONE
+        if (!f.add) continue;
+        const float t = f.age / f.life, s = f.size0 + (f.size1 - f.size0) * t, a = f.alpha * (1.0f - t);
+        const float rx[3] = {right[0] * s, right[1] * s, right[2] * s}, ux[3] = {up[0] * s, up[1] * s, up[2] * s};
+        const uint32_t cr = (uint32_t)(((f.rgb >> 16) & 0xFF) * a), cg = (uint32_t)(((f.rgb >> 8) & 0xFF) * a), cb = (uint32_t)((f.rgb & 0xFF) * a);
+        quad(f.p, rx, ux, 0xFF000000u | (cr << 16) | (cg << 8) | cb);
+    }
+    if (!ix.empty()) r.DrawBlendedTriangles(vs.data(), (uint32_t)vs.size(), ix.data(), (uint32_t)ix.size(), m_tex, true);
 }

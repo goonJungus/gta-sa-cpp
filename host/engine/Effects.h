@@ -29,6 +29,9 @@ public:
     // The heli_dust fx system (effects.fxp) held at const time t (0..1) at p for dt seconds: prim 0 "normal" dust,
     // 1 "sand", 2 "water". acc carries the part-particle emission between frames.
     void HeliDust(const float p[3], float t, int prim, float dt, float& acc);
+    // CVehicle::DoPlaneGunFireFX: the "gunflash" fx at an aircraft gun's muzzle (an orange-white blast about a metre
+    // long along dir, over in 0.1 s: 1200 sprites a second of 0.02 s, size 0 -> 1 -> 0).
+    void MuzzleFlash(const float p[3], const float dir[3]);
     // The "nitro" fx system at an exhaust for dt seconds at const time = power: a bright flame jet aft once power is
     // over 0.5 (10 to 100 a second) and a cold blue haze (30 a second) while it recharges below 0.4. vel: the car's
     // velocity in m/s, which the local particles share; acc carries the emission between frames.
@@ -64,7 +67,7 @@ private:
     // fall: an fx particle with a FORCE line (grav down, no drag), alpha fading out over its life, size from size0
     // to size1 (through sizeMid at half life when sizeMid >= 0)
     struct Puff { float p[3], v[3]; float age, life, size0, size1; uint32_t rgb; float alpha; bool spark; bool ring;
-                  bool fall; float grav, sizeMid; };
+                  bool fall; float grav, sizeMid; bool add = false; };   // add: drawn additively (flashes)
     struct Trace { bool exists = false; float a[3], b[3]; float createMs, lifeMs, radius; int alpha; };
     std::vector<Puff> m_puffs;
     Trace m_traces[16];

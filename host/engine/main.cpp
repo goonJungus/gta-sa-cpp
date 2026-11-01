@@ -4457,6 +4457,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             } else if (tw < 1.0f) {
                                 g_fx.Impact(hit, hnz);
                             }
+                            g_fx.MuzzleFlash(s.origin, d);   // DoPlaneGunFireFX: the gunflash fx
                             g_fx.Tracer(s.origin, hit);
                             if (getenv("GTA_VEHGUNDBG")) Log("AIRGUN model %d from %.1f %.1f %.1f dir %.2f %.2f %.2f -> %s at %.1f", c.model, s.origin[0], s.origin[1], s.origin[2], d[0], d[1], d[2],
                                                              vi2 >= 0 ? "car" : pi2 >= 0 ? "ped" : tw < 1.0f ? "world" : "none", at);
