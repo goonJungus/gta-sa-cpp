@@ -283,11 +283,12 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
         c.Out(outArg, uid);
         return true;
     }
-    case 0x00DB: {   // IS_CHAR_IN_CAR(char, car)
+    case 0x00DB: case 0x0448: {   // IS_CHAR_IN_CAR / IS_CHAR_SITTING_IN_CAR(char, car)
         if (c.I(0) == kPlayer) c.result = playerCar && playerCar() == c.I(1) - 1;
         else { const auto it = m_charCar.find(c.I(0)); c.result = it != m_charCar.end() && it->second == c.I(1); }
         return true;
     }
+    case 0x0442: c.result = playerCar && playerCar() == c.I(1) - 1; return true;   // IS_PLAYER_SITTING_IN_CAR(player, car)
     case 0x00DF: {   // IS_CHAR_IN_ANY_CAR(char)
         c.result = c.I(0) == kPlayer ? (playerInCar && playerInCar()) : m_charCar.count(c.I(0)) != 0;
         if (std::getenv("GTA_INCARDBG") && c.t.name == "CARMOD") { static int n = 0; if (c.result && n++ % 200 == 0) { std::fprintf(stderr, "[INCAR] char %d -> %d (playerCar %d)", c.I(0), (int)c.result, playerCar ? playerCar() : -9); std::fputc(10, stderr); } }
@@ -1111,7 +1112,6 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x022A: case 0x030C: case 0x0318: case 0x034F: case 0x0394: case 0x04EF: case 0x06E1: case 0x06FD:
     case 0x0733: case 0x0968: case 0x0998:   // ped roads, mission progress and pass bookkeeping, tunes, animation release, car missions, playback speed, talk
         return true;
-    case 0x0448: c.result = false; return true;   // IS_CHAR_SITTING_IN_CAR
     case 0x09D0: c.result = true; return true;    // IS_VEHICLE_ON_ALL_WHEELS
     case 0x0674: case 0x0852: case 0x08AF: case 0x09F6: return true;   // CUSTOM_PLATE_FOR_NEXT_CAR, SET_CAR_CAN_BE_VISIBLY_DAMAGED, SET_CHAR_MAX_HEALTH, SET_CHAR_GET_OUT_UPSIDE_DOWN_CAR
     case 0x04EE: c.result = true; return true;   // HAS_ANIMATION_LOADED
