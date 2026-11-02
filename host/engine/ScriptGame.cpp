@@ -549,6 +549,13 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     if (name.compare(0, 7, "LOCATE_") == 0 && Locate(c, name)) return true;
     if (name.size() > 12 && name.compare(0, 3, "IS_") == 0 && name.find("_IN_AREA_") != std::string::npos && InArea(c, name)) return true;
     switch (c.op) {
+    // ---- car bombs (CVehicle::m_nBombOnBoard) ------------------------------------------------------------------
+    case 0x0242: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, c.I(1)); return true;   // ARM_CAR_WITH_BOMB(car, type)
+    case 0x059B: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, 0); return true;        // DISARM_CAR_BOMB(car)
+    case 0x0228: { VehicleInstance* v = carAlive(c.I(0)); c.result = v && v->phys.bomb == c.I(1); return true; }   // IS_CAR_ARMED_WITH_BOMB(car, type)
+    case 0x0220: { VehicleInstance* v = carAlive(c.I(0)); c.result = v && v->phys.bomb != 0; return true; }       // IS_CAR_ARMED_WITH_ANY_BOMB(car)
+    case 0x0146: { VehicleInstance* v = carAlive(c.I(0)); c.result = v && v->phys.bomb != 0 && v->phys.bombTimer > 0; return true; }   // IS_CARBOMB_ACTIVE(car)
+    case 0x021D: return true;                                                                            // SET_FREE_BOMBS
     // ---- maths and units (CRunningScript::ProcessCommands*) ---------------------------------
     case 0x01FB: c.OutF(1, std::sqrt(c.F(0))); return true;                                   // SQRT
     case 0x02F6: c.OutF(1, std::sin(c.F(0) * 0.017453292f)); return true;                      // SIN (degrees)
