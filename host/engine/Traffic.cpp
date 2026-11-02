@@ -220,6 +220,7 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
         }
         {   // CCarCtrl / CTaskComplexCarReactToVehicleCollision: a hard knock stops the car for a moment; if the player's car
             // did it, or it is nearly wrecked, the driver gets out and runs
+            if (std::getenv("GTA_TRAFFICKNOCK") && d.age > 6.0f && d.age < 6.05f) { c.phys.lastDI = 100.0f; c.phys.damager = e.playerCar; }   // dev: a fake knock from the player's car
             const float knock = c.phys.lastDI;
             if (knock > 25.0f && d.shock <= 0.0f) {
                 d.shock = 2.5f;
