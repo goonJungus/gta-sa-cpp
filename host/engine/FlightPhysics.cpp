@@ -189,11 +189,12 @@ void Vehicles::HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, b
         const V3 levelFwd = Norm(Cross(V3(0.0f, 0.0f, 1.0f), right));
         const V3 levelSide = Norm(Cross(fwd, V3(0.0f, 0.0f, 1.0f)));
         const float dx = p.aiTarget[0] - c.x, dy = p.aiTarget[1] - c.y, dist = std::sqrt(dx * dx + dy * dy);
-        const float wantSpeed = std::min(dist * 0.25f, 22.0f) / 50.0f;   // per step, like mv
+        const float wantSpeed = std::min(dist * 0.12f, 18.0f) / 50.0f;   // per step, like mv
         const float tx = dist > 0.5f ? dx / dist * wantSpeed : 0.0f, ty = dist > 0.5f ? dy / dist * wantSpeed : 0.0f;
         const float wantF = tx * levelFwd.x + ty * levelFwd.y, wantS = tx * levelSide.x + ty * levelSide.y;
         p.flyUpDown = std::clamp((Dot(levelFwd, mv) - wantF) * h.fly.pitchStab, -1.0f, 1.0f);
-        p.flyLeftRight = std::clamp((Dot(levelSide, mv) - wantS) * h.fly.rollStab, -1.0f, 1.0f);
+        static const float s_rollSign = std::getenv("GTA_HELIROLL") ? (float)std::atof(std::getenv("GTA_HELIROLL")) : 1.0f;
+        p.flyLeftRight = std::clamp((Dot(levelSide, mv) - wantS) * h.fly.rollStab * s_rollSign, -1.0f, 1.0f);
         float goalZ = p.aiTarget[2];
         if (p.aiHeliMode == 2 && dist < 6.0f) goalZ = p.aiTarget[2] - 0.5f;   // down onto the spot
         else if (p.aiHeliMode == 2) goalZ = p.aiTarget[2] + 12.0f;
@@ -204,7 +205,7 @@ void Vehicles::HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, b
         float err = yawWant - std::atan2(fwd.y, fwd.x);
         while (err > 3.14159265f) err -= 6.2831853f;
         while (err < -3.14159265f) err += 6.2831853f;
-        p.flySkid = (dist > 4.0f || p.aiKeepYaw) ? std::clamp(err * 1.2f, -1.0f, 1.0f) : 0.0f;
+        p.flySkid = (dist > 15.0f || p.aiKeepYaw) ? std::clamp(err * 0.6f * (std::getenv("GTA_HELIYAW") ? (float)std::atof(std::getenv("GTA_HELIYAW")) : -1.0f), -1.0f, 1.0f) : 0.0f;
         if (std::getenv("GTA_HELIDBG")) { static int n = 0; if (n++ % 100 == 0) { std::fprintf(stderr, "[HELIAI] z %.1f goal %.1f dist %.0f rotor %.3f acc %.2f pitch %.2f roll %.2f skid %.2f", c.z, goalZ, dist, p.rotorSpeed, p.flyAccel, p.flyUpDown, p.flyLeftRight, p.flySkid); std::fputc(10, stderr); } }
         return;
     }

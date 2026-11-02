@@ -395,6 +395,17 @@ struct VehicleInstance {
         float top[4] = {}, bot[4] = {}, spring[4] = {};
         float prevSpeed = 0.0f;
     } hyd;
+    // A winch under a helicopter (CVehicle::InitWinch, CRope): a hook on a rope of `len` metres swinging from the belly; a
+    // magnet picks up the car beneath it and carries it until released. See VehicleWinch.cpp.
+    struct Winch {
+        bool on = false;
+        int type = 3;                 // 1..3, as InitWinch's argument (3 the Cargobob's magnet)
+        float len = 9.0f;
+        float h[3] = {0, 0, 0}, v[3] = {0, 0, 0};   // the hook, world
+        bool fresh = true;            // the hook still has to be hung from the belly
+        int carried = -1;             // the car on the hook
+        bool canPickVehicles = true;
+    } winch;
     CarPhys phys;
 };
 
@@ -526,6 +537,13 @@ public:
     }
     // Cars the player left keep rolling until they come to rest (STATUS_ABANDONED with m_nFakePhysics).
     void ProcessAbandoned(float dt, int skip, const VehicleWorld& world);
+    // Winches (VehicleWinch.cpp): hang a hook under heli i, take it off, pick a car up with it, let it go; per frame step
+    // and the rope drawn with the lights.
+    void AttachWinch(size_t i, int type);
+    void RemoveWinch(size_t i);
+    bool WinchPick(size_t i, size_t car);
+    void WinchRelease(size_t i);
+    void UpdateWinches(float dt, const std::function<float(float, float)>& groundAt);
     bool UsesCarPhysics(int model) const;
     bool UsesBikePhysics(int model) const;   // CBike and CBmx
     bool UsesBoatPhysics(int model) const;   // CBoat

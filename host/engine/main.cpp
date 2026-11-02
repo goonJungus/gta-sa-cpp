@@ -2638,6 +2638,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     float hx = 0, hy = 0, hz = 0; int hm = 1;
                     if (sscanf(ha, "%f,%f,%f,%d", &hx, &hy, &hz, &hm) >= 3) { g_vehicles.HeliGoTo((size_t)ci, hx, hy, hz, hm); Log("DEV: heli %d flies itself to %.0f %.0f %.0f", ci, hx, hy, hz); }
                 }
+                if (getenv("GTA_WINCH") && ci >= 0) g_vehicles.AttachWinch((size_t)ci, 3);
+                if (getenv("GTA_WINCHCAR") && ci >= 0) {   // dev: a car 12 m off, the helicopter hovering over it to pick it up, then to carry it 40 m on
+                    const int tc = g_vehicles.Spawn(g_renderer, 496, sx + 12.0f, sy, gz < -500.0f ? playerZ - EYE_HEIGHT : gz, 0.0f);
+                    if (tc >= 0) g_vehicles.HeliGoTo((size_t)ci, sx + 12.0f, sy, g_vehicles.Car((size_t)tc).z + 11.5f, 1);
+                    Log("DEV: winch test: heli %d over car %d", ci, tc);
+                }   // dev: a magnet under the spawned helicopter
                 if (const char* bm = getenv("GTA_BOMB"); bm && ci >= 0) g_vehicles.InstallBomb((size_t)ci, atoi(bm));   // dev: 1 timed, 2 ignition
                 if (const char* nt = getenv("GTA_NITRO"); nt && ci >= 0) g_vehicles.InstallNitro((size_t)ci, atoi(nt));   // dev: a nitro bottle with that many boosts
                 if (ci >= 0 && getenv("GTA_WARPIN")) {   // dev: straight into the driver's seat (WARP_CHAR_INTO_CAR)
@@ -4044,6 +4050,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     g_audio.OtherEngines(cs, ncs);
                 }
             }
+            g_vehicles.UpdateWinches(dt, [](float x, float y) { return g_world.GetGroundHeight(x, y, 1000.0f); });
             if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
             if (worldReady && g_vehicles.Ready() && g_trains.Loaded()) {   // CTrain::UpdateTrains
                 static uint32_t s_prevTrainMs = 0;

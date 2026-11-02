@@ -94,6 +94,7 @@ if(WIN32)
         host/engine/FlightPhysics.cpp
         host/engine/TowPhysics.cpp
         host/engine/VehicleLights.cpp
+        host/engine/VehicleWinch.cpp
         host/engine/VehicleUpgrades.cpp
         host/engine/PathNodes.cpp
         host/engine/Traffic.cpp

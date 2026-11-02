@@ -247,5 +247,41 @@ void Vehicles::RenderLights(D3DRenderer& r, const float cam[3], const LightEnv& 
         if (!s_white) { const uint32_t px = 0xFFFFFFFFu; s_white = r.CreateTexture(1, 1, D3DFMT_A8R8G8B8, &px, 4); }
         r.DrawBlendedTriangles(beamVerts.data(), (uint32_t)beamVerts.size(), beamIdx.data(), (uint32_t)beamIdx.size(), s_white, true);
     }
+    {   // winch ropes and magnets: a thin dark ribbon from the belly to the hook, a flat disc at the hook
+        std::vector<D3DRenderer::ColorTexVertex> rv;
+        std::vector<uint16_t> ri;
+        for (const VehicleInstance& c : m_cars) {
+            const VehicleInstance::Winch& w = c.winch;
+            if (!w.on || c.removed || w.fresh) continue;
+            const float up[3] = {c.phys.active ? c.rot[6] : 0.0f, c.phys.active ? c.rot[7] : 0.0f, c.phys.active ? c.rot[8] : 1.0f};
+            const float a[3] = {c.x - up[0] * 1.2f, c.y - up[1] * 1.2f, c.z - up[2] * 1.2f};
+            const float d[3] = {w.h[0] - a[0], w.h[1] - a[1], w.h[2] - a[2]};
+            const float v[3] = {cam[0] - a[0], cam[1] - a[1], cam[2] - a[2]};
+            float s[3] = {d[1] * v[2] - d[2] * v[1], d[2] * v[0] - d[0] * v[2], d[0] * v[1] - d[1] * v[0]};
+            const float sl = std::sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
+            if (sl < 1e-5f || rv.size() + 8 > 60000) continue;
+            for (float& e : s) e *= 0.03f / sl;
+            const uint16_t b0 = (uint16_t)rv.size();
+            const uint32_t col = 0xFF2A2A2Au;
+            rv.push_back({a[0] - s[0], a[1] - s[1], a[2] - s[2], col, 0.5f, 0.5f});
+            rv.push_back({a[0] + s[0], a[1] + s[1], a[2] + s[2], col, 0.5f, 0.5f});
+            rv.push_back({w.h[0] + s[0], w.h[1] + s[1], w.h[2] + s[2], col, 0.5f, 0.5f});
+            rv.push_back({w.h[0] - s[0], w.h[1] - s[1], w.h[2] - s[2], col, 0.5f, 0.5f});
+            for (uint16_t k : {0, 1, 2, 0, 2, 3}) ri.push_back((uint16_t)(b0 + k));
+            const float rad = w.type == 3 ? 0.55f : 0.25f;   // the magnet's plate
+            const uint16_t b1 = (uint16_t)rv.size();
+            const uint32_t pc = 0xFF505050u;
+            rv.push_back({w.h[0] - rad, w.h[1] - rad, w.h[2], pc, 0.5f, 0.5f});
+            rv.push_back({w.h[0] + rad, w.h[1] - rad, w.h[2], pc, 0.5f, 0.5f});
+            rv.push_back({w.h[0] + rad, w.h[1] + rad, w.h[2], pc, 0.5f, 0.5f});
+            rv.push_back({w.h[0] - rad, w.h[1] + rad, w.h[2], pc, 0.5f, 0.5f});
+            for (uint16_t k : {0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2}) ri.push_back((uint16_t)(b1 + k));
+        }
+        if (!ri.empty()) {
+            static IDirect3DTexture9* s_whiteR = nullptr;
+            if (!s_whiteR) { const uint32_t px = 0xFFFFFFFFu; s_whiteR = r.CreateTexture(1, 1, D3DFMT_A8R8G8B8, &px, 4); }
+            r.DrawBlendedTriangles(rv.data(), (uint32_t)rv.size(), ri.data(), (uint32_t)ri.size(), s_whiteR, false);
+        }
+    }
     if (!glow.empty()) r.DrawCoronas(glow.data(), (int)glow.size());
 }

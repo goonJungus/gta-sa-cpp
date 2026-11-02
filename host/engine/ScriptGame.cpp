@@ -584,6 +584,14 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         }
         return true;
     }
+    // ---- winches (CVehicle::InitWinch, CRopes) ----
+    case 0x0788: if (cars && c.I(0) >= 1) cars->AttachWinch((size_t)c.I(0) - 1, c.I(1)); return true;      // ATTACH_WINCH_TO_HELI(heli, type)
+    case 0x0795: if (cars && c.I(0) >= 1) cars->RemoveWinch((size_t)c.I(0) - 1); return true;             // DELETE_WINCH_FOR_HELI(heli)
+    case 0x0789: if (cars && c.I(0) >= 1) cars->WinchRelease((size_t)c.I(0) - 1); return true;            // RELEASE_ENTITY_FROM_WINCH(heli)
+    case 0x078B: case 0x08CD: if (cars && c.I(0) >= 1 && c.I(1) >= 1) cars->WinchPick((size_t)c.I(0) - 1, (size_t)c.I(1) - 1); return true;   // GRAB_ENTITY_ON_WINCH / PICK_UP_VEHICLE_WITH_WINCH(heli, car)
+    case 0x08A5: if (VehicleInstance* v = carAlive(c.I(0))) v->winch.canPickVehicles = c.I(1) != 0; return true;   // WINCH_CAN_PICK_VEHICLE_UP(heli, bool)
+    case 0x08CC: case 0x08CE: case 0x0916: case 0x07EA: return true;   // PICK_UP_OBJECT / _CHAR_WITH_WINCH, WINCH_CAN_PICK_OBJECT_UP, SET_ROPE_HEIGHT_FOR_HELI
+    case 0x07EB: c.OutF(1, 9.0f); return true;   // GET_ROPE_HEIGHT_FOR_HELI
     // ---- car bombs (CVehicle::m_nBombOnBoard) ------------------------------------------------------------------
     case 0x0242: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, c.I(1)); return true;   // ARM_CAR_WITH_BOMB(car, type)
     case 0x059B: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, 0); return true;        // DISARM_CAR_BOMB(car)
