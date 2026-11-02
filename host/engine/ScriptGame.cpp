@@ -1072,6 +1072,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
             float z = c.F(3);
             if (groundAt) { const float g = groundAt(c.F(1), c.F(2)); if (g > -1e5f && z < g + 0.3f && g - z < 3.0f) z = g + 0.9f; }   // ground just above: lift; a floor far above is another storey or a roof, the script's z stands
             v->x = c.F(1); v->y = c.F(2); v->z = z; v->speed = 0; v->vx = v->vy = 0;
+            for (int k = 0; k < 3; k++) { v->phys.mv[k] = 0.0f; v->phys.tv[k] = 0.0f; }   // placed at rest
         }
         return true;
     }
