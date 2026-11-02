@@ -1066,6 +1066,7 @@ void Vehicles::ProcessAbandoned(float dt, int skip, const VehicleWorld& world) {
     for (size_t i = 0; i < m_cars.size(); i++) {
         VehicleInstance& c = m_cars[i];
         CarPhys& p = c.phys;
+        if (p.aiFly && std::getenv("GTA_HELIDBG")) { static int n = 0; if (n++ % 200 == 0) { std::fprintf(stderr, "[HELIAI] car %zu skip %d active %d removed %d hasRot %d fake %d", i, (int)((int)i == skip), (int)p.active, (int)c.removed, (int)c.hasRot, p.fakePhysics); std::fputc(10, stderr); } }
         if ((int)i == skip || !p.active || c.removed || c.hasRot || p.fakePhysics >= 10) continue;
         if (c.towedBy >= 0 && TowedChainStepped(i, skip)) continue;   // stepped behind its tractor
         auto mi = m_models.find(c.model);

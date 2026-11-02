@@ -184,6 +184,30 @@ bool Vehicles::UsesHeliPhysics(int model) const {
 // stabilities, at most 2 either way). A burning heli loses its lift and swings its tail.
 void Vehicles::HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, bool player) {
     CarPhys& p = c.phys;
+    if (!player && p.aiFly) {   // the game's pilot: the stick from the target's offset and our own speed (the horn's hold, aimed)
+        const V3 right(&c.rot[0]), fwd(&c.rot[3]), mv(p.mv);
+        const V3 levelFwd = Norm(Cross(V3(0.0f, 0.0f, 1.0f), right));
+        const V3 levelSide = Norm(Cross(fwd, V3(0.0f, 0.0f, 1.0f)));
+        const float dx = p.aiTarget[0] - c.x, dy = p.aiTarget[1] - c.y, dist = std::sqrt(dx * dx + dy * dy);
+        const float wantSpeed = std::min(dist * 0.25f, 22.0f) / 50.0f;   // per step, like mv
+        const float tx = dist > 0.5f ? dx / dist * wantSpeed : 0.0f, ty = dist > 0.5f ? dy / dist * wantSpeed : 0.0f;
+        const float wantF = tx * levelFwd.x + ty * levelFwd.y, wantS = tx * levelSide.x + ty * levelSide.y;
+        p.flyUpDown = std::clamp((Dot(levelFwd, mv) - wantF) * h.fly.pitchStab, -1.0f, 1.0f);
+        p.flyLeftRight = std::clamp((Dot(levelSide, mv) - wantS) * h.fly.rollStab, -1.0f, 1.0f);
+        float goalZ = p.aiTarget[2];
+        if (p.aiHeliMode == 2 && dist < 6.0f) goalZ = p.aiTarget[2] - 0.5f;   // down onto the spot
+        else if (p.aiHeliMode == 2) goalZ = p.aiTarget[2] + 12.0f;
+        const float vz = mv.z * 50.0f;
+        p.flyAccel = std::clamp((goalZ - c.z) * 0.18f - vz * 0.25f, -1.0f, 1.0f);
+        // face where it flies (or keep a set heading)
+        const float yawWant = p.aiKeepYaw ? p.aiYaw : std::atan2(dy, dx);
+        float err = yawWant - std::atan2(fwd.y, fwd.x);
+        while (err > 3.14159265f) err -= 6.2831853f;
+        while (err < -3.14159265f) err += 6.2831853f;
+        p.flySkid = (dist > 4.0f || p.aiKeepYaw) ? std::clamp(err * 1.2f, -1.0f, 1.0f) : 0.0f;
+        if (std::getenv("GTA_HELIDBG")) { static int n = 0; if (n++ % 100 == 0) { std::fprintf(stderr, "[HELIAI] z %.1f goal %.1f dist %.0f rotor %.3f acc %.2f pitch %.2f roll %.2f skid %.2f", c.z, goalZ, dist, p.rotorSpeed, p.flyAccel, p.flyUpDown, p.flyLeftRight, p.flySkid); std::fputc(10, stderr); } }
+        return;
+    }
     if (!player) { p.flyAccel = p.flyUpDown = p.flyLeftRight = p.flySkid = 0.0f; return; }
     p.flyAccel = p.inAccel - p.inBrake;
     // Mouse flying (CVehicle::m_bEnableMouseFlying, on by default): the mouse's movement is added to the stick
@@ -222,12 +246,13 @@ void Vehicles::HeliInputs(VehicleInstance& c, const HandlingData& h, float ts, b
 // rotor winds down. Retail adds 0.001 a frame at its 30 fps; here that rate is kept per real time.
 void Vehicles::HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world) {
     CarPhys& p = c.phys;
-    if (!player) {
+    if (!player && !p.aiFly) {
         const float drop = ts * 0.00055f;
         if (p.rotorSpeed <= drop) p.rotorSpeed = 0.0f;
         else { p.fakePhysics = 0; p.rotorSpeed -= drop; }
         return;
     }
+    if (p.aiFly) p.fakePhysics = 0;   // a pilot is at the controls: never asleep
     if (p.rotorSpeed < 0.22f) p.rotorSpeed += (IsRcHeli(c.model) ? 0.003f : 0.001f) * ts * (30.0f / 50.0f);
     if (p.rotorSpeed <= 0.15f) return;
     Body b = Load(c, h);

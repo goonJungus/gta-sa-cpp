@@ -2634,6 +2634,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     std::string comp;
                     while (std::getline(us, comp, ',')) if (!g_vehicles.AddUpgrade(g_renderer, (size_t)ci, comp)) Log("DEV: upgrade %s not fitted", comp.c_str());
                 }
+                if (const char* ha = getenv("GTA_HELIAI"); ha && ci >= 0) {   // dev: "x,y,z[,mode]" the spawned helicopter flies itself there
+                    float hx = 0, hy = 0, hz = 0; int hm = 1;
+                    if (sscanf(ha, "%f,%f,%f,%d", &hx, &hy, &hz, &hm) >= 3) { g_vehicles.HeliGoTo((size_t)ci, hx, hy, hz, hm); Log("DEV: heli %d flies itself to %.0f %.0f %.0f", ci, hx, hy, hz); }
+                }
                 if (const char* bm = getenv("GTA_BOMB"); bm && ci >= 0) g_vehicles.InstallBomb((size_t)ci, atoi(bm));   // dev: 1 timed, 2 ignition
                 if (const char* nt = getenv("GTA_NITRO"); nt && ci >= 0) g_vehicles.InstallNitro((size_t)ci, atoi(nt));   // dev: a nitro bottle with that many boosts
                 if (ci >= 0 && getenv("GTA_WARPIN")) {   // dev: straight into the driver's seat (WARP_CHAR_INTO_CAR)

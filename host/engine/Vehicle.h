@@ -285,6 +285,13 @@ struct CarPhys {
     // input was the mouse (CVehicle::m_nLastControlInput == MOUSE)
     float inMouseDX = 0.0f, inMouseDY = 0.0f;
     bool lastInputMouse = false;
+    // A helicopter flown by the game (script HELI_GOTO_COORDS and kin): it flies like the player's, its stick set by HeliAI
+    // from a target point, a hover or a landing.
+    bool aiFly = false;
+    float aiTarget[3] = {0, 0, 0};
+    int aiHeliMode = 0;               // 0 hover at the target, 1 go to it and hold, 2 land on it
+    float aiYaw = 0.0f;               // the heading to keep once there (radians), used when aiKeepYaw
+    bool aiKeepYaw = false;
     // STATUS_PHYSICS: an AI driver's pedals and steering (CCarCtrl::SteerAICarWithPhysics), radians + left
     bool ai = false, aiHandbrake = false;
     float aiGas = 0.0f, aiBrake = 0.0f, aiSteer = 0.0f;
@@ -487,6 +494,14 @@ public:
     // 2 (small bottle), 5 (large) or 10 (double) boosts; negative takes it out.
     void InstallNitro(size_t i, int boosts);
     // The bomb shop's product (CVehicle::m_nBombOnBoard: 1 timed, 2 ignition, 3 sticky, 0 takes it off).
+    // Script helicopters: fly it to (x, y, z) and hover there (mode 1), or put it down on the ground at (x, y) (mode 2).
+    void HeliGoTo(size_t i, float x, float y, float z, int mode = 1) {
+        if (i >= m_cars.size()) return;
+        Activate(m_cars[i]);
+        CarPhys& p = m_cars[i].phys;
+        p.fakePhysics = 0; p.aiFly = true; p.aiHeliMode = mode; p.aiTarget[0] = x; p.aiTarget[1] = y; p.aiTarget[2] = z;
+    }
+    void HeliStopAI(size_t i) { if (i < m_cars.size()) m_cars[i].phys.aiFly = false; }
     void InstallBomb(size_t i, int kind) { if (i < m_cars.size()) { m_cars[i].phys.bomb = kind; m_cars[i].phys.bombTimer = 0; } }
     std::function<void(const char*)> onMessage;   // a GXT key to show (CGarages::TriggerMessage)
     // The player's heli blade disc (centre, spin axis, radius) and a strike the host found in it (a car, a ped).

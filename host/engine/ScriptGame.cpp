@@ -565,6 +565,14 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0715: if (c.I(1) >= 1) { m_remoteCar = c.I(1); if (putPlayerInCar) putPlayerInCar(c.I(1) - 1); } return true;   // TAKE_REMOTE_CONTROL_OF_CAR(player, car)
     case 0x0241: c.result = m_remoteCar > 0 && playerCar && playerCar() == m_remoteCar - 1; return true;   // IS_PLAYER_IN_REMOTE_MODE(player)
     case 0x0484: c.Out(1, m_remoteCar); return true;   // GET_REMOTE_CONTROLLED_CAR(player) -> car
+    // ---- helicopters flown by the game (CHeli / CAutoPilot, reduced to a stick controller: Vehicles::HeliGoTo) ----
+    case 0x04A2: if (cars && c.I(0) >= 1) cars->HeliGoTo((size_t)c.I(0) - 1, c.F(1), c.F(2), c.F(3), 1); return true;   // HELI_GOTO_COORDS(heli, x, y, z, min alt, max alt)
+    case 0x0743: if (cars && c.I(0) >= 1) cars->HeliGoTo((size_t)c.I(0) - 1, c.F(1), c.F(2), c.F(3), 2); return true;   // HELI_LAND_AT_COORDS(heli, x, y, z, ...)
+    case 0x04D0: { VehicleInstance* v = carAlive(c.I(0)); if (v) { v->phys.aiKeepYaw = true; v->phys.aiYaw = (c.F(1) + 90.0f) * 0.0174533f; } return true; }   // SET_HELI_ORIENTATION(heli, heading)
+    case 0x04D1: { VehicleInstance* v = carAlive(c.I(0)); if (v) v->phys.aiKeepYaw = false; return true; }   // CLEAR_HELI_ORIENTATION
+    case 0x0564: { VehicleInstance* v = carAlive(c.I(0)); if (v) v->health = std::min(v->health, 200.0f); return true; }   // MAKE_HELI_COME_CRASHING_DOWN
+    case 0x0825: { VehicleInstance* v = carAlive(c.I(0)); if (v) v->phys.rotorSpeed = 0.22f; return true; }   // SET_HELI_BLADES_FULL_SPEED
+    case 0x04DF: case 0x0853: case 0x0A1C: return true;   // SET_HELI_STABILISER, SET_HELI_REACHED_TARGET_DISTANCE, DISABLE_HELI_AUDIO
     // ---- car bombs (CVehicle::m_nBombOnBoard) ------------------------------------------------------------------
     case 0x0242: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, c.I(1)); return true;   // ARM_CAR_WITH_BOMB(car, type)
     case 0x059B: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, 0); return true;        // DISARM_CAR_BOMB(car)
