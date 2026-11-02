@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <cstdio>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -253,6 +255,16 @@ int Peds::Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading
     return (int)m_actors.size() - 1;
 }
 
+void Peds::Seat(size_t i, const float body[16], const float seat[3]) {
+    if (i >= m_actors.size()) return;
+    Actor& a = m_actors[i];
+    a.seated = true;
+    for (int k = 0; k < 16; k++) a.seatBody[k] = body[k];
+    for (int k = 0; k < 3; k++) a.seatPos[k] = body[12 + k] + body[k] * seat[0] + body[4 + k] * seat[1] + body[8 + k] * seat[2];
+    a.x = a.seatPos[0]; a.y = a.seatPos[1]; a.z = a.seatPos[2] - 1.0f;   // where a shot finds it
+    a.heading = std::atan2(body[5], body[4]);
+}
+
 void Peds::Pose(Model& m, const AnimClip* clip, float time) {
     const SkinnedClump& c = m.clump;
     std::vector<RwMat> globals(c.frames.size());
@@ -484,6 +496,7 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
         auto it = m_models.find(a.model);
         if (it == m_models.end()) continue;
         const Model& m = it->second;
+        if (a.seated) continue;   // the car carries it
         if (a.flying) {   // thrown by a melee hit: ballistic until the ground, then it stops (peds have no slide)
             a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
             a.vz -= 20.0f * dt;   // 0.008 per 1/50 s step
@@ -629,6 +642,21 @@ void Peds::Draw(D3DRenderer& r) {
         auto it = m_models.find(a.model);
         if (it == m_models.end() || !it->second.valid) continue;
         Model& m = it->second;
+        if (a.seated) {   // CPed::SetPedPositionInCar: the pelvis at the seat, on the car's matrix
+            auto cc = m_clips.find("drive_l");
+            Pose(m, cc != m_clips.end() ? &cc->second : nullptr, 0.0f);
+            D3DMATRIX w;
+            for (int k = 0; k < 16; k++) (&w._11)[k] = a.seatBody[k];
+            w._41 = a.seatPos[0] + a.seatBody[8] * -0.1f;
+            w._42 = a.seatPos[1] + a.seatBody[9] * -0.1f;
+            w._43 = a.seatPos[2] + a.seatBody[10] * -0.1f;
+            dev->SetTransform(D3DTS_WORLD, &w);
+            for (D3DRenderMesh* me : m.meshes) {
+                r.UpdateMeshVertices(me, m.skinned.data(), (uint32_t)m.skinned.size());
+                r.DrawMesh(me);
+            }
+            continue;
+        }
         const AnimClip* chokeClip = nullptr;
         if (!a.dead && (a.chokeTimer > 0.0f || a.tiredTimer > 0.0f)) {
             auto cc = m_clips.find(a.chokeTimer > 0.0f ? "gas_cwr" : "idle_tired");

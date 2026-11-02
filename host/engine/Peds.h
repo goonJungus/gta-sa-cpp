@@ -55,6 +55,10 @@ public:
     void SetGoal(size_t i, float x, float y, int speed) { if (i < m_actors.size()) { Actor& a = m_actors[i]; a.goal = true; a.gx = x; a.gy = y; a.gspeed = speed; } }
     void ClearGoal(size_t i) { if (i < m_actors.size()) m_actors[i].goal = false; }
     bool HasGoal(size_t i) const { return i < m_actors.size() && m_actors[i].goal; }
+    // A driver (CPed::SetPedPositionInCar): this actor sits at `seat` (car space) on the vehicle's drawn matrix `body`
+    // (D3D rows right, forward, up, position) in the drive_l pose, and does not wander. Call it every frame.
+    void Seat(size_t i, const float body[16], const float seat[3]);
+    bool Seated(size_t i) const { return i < m_actors.size() && m_actors[i].seated; }
     void SetHidden(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].hidden = on; }
     bool Hidden(size_t i) const { return i < m_actors.size() && m_actors[i].hidden; }
     void Remove(size_t i) { if (i < m_actors.size()) m_actors.erase(m_actors.begin() + (long)i); }
@@ -177,6 +181,9 @@ private:
         float gx = 0, gy = 0;
         int gspeed = 0;                   // 0 walk, 1 run
         bool hidden = false;              // inside a car
+        bool seated = false;              // at the wheel: drawn in the seat pose, not wandering
+        float seatBody[16] = {};          // the vehicle's matrix and the seat's place in the world
+        float seatPos[3] = {};
         float x = 0, y = 0, z = 0, heading = 0;   // heading 0 faces +x
         float animTime = 0.0f, turnTimer = 0.0f, walkTimer = 0.0f;
         bool walking = false;

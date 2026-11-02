@@ -9,6 +9,7 @@
 
 #include "PathNodes.h"
 #include "PopCycle.h"
+#include "Peds.h"
 #include "Vehicle.h"
 
 class Traffic {
@@ -18,6 +19,7 @@ public:
         float px = 0, py = 0, pz = 0;       // the player
         float camFx = 0, camFy = 1;         // the camera's forward, flat
         int playerCar = -1;
+        Peds* peds = nullptr;               // the drivers
         const PopCycle* pop = nullptr;      // which cars, and how many, for the zone and the hour
         float hour = 12.0f;
         bool weekend = false;
@@ -34,6 +36,7 @@ public:
 private:
     struct Drive {
         int car = -1;
+        int driverUid = 0;                  // the Peds actor at the wheel (0 none)
         PathNodes::Address from, to;        // the link it is on: lane start node and target node
         float sx = 0, sy = 0, dx = 0, dy = 1, len = 1;   // the lane's start, unit direction and length to the next lane start
         PathNodes::Address nextTo;          // where the next link goes

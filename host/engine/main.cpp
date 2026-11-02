@@ -4002,6 +4002,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 te.camFx = cosf(yaw); te.camFy = sinf(yaw);
                 te.playerCar = g_driveCar;
                 te.pop = &g_pop;
+                te.peds = &g_peds;
                 te.hour = fmodf(g_gameSeconds / 3600.0f, 24.0f);
                 if (te.hour < 0.0f) te.hour += 24.0f;
                 te.tlMs = GetTickCount();

@@ -54,8 +54,9 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         const PathNodes::Node* n = paths.Get(a);
         if (!n || n->switchedOff || n->water || n->roadBlock || n->deadEnd || n->spawnProbability == 0) continue;
         const float ddx = n->x - e.px, ddy = n->y - e.py, dist = std::sqrt(ddx * ddx + ddy * ddy);
-        if (dist < 85.0f) continue;
-        if (dist < 140.0f && (ddx * e.camFx + ddy * e.camFy) / std::max(dist, 1.0f) > 0.3f) continue;   // not where it is seen appearing
+        const bool nearTest = std::getenv("GTA_TRAFFICNEAR") != nullptr;   // dev: spawn within sight
+        if (dist < (nearTest ? 14.0f : 85.0f) || (nearTest && dist > 40.0f)) continue;
+        if (!nearTest && dist < 140.0f && (ddx * e.camFx + ddy * e.camFy) / std::max(dist, 1.0f) > 0.3f) continue;   // not where it is seen appearing
         if (Rand() * 15.0f > (float)n->spawnProbability) continue;
         PathNodes::Address to;
         float sx, sy, dx, dy;
@@ -98,6 +99,10 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         d.tl = tl; d.tlDir = tlDir; d.ntl = ntl; d.ntlDir = ntlDir;
         d.cruise = (n->highway ? 20.0f : 10.0f) + 5.0f * Rand();
         c.vx = ux * d.cruise * 0.8f; c.vy = uy * d.cruise * 0.8f;
+        if (e.peds && e.peds->Ready()) {   // a driver, any civilian of the pool
+            const int pi = e.peds->Spawn(r, -1, px, py, z, 0.0f);
+            if (pi >= 0) d.driverUid = e.peds->Uid((size_t)pi);
+        }
         m_drives.push_back(d);
         return true;
     }
@@ -194,8 +199,22 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
         if (c.removed || c.wrecked) drop = true;
         else if (d.car == e.playerCar) { v.ClearAIControls((size_t)d.car); drop = true; }   // the player took it
         else if (tooFar || d.stuck > 10.0f || d.idle > 20.0f || c.health <= 0.0f || (c.phys.active && c.rot[8] < 0.2f)) { c.removed = true; drop = true; }   // gone, stuck or flipped
-        if (drop) { m_drives.erase(m_drives.begin() + (long)i); continue; }
+        if (drop) {
+            if (e.peds && d.driverUid) {   // the driver goes with a removed car, and gets out of one the player takes
+                const int pi = e.peds->FindUid(d.driverUid);
+                if (pi >= 0 && c.removed) e.peds->Remove((size_t)pi);
+                else if (pi >= 0) e.peds->Remove((size_t)pi);
+            }
+            m_drives.erase(m_drives.begin() + (long)i);
+            continue;
+        }
         d.age += e.dt;
+        if (e.peds && d.driverUid) {   // the driver sits in the seat of the car's drawn matrix
+            const int pi = e.peds->FindUid(d.driverUid);
+            float body[16], seat[3];
+            if (pi >= 0 && v.SeatLocal((size_t)d.car, seat)) { v.BodyMatrix((size_t)d.car, body); e.peds->Seat((size_t)pi, body, seat); }
+            else d.driverUid = 0;
+        }
         Drive_(v, paths, d, e);
         i++;
     }
