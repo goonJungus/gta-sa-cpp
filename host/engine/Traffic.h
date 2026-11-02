@@ -61,6 +61,12 @@ private:
     };
     std::vector<Drive> m_drives;
     float m_spawnTimer = 0.0f, m_copTimer = 0.0f;
+    // The SWAT helicopter (CHeli::SendDownSwat): at four stars a police Maverick hovers over the player and four officers go down
+    // its rope, then it leaves.
+    int m_swatHeli = -1, m_swatDropped = 0;
+    float m_swatTimer = 0.0f;
+    bool m_swatLeaving = false;
+    void UpdateSwat(Vehicles& v, D3DRenderer& r, const Env& e);
     unsigned m_rng = 0x7a11c5u;
 
     float Rand() { m_rng = m_rng * 1664525u + 1013904223u; return (float)(m_rng >> 8) / 16777216.0f; }

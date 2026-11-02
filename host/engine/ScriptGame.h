@@ -177,6 +177,7 @@ private:
     int AddPickup(int model, int type, int ammo, float x, float y, float z);
     struct Drive { int car; float x, y, speed; };
     std::map<int, Drive> m_drives;
+    std::map<int, int> m_heliTargets;                                                 // heli handle -> the char (or car) it follows
     std::map<int, std::array<float, 3>> m_frozenCars;                                 // FREEZE_CAR_POSITION
 
     ScriptTextItem DefaultStyle() const;

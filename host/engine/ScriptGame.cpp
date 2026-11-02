@@ -592,6 +592,10 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x08A5: if (VehicleInstance* v = carAlive(c.I(0))) v->winch.canPickVehicles = c.I(1) != 0; return true;   // WINCH_CAN_PICK_VEHICLE_UP(heli, bool)
     case 0x08CC: case 0x08CE: case 0x0916: case 0x07EA: return true;   // PICK_UP_OBJECT / _CHAR_WITH_WINCH, WINCH_CAN_PICK_OBJECT_UP, SET_ROPE_HEIGHT_FOR_HELI
     case 0x07EB: c.OutF(1, 9.0f); return true;   // GET_ROPE_HEIGHT_FOR_HELI
+    // ---- helicopters on a target: HELI_FOLLOW_ENTITY / HELI_ATTACK_PLAYER / POLICE_HELI_CHASE_ENTITY(heli, entity, ...) hold a point
+    // 18 m above the entity, re-aimed every frame (Update) ----
+    case 0x0726: case 0x0724: case 0x0727: if (c.I(0) >= 1) m_heliTargets[c.I(0)] = c.I(1); return true;
+    case 0x0725: case 0x0780: if (c.I(0) >= 1) m_heliTargets.erase(c.I(0)); return true;   // HELI_FLY_IN_DIRECTION / HELI_KEEP_ENTITY_IN_VIEW: no target of its own
     // ---- car bombs (CVehicle::m_nBombOnBoard) ------------------------------------------------------------------
     case 0x0242: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, c.I(1)); return true;   // ARM_CAR_WITH_BOMB(car, type)
     case 0x059B: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, 0); return true;        // DISARM_CAR_BOMB(car)
@@ -1402,6 +1406,16 @@ void ScriptGame::PlaybackAI(int s) {
 
 void ScriptGame::Update(float dt) {
     PlaybackStep(dt);
+    for (auto it = m_heliTargets.begin(); it != m_heliTargets.end();) {   // helicopters following a char or a car
+        VehicleInstance* hv = cars && it->first >= 1 && (size_t)it->first <= cars->Count() ? &cars->Car((size_t)it->first - 1) : nullptr;
+        float tx = 0, ty = 0, tz = 0;
+        bool inCar = false;
+        bool ok = hv && !hv->removed && (EntityPos(0, it->second, tx, ty, tz, inCar, nullptr) || EntityPos(1, it->second, tx, ty, tz, inCar, nullptr));
+        if (!ok) { it = m_heliTargets.erase(it); continue; }
+        cars->HeliGoTo((size_t)it->first - 1, tx, ty, tz + 18.0f, 1);
+        ++it;
+    }
+
     MenuUpdate();
     for (const auto& f : m_frozenCars) {   // FREEZE_CAR_POSITION: held where it was frozen
         if (!cars || f.first < 1 || (size_t)f.first > cars->Count()) continue;

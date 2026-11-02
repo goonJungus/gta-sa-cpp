@@ -66,6 +66,8 @@ public:
     // The strikes thrown since the last call: the attacker's x, y.
     struct Strike { float x, y; };
     std::vector<Strike> TakeStrikes() { std::vector<Strike> s; s.swap(m_strikes); return s; }
+    // Dropped from a helicopter rope: at (x, y, z) in the air, falling.
+    void Drop(size_t i, float x, float y, float z) { if (i < m_actors.size()) { Actor& a = m_actors[i]; a.x = x; a.y = y; a.z = z; a.vx = a.vy = 0.0f; a.vz = -3.0f; a.flying = true; a.slides = false; a.goal = false; } }
     bool Aggressive(size_t i) const { return i < m_actors.size() && m_actors[i].aggro; }
     bool Seated(size_t i) const { return i < m_actors.size() && m_actors[i].seated; }
     void SetHidden(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].hidden = on; }

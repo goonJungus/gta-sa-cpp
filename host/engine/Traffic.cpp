@@ -260,8 +260,43 @@ void Traffic::Pursue(Vehicles& v, Drive& d, const Env& e) {
     if (now < 0.4f && dist > 15.0f) d.stuck += e.dt; else d.stuck = std::max(0.0f, d.stuck - e.dt);
 }
 
+void Traffic::UpdateSwat(Vehicles& v, D3DRenderer& r, const Env& e) {
+    if (m_swatHeli >= 0 && (m_swatHeli >= (int)v.Count() || v.Car((size_t)m_swatHeli).removed)) { m_swatHeli = -1; m_swatDropped = 0; m_swatLeaving = false; }
+    if (m_swatHeli < 0) {
+        if (e.wanted < 4 || !v.Info(497)) return;
+        const int h = v.Spawn(r, 497, e.px + 90.0f, e.py + 90.0f, e.pz + 45.0f, 0.0f);
+        if (h < 0) return;
+        m_swatHeli = h; m_swatDropped = 0; m_swatTimer = 0.0f; m_swatLeaving = false;
+        v.Car((size_t)h).hasDriver = true;
+        v.HeliGoTo((size_t)h, e.px, e.py, e.pz + 24.0f, 1);
+        return;
+    }
+    VehicleInstance& c = v.Car((size_t)m_swatHeli);
+    const float dx = c.x - e.px, dy = c.y - e.py, dist = std::sqrt(dx * dx + dy * dy);
+    if (m_swatLeaving) {
+        v.HeliGoTo((size_t)m_swatHeli, c.x + 200.0f, c.y + 200.0f, c.z + 20.0f, 1);
+        if (dist > 260.0f) { v.RemoveWinch((size_t)m_swatHeli); c.removed = true; }
+        return;
+    }
+    v.HeliGoTo((size_t)m_swatHeli, e.px, e.py, e.pz + 24.0f, 1);
+    if (dist < 14.0f && std::fabs(c.z - (e.pz + 24.0f)) < 8.0f) {
+        if (!c.winch.on) v.AttachWinch((size_t)m_swatHeli, 1);
+        c.winch.len = 22.0f;
+        m_swatTimer -= e.dt;
+        if (m_swatTimer <= 0.0f && m_swatDropped < 4 && e.peds && e.peds->Ready()) {   // the next officer goes down the rope
+            const int pi = e.peds->Spawn(r, -1, c.x, c.y, c.z - 2.0f, 0.0f);
+            if (pi >= 0) { e.peds->Drop((size_t)pi, c.x, c.y, c.z - 2.5f); e.peds->SetAggro((size_t)pi, true); }
+            m_swatDropped++;
+            m_swatTimer = 1.4f;
+        }
+        if (m_swatDropped >= 4 && m_swatTimer <= 0.0f) m_swatLeaving = true;
+    }
+    if (e.wanted < 4 && !m_swatLeaving) m_swatLeaving = true;
+}
+
 void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const Env& e) {
     if (!paths.Ready()) return;
+    UpdateSwat(v, r, e);
     for (size_t i = 0; i < m_drives.size();) {
         Drive& d = m_drives[i];
         VehicleInstance& c = v.Car((size_t)d.car);
