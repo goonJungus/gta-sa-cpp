@@ -174,7 +174,7 @@ void Traffic::Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e
         // CCarCtrl overtaking, reduced: stuck behind a car that is nearly stopped, with the lane to the left empty, swing round it
         if (d.passT > 0.0f) d.passT -= dt;
         if (d.dbgHit >= 0.0f && d.dbgHit < 12.0f && blockSpeed < 0.35f * d.cruise && now < 3.0f) d.blockedT += dt;
-        else d.blockedT = std::max(0.0f, d.blockedT - dt);
+        else d.blockedT = std::max(0.0f, d.blockedT - dt * 0.2f);
         if (std::getenv("GTA_TRAFFICDBG") && d.blockedT > 1.0f) { std::fprintf(stderr, "[PASS] car %d blockedT %.1f gap %.1f blockSpeed %.1f passT %.1f", d.car, d.blockedT, d.dbgHit, blockSpeed, d.passT); std::fputc(10, stderr); }
         if (d.blockedT > 4.0f && d.passT <= 0.0f) {
             bool clear = true;
