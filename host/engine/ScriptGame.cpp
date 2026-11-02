@@ -4,6 +4,7 @@
 #include "ScriptGame.h"
 
 #include "CarGenerators.h"
+#include "PopCycle.h"
 
 #include <algorithm>
 #include <cmath>
@@ -922,7 +923,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     // ---- plain switches with no game effect yet -------------------------------------------
     case 0x042C: case 0x030D: case 0x0997: case 0x01F0: case 0x0111: case 0x06CF: case 0x0746: case 0x0180:   // totals, wanted, death state, timer bars, relationship, mission flag
     case 0x0914: case 0x0929: case 0x07D3: case 0x0884: case 0x0928: case 0x08E8: case 0x0363: case 0x03B7: case 0x090F:
-    case 0x06C8: case 0x09B4: case 0x0814: case 0x08CA: case 0x0767: case 0x0874: case 0x076A: case 0x09B7: case 0x04F8: case 0x0827:
+    case 0x06C8: case 0x09B4: case 0x0814: case 0x08CA: case 0x0874: case 0x076A: case 0x09B7: case 0x04F8: case 0x0827:
     case 0x016C: case 0x016D: case 0x02FA: case 0x0A17:
         return true;
     case 0x07AF: c.Out(1, 0); return true;   // GET_PLAYER_GROUP
@@ -940,6 +941,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         c.Out(c.op == 0x09E2 ? 13 : 12, h);
         return true;
     }
+    case 0x0767: if (pop) pop->SetZonePopulationType(c.S(0), c.I(1)); return true;   // SET_ZONE_POPULATION_TYPE
     case 0x014C: if (carGens) carGens->SwitchScript(c.I(0), c.I(1), nowMs ? nowMs() : 0); return true;   // SWITCH_CAR_GENERATOR
     case 0x0926: c.Out(1, 0); return true;                                                    // GET_NUMBER_OF_INSTANCES_OF_STREAMED_SCRIPT
     case 0x08AB: c.result = true; return true;                                                // HAS_STREAMED_SCRIPT_LOADED

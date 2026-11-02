@@ -80,7 +80,11 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
             if (!o.removed && std::fabs(o.x - px) < 7.0f && std::fabs(o.y - py) < 7.0f) clear = false;
         }
         if (!clear) continue;
-        const int model = kModels[(size_t)(Rand() * (float)(sizeof(kModels) / sizeof(kModels[0]))) % (sizeof(kModels) / sizeof(kModels[0]))];
+        int model = -1;
+        if (e.pop && e.pop->Ready())   // CPopCycle: the zone's people and what they drive
+            model = e.pop->PickCar(e.pop->TypeAt(px, py, n->z), e.hour, e.weekend, Rand(), Rand(),
+                                   [&](int id) { return v.Info(id) && v.UsesCarPhysics(id) && !v.IsTrailer(id); });
+        if (model < 0) model = kModels[(size_t)(Rand() * (float)(sizeof(kModels) / sizeof(kModels[0]))) % (sizeof(kModels) / sizeof(kModels[0]))];
         if (!v.Info(model)) continue;
         const float gz = e.ground ? e.ground(px, py, n->z + (tn ? (tn->z - n->z) * frac : 0.0f)) : -1e9f;
         const float z = gz > -1e5f ? gz : n->z + (tn ? (tn->z - n->z) * frac : 0.0f);
@@ -206,7 +210,9 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
             std::fprintf(stderr, "\n");
         }
     }
-    if ((int)m_drives.size() < maxCars && m_spawnTimer <= 0.0f) {
+    int limit = maxCars;
+    if (e.pop && e.pop->Ready()) limit = std::min(maxCars, std::max(2, e.pop->MaxCars(e.pop->TypeAt(e.px, e.py, e.pz), e.hour, e.weekend)));   // #Cars
+    if ((int)m_drives.size() < limit && m_spawnTimer <= 0.0f) {
         Spawn(v, r, paths, e);
         m_spawnTimer = 0.5f;
     }

@@ -400,6 +400,8 @@ public:
     const HandlingData* Handling(const std::string& name) const;
     const VehicleInfo* Info(int id) const;
     int ModelCount() const { return (int)m_ids.size(); }
+    // A vehicles.ide model by its dff name (as cargrp.dat spells them), -1 when there is none.
+    int IdOfDff(const std::string& dff) const { for (const auto& kv : m_info) if (kv.second.dff == dff) return kv.first; return -1; }
     int IdAt(int i) const { return m_ids[(size_t)i]; }
     // A car model, loading it on first use (nullptr if it cannot be).
     const VehicleModel* LoadModel(D3DRenderer& r, int id) { return Model(r, id); }

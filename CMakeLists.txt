@@ -97,6 +97,7 @@ if(WIN32)
         host/engine/VehicleUpgrades.cpp
         host/engine/PathNodes.cpp
         host/engine/Traffic.cpp
+        host/engine/PopCycle.cpp
         host/engine/CarGenerators.cpp
         host/engine/Garages.cpp
         host/engine/Script.cpp

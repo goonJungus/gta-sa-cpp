@@ -47,6 +47,7 @@ public:
     ScmMachine* scm = nullptr;
     Peds* peds = nullptr;
     Vehicles* cars = nullptr;
+    class PopCycle* pop = nullptr;      // the zones' population types (SET_ZONE_POPULATION_TYPE)
     CarGenerators* carGens = nullptr;   // CTheCarGenerators: the script's parked cars
     Trains* trains = nullptr;           // the trains on the track nodes (the game loop runs them)
     bool RandomTrainsOff() const { return m_randomTrainsOff; }

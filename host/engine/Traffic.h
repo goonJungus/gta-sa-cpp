@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "PathNodes.h"
+#include "PopCycle.h"
 #include "Vehicle.h"
 
 class Traffic {
@@ -17,6 +18,9 @@ public:
         float px = 0, py = 0, pz = 0;       // the player
         float camFx = 0, camFy = 1;         // the camera's forward, flat
         int playerCar = -1;
+        const PopCycle* pop = nullptr;      // which cars, and how many, for the zone and the hour
+        float hour = 12.0f;
+        bool weekend = false;
         uint32_t tlMs = 0;                  // the signals' clock (CTrafficLights runs on wall time)
         // road height under (x, y) near z, below -1e5 when the world is not there yet
         std::function<float(float x, float y, float z)> ground;

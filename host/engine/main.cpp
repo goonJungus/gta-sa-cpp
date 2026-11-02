@@ -55,6 +55,7 @@
 #include "Vehicle.h"
 #include "PathNodes.h"
 #include "Traffic.h"
+#include "PopCycle.h"
 #include "CarGenerators.h"
 #include "Garages.h"
 #include "Script.h"
@@ -115,6 +116,7 @@ static int g_carCamCar = -1;       // the car g_carCam last followed
 static float g_carCamYaw = 0.0f, g_carCamPitch = 0.0f;   // the view it handed back
 static bool g_hideCjHead = false;         // first-person view
 static PathNodes g_paths;                 // the road network (data/Paths/NODES*.DAT)
+static PopCycle g_pop;                    // zones, population types and the popcycle tables
 static Traffic g_traffic;                 // the cars that drive it
 static bool g_carFirstPerson = false;     // the in-car first-person view: the driver is not drawn (CPed::PreRender)
 static float g_nearClip = 0.5f;
@@ -1480,6 +1482,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         }
         Log("SURFINFO: %d surfaces, %d sand", id, sand);
     }
+    g_pop.Load(g_gameDir, [](const std::string& dff) { return g_vehicles.IdOfDff(dff); });
     if (g_paths.Load(g_gameDir)) {   // a spot check: the node nearest Grove Street and what it joins
         const PathNodes::Address a = g_paths.Nearest(2495.0f, -1680.0f, 13.0f, 100.0f);
         if (const PathNodes::Node* n = g_paths.Get(a)) {
@@ -1611,7 +1614,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
         g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud; g_sg.trains = &g_trains;
         g_sg.wantedLevel = [] { return g_wanted; }; g_sg.setWantedLevel = [](int w) { g_wanted = w; };
-        g_sg.pickups = &g_pickups; g_sg.enex = &g_enex; g_sg.carGens = &g_carGens;
+        g_sg.pickups = &g_pickups; g_sg.enex = &g_enex; g_sg.carGens = &g_carGens; g_sg.pop = &g_pop;
         g_sg.getArea = [] { return g_world.Area(); };
         g_sg.setArea = [](int a) { Log("SCRIPT: area %d", a); g_world.SetArea(a); g_enex.ForceArea(a); }; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
         g_sg.playerInCar = [] { return g_driveCar >= 0; };
@@ -3991,6 +3994,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 te.dt = dt; te.px = playerX; te.py = playerY; te.pz = playerZ;
                 te.camFx = cosf(yaw); te.camFy = sinf(yaw);
                 te.playerCar = g_driveCar;
+                te.pop = &g_pop;
+                te.hour = fmodf(g_gameSeconds / 3600.0f, 24.0f);
+                if (te.hour < 0.0f) te.hour += 24.0f;
                 te.tlMs = GetTickCount();
                 if (const char* tlf = getenv("GTA_TLMS")) te.tlMs = (uint32_t)strtoul(tlf, nullptr, 10);
                 te.ground = [](float x, float y, float z) {
