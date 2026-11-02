@@ -2555,6 +2555,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             int tf = 0; float tx = 0, ty = 0, tz = 0;
             if (sscanf(tp, "%d,%f,%f,%f", &tf, &tx, &ty, &tz) == 4 && frame == tf) { playerX = camPosX = tx; playerY = camPosY = ty; playerZ = camPosZ = tz + EYE_HEIGHT; velZ = 0.0f; g_world.SetArea(0); g_enex.ForceArea(0); for (int si = 0; si < 300; si++) g_world.Stream(playerX, playerY, tz); Log("DEV: teleport to %.0f %.0f %.0f, ground there %.2f (from z+3), %.2f (from z+60); %zu insts loaded", tx, ty, tz, g_world.GetGroundHeight(tx, ty, tz + 3.0f), g_world.GetGroundHeight(tx, ty, tz + 60.0f), (size_t)0); }
         }
+        if (scmRun && getenv("GTA_SCMVARS") && frame % 600 == 0) {   // dev: "off,off,..." global variable values (hex offsets) every 600 frames
+            std::string vs = getenv("GTA_SCMVARS"); size_t p0 = 0; Log("SCMVAR driveCar %d", g_driveCar);
+            while (p0 < vs.size()) { const uint32_t off = (uint32_t)strtoul(vs.c_str() + p0, nullptr, 16); fprintf(stderr, "[SCMVAR] frame %d var 0x%X = %d\n", frame, off, s_scm.Global(off)); const size_t c = vs.find(',', p0); if (c == std::string::npos) break; p0 = c + 1; }
+        }
         if (scmRun && getenv("GTA_SCMTHREADS") && frame == atoi(getenv("GTA_SCMTHREADS"))) {   // dev: what each script thread is doing
             for (size_t ti = 0; ti < s_scm.ThreadCount(); ti++) {
                 const ScmThread& t = s_scm.Thread(ti);
