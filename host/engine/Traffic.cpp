@@ -200,6 +200,26 @@ void Traffic::Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e
             if (st >= 1 && dist < 45.0f && !(st == 1 && dist < 12.0f)) want = std::min(want, std::max(0.0f, dist - 8.0f) * 0.5f);
         }
     }
+    // junction right of way, reduced: with no signal, a car that is nearer the node and crossing our way goes first
+    if (!d.tl) {
+        const PathNodes::Node* tn = paths.Get(d.to);
+        bool give = false;
+        if (tn && d.yieldT < 5.0f) {
+            const float myDist = std::sqrt((tn->x - c.x) * (tn->x - c.x) + (tn->y - c.y) * (tn->y - c.y));
+            if (myDist < 22.0f && myDist > 4.0f) {
+                for (size_t i = 0; i < v.Count() && !give; i++) {
+                    const VehicleInstance& o = v.Car(i);
+                    if ((int)i == d.car || o.removed || std::fabs(o.speed) < 1.0f) continue;
+                    const float od = std::sqrt((tn->x - o.x) * (tn->x - o.x) + (tn->y - o.y) * (tn->y - o.y));
+                    const float ofx = o.phys.active ? o.rot[3] : -std::sin(o.heading), ofy = o.phys.active ? o.rot[4] : std::cos(o.heading);
+                    const bool crossing = std::fabs(ofx * fx + ofy * fy) < 0.6f;   // not the same way, not head on
+                    if (crossing && od < myDist - 1.5f && od < 16.0f) give = true;
+                }
+            }
+        }
+        if (give) { d.yieldT += dt; want = std::min(want, std::max(0.0f, std::sqrt((tn->x - c.x) * (tn->x - c.x) + (tn->y - c.y) * (tn->y - c.y)) - 6.0f) * 0.5f); }
+        else if (d.yieldT > 0.0f && tn && std::sqrt((tn->x - c.x) * (tn->x - c.x) + (tn->y - c.y) * (tn->y - c.y)) > 30.0f) d.yieldT = 0.0f;
+    }
     if (std::fabs(err) > 1.0f) want = std::min(want, 3.0f);
     d.dbgWant = want; d.dbgErr = err; d.dbgLat = (c.x - d.sx) * -uy + (c.y - d.sy) * ux;
     float gas = 0.0f, brake = 0.0f;
