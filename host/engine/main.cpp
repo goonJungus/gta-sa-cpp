@@ -53,6 +53,8 @@
 #include "FeMenu.h"
 #include "Hud.h"
 #include "Vehicle.h"
+#include "PathNodes.h"
+#include "Traffic.h"
 #include "CarGenerators.h"
 #include "Garages.h"
 #include "Script.h"
@@ -112,6 +114,8 @@ CarCamera g_carCam;                // in-vehicle chase camera (V zooms)
 static int g_carCamCar = -1;       // the car g_carCam last followed
 static float g_carCamYaw = 0.0f, g_carCamPitch = 0.0f;   // the view it handed back
 static bool g_hideCjHead = false;         // first-person view
+static PathNodes g_paths;                 // the road network (data/Paths/NODES*.DAT)
+static Traffic g_traffic;                 // the cars that drive it
 static bool g_carFirstPerson = false;     // the in-car first-person view: the driver is not drawn (CPed::PreRender)
 static float g_nearClip = 0.5f;
 static float g_fovDeg = 70.0f;           // vertical FOV in use (rewrite can change it)
@@ -1475,6 +1479,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             sand += g_sandSurface[id++];
         }
         Log("SURFINFO: %d surfaces, %d sand", id, sand);
+    }
+    if (g_paths.Load(g_gameDir)) {   // a spot check: the node nearest Grove Street and what it joins
+        const PathNodes::Address a = g_paths.Nearest(2495.0f, -1680.0f, 13.0f, 100.0f);
+        if (const PathNodes::Node* n = g_paths.Get(a)) {
+            Log("PATHS: nearest to Grove Street %u/%u at %.1f %.1f %.1f width %.1f links %d", a.area, a.node, n->x, n->y, n->z, n->width, n->numLinks);
+            for (int i = 0; i < n->numLinks; i++) {
+                PathNodes::Address to; float len = 0; const PathNodes::CarLink* lane = nullptr;
+                if (g_paths.Neighbour(a, i, &to, &len, &lane)) Log("PATHS:   -> %u/%u length %.0f lanes same %d opposite %d", to.area, to.node, len, lane ? lane->sameLanes : -1, lane ? lane->oppositeLanes : -1);
+            }
+        }
     }
     Log("STATS: ar_stats.dat %d values", Stats::LoadReactions(getenv("GTA_ARSTATS") ? getenv("GTA_ARSTATS") : (g_gameDir + "\\data\\ar_stats.dat").c_str())   /* dev: GTA_ARSTATS=alt file */);
     Stats::g_hooks.health = [] { return g_cj.Health() * 5.69f; };   // the stats count health in 569 = 100 hp
@@ -3971,6 +3985,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     for (size_t gi = 0; gi < g_garages.Count(); gi++)
                         if (g_garages.TypeOf(gi) == Garages::kPayNSpray && g_garages.State(gi) != Garages::kOpen)
                             Log("GARAGE %s state %d door %.2f money %d wanted %d", g_garages.Name(gi).c_str(), g_garages.State(gi), g_garages.DoorPosition(gi), g_money, g_wanted);
+            }
+            if (worldReady && g_paths.Ready() && !getenv("GTA_NOTRAFFIC") && !g_scriptedRun) {   // road traffic around the player
+                Traffic::Env te;
+                te.dt = dt; te.px = playerX; te.py = playerY; te.pz = playerZ;
+                te.camFx = cosf(yaw); te.camFy = sinf(yaw);
+                te.playerCar = g_driveCar;
+                te.ground = [](float x, float y, float z) {
+                    const float t = g_world.RayCast(x, y, z + 6.0f, x, y, z - 8.0f);
+                    return t < 1.0f ? z + 6.0f - t * 14.0f : -1e9f;
+                };
+                g_traffic.Update(g_vehicles, g_renderer, g_paths, te);
             }
             if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
             if (worldReady && g_vehicles.Ready() && g_trains.Loaded()) {   // CTrain::UpdateTrains
