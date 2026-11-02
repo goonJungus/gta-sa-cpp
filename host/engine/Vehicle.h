@@ -515,6 +515,8 @@ public:
         p.fakePhysics = 0; p.aiFly = true; p.aiHeliMode = mode; p.aiTarget[0] = x; p.aiTarget[1] = y; p.aiTarget[2] = z;
     }
     void HeliStopAI(size_t i) { if (i < m_cars.size()) m_cars[i].phys.aiFly = false; }
+    // CVehicle::GetDistanceFromCentreOfMassToBaseOfModel: how far the origin is above the underside (0.9 when unknown).
+    float BaseOffset(int model) const { auto it = m_models.find(model); return it != m_models.end() && it->second.colFound && it->second.colMin[2] < -0.1f ? -it->second.colMin[2] : 0.9f; }
     void InstallBomb(size_t i, int kind) { if (i < m_cars.size()) { m_cars[i].phys.bomb = kind; m_cars[i].phys.bombTimer = 0; } }
     std::function<void(const char*)> onMessage;   // a GXT key to show (CGarages::TriggerMessage)
     // The player's heli blade disc (centre, spin axis, radius) and a strike the host found in it (a car, a ped).

@@ -392,7 +392,17 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x0893:   // ATTACH_TRAILER_TO_CAB
         if (car(c.I(0)) && car(c.I(1))) cars->AttachTrailer((size_t)c.I(0) - 1, (size_t)c.I(1) - 1);
         return true;
-    case 0x0175: if (VehicleInstance* v = carAlive(c.I(0))) v->heading = c.F(1) * 3.14159265f / 180.0f; return true;   // SET_CAR_HEADING
+    case 0x0175:   // SET_CAR_HEADING: level, facing that way (a car that was tumbling stands up)
+        if (VehicleInstance* v = carAlive(c.I(0))) {
+            v->heading = c.F(1) * 3.14159265f / 180.0f;
+            if (v->phys.active) {
+                const float cs = std::cos(v->heading), sn = std::sin(v->heading);
+                const float r[9] = {cs, sn, 0, -sn, cs, 0, 0, 0, 1};
+                for (int k = 0; k < 9; k++) v->rot[k] = r[k];
+                for (int k = 0; k < 3; k++) { v->phys.mv[k] = 0.0f; v->phys.tv[k] = 0.0f; }
+            }
+        }
+        return true;   // SET_CAR_HEADING
     case 0x01C3: case 0x099A: case 0x067F: return true;   // MARK_CAR_AS_NO_LONGER_NEEDED, SET_CAR_COLLISION, FORCE_CAR_LIGHTS
     case 0x060E: c.result = IsPlaybackGoingOn(c.I(0)); return true;           // IS_PLAYBACK_GOING_ON_FOR_CAR
     case 0x05EB: StartPlayback(c.I(0), c.I(1), false, false); return true;   // START_PLAYBACK_RECORDED_CAR
@@ -664,6 +674,10 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0227: { VehicleInstance* v = carAlive(c.I(0)); c.Out(1, v ? (int)v->health : 0); return true; }     // GET_CAR_HEALTH
     case 0x056E: c.result = carAlive(c.I(0)) != nullptr; return true;                                           // DOES_VEHICLE_EXIST
     case 0x056D: c.result = c.I(0) == kPlayer || CharIndex(c.I(0)) >= 0; return true;                           // DOES_CHAR_EXIST
+    case 0x0840:   // SET_VEHICLE_AREA_VISIBLE(car, area): a car put into an interior stays where the script put it (no interior collision to rest on yet)
+        if (VehicleInstance* v = carAlive(c.I(0))) { if (c.I(1) != 0) m_frozenCars[c.I(0)] = {v->x, v->y, v->z}; else m_frozenCars.erase(c.I(0)); }
+        return true;
+    case 0x0574: if (VehicleInstance* v = carAlive(c.I(0)); v && c.I(1)) m_frozenCars[c.I(0)] = {v->x, v->y, v->z}; else m_frozenCars.erase(c.I(0)); return true;   // FREEZE_CAR_POSITION_AND_DONT_LOAD_COLLISION(car, bool)
     case 0x0519: if (VehicleInstance* v = carAlive(c.I(0)); v && c.I(1)) m_frozenCars[c.I(0)] = {v->x, v->y, v->z}; else m_frozenCars.erase(c.I(0)); return true;        // FREEZE_CAR_POSITION(car, on)
     case 0x07D5: if (VehicleInstance* v = carAlive(c.I(0))) { v->vx += c.F(1); v->vy += c.F(2); } return true;   // APPLY_FORCE_TO_CAR(car, fx, fy, fz, ox, oy, oz): per-mass impulse, no mass model
     case 0x0431: c.result = carAlive(c.I(0)) != nullptr; return true;                                           // IS_CAR_PASSENGER_SEAT_FREE: no passengers are simulated
@@ -1070,9 +1084,11 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         if (std::getenv("GTA_INCARDBG")) { std::fprintf(stderr, "[CAM] car %d to %.1f %.1f %.1f by %s", c.I(0), c.F(1), c.F(2), c.F(3), c.t.name.c_str()); std::fputc(10, stderr); }
         if (VehicleInstance* v = carAlive(c.I(0))) {
             float z = c.F(3);
-            if (groundAt) { const float g = groundAt(c.F(1), c.F(2)); if (g > -1e5f && z < g + 0.3f && g - z < 3.0f) z = g + 0.9f; }   // ground just above: lift; a floor far above is another storey or a roof, the script's z stands
+            z += cars->BaseOffset(v->model);   // the script's z is the ground under the car: the origin sits its half-height above it
+            if (groundAt) { const float g = groundAt(c.F(1), c.F(2)); if (g > -1e5f && z < g + 0.3f && g - z < 3.0f) z = g + cars->BaseOffset(v->model); }
             v->x = c.F(1); v->y = c.F(2); v->z = z; v->speed = 0; v->vx = v->vy = 0;
             for (int k = 0; k < 3; k++) { v->phys.mv[k] = 0.0f; v->phys.tv[k] = 0.0f; }   // placed at rest
+            if (auto fz = m_frozenCars.find(c.I(0)); fz != m_frozenCars.end()) fz->second = {v->x, v->y, v->z};
         }
         return true;
     }
@@ -1124,7 +1140,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x03C0: c.Out(1, c.I(0) == kPlayer && playerCar && playerCar() >= 0 ? playerCar() + 1 : -1); return true;   // STORE_CAR_CHAR_IS_IN_NO_SAVE(char) -> car
     case 0x04FC: for (int i = 1; i <= 6; i++) c.Out(i, 0); return true;   // GET_WHEELIE_STATS
     // tasks, sequences, freezes and requests with nothing to act on yet
-    case 0x0350: case 0x04EB: case 0x04ED: case 0x0555: case 0x0574: case 0x0575: case 0x05C0:
+    case 0x0350: case 0x04EB: case 0x04ED: case 0x0555: case 0x0575: case 0x05C0:
     case 0x0615: case 0x0616: case 0x0618: case 0x061B: case 0x0647:
         return true;
     case 0x060A: c.Out(1, 1); return true;   // LOAD_CHAR_DECISION_MAKER(type) -> handle
@@ -1437,6 +1453,8 @@ void ScriptGame::Update(float dt) {
         if (!cars || f.first < 1 || (size_t)f.first > cars->Count()) continue;
         VehicleInstance& v = cars->Car((size_t)f.first - 1);
         v.x = f.second[0]; v.y = f.second[1]; v.z = f.second[2]; v.speed = 0; v.vx = v.vy = 0;
+        for (int k = 0; k < 3; k++) { v.phys.mv[k] = 0.0f; v.phys.tv[k] = 0.0f; }
+        if (v.phys.active) { const float cs = std::cos(v.heading), sn = std::sin(v.heading); const float r[9] = {cs, sn, 0, -sn, cs, 0, 0, 0, 1}; for (int k = 0; k < 9; k++) v.rot[k] = r[k]; }   // held level, facing its heading
     }
     for (ScriptPickup& p : m_pickups) {   // collected: the slot freed itself, or the player stands on a tracked one
         if (p.removed || p.collected) continue;
