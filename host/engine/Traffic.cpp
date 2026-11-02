@@ -226,7 +226,36 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
                 d.shock = 2.5f;
                 if (c.phys.damager == e.playerCar || c.health < 300.0f) d.bail = true;
             }
-            if (d.parked) { v.SetAIControls((size_t)d.car, 0.0f, 0.0f, 1.0f, true); i++; continue; }
+            if (d.parked) {
+                v.SetAIControls((size_t)d.car, 0.0f, 0.0f, 1.0f, true);
+                if (e.peds) {   // CCarEnterExit / CTaskComplexCarSteal: a passer-by walks to the door, gets in, hotwires it (3 s) and drives off
+                    const float rx = c.phys.active ? c.rot[0] : std::cos(c.heading), ry = c.phys.active ? c.rot[1] : std::sin(c.heading);
+                    const float doorX = c.x - rx * 1.4f, doorY = c.y - ry * 1.4f;
+                    if (d.thiefUid) {
+                        const int ti = e.peds->FindUid(d.thiefUid);
+                        if (ti < 0 || !e.peds->Alive((size_t)ti)) d.thiefUid = 0;
+                        else if (std::hypot(e.peds->X((size_t)ti) - doorX, e.peds->Y((size_t)ti) - doorY) < 1.3f) {
+                            e.peds->SetScripted((size_t)ti, false);
+                            e.peds->ClearGoal((size_t)ti);
+                            d.driverUid = d.thiefUid; d.thiefUid = 0;
+                            d.parked = false; d.bail = false; d.shock = 3.0f;   // the hotwire
+                            if (std::getenv("GTA_TRAFFICDBG")) std::fprintf(stderr, "[THIEF] in car %d\n", d.car);
+                        } else e.peds->SetGoal((size_t)ti, doorX, doorY, 0);
+                    } else if ((d.thiefScan -= e.dt) <= 0.0f) {
+                        d.thiefScan = 4.0f;
+                        int best = -1; float bestD = 25.0f;
+                        for (size_t k = 0; k < e.peds->Count(); k++) {
+                            if (!e.peds->Alive(k) || e.peds->Seated(k) || e.peds->Hidden(k) || e.peds->HasGoal(k) || e.peds->Fleeing(k)) continue;
+                            const float dd = std::hypot(e.peds->X(k) - c.x, e.peds->Y(k) - c.y);
+                            if (dd < bestD) { bestD = dd; best = (int)k; }
+                        }
+                        if (std::getenv("GTA_TRAFFICDBG")) std::fprintf(stderr, "[THIEF] parked car %d: nearest ped %d at %.1f m\n", d.car, best, bestD);
+                        if (best >= 0 && Rand() < 0.5f) { d.thiefUid = e.peds->Uid((size_t)best); e.peds->SetScripted((size_t)best, true); }
+                    }
+                }
+                if (!d.parked) { /* just got in: fall through to the shock hold below */ }
+                else { i++; continue; }
+            }
             if (d.shock > 0.0f) {
                 d.shock -= e.dt;
                 v.SetAIControls((size_t)d.car, 0.0f, 0.0f, 1.0f, false);
