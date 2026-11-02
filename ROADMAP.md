@@ -132,7 +132,7 @@ Source: CPathFind, CCarCtrl, CPopulation, CPopCycle, CWanted, CGangWars, CGarage
 - [ ] Shopping tables (CShopping): prices, items, buy flow (w 1)
 - [ ] Day and night effects on populations, shop hours, radio schedule, 24-7 stores (w 1)
 - [ ] Weather: rain, fog, thunderstorm, sandstorm, heat haze, wind, wet roads (CWeather, CWindModifiers, Fx) (w 2)
-- [ ] Water: waves, flowing rivers, volumetric clouds, water creatures (WaterCreature_c), underwater effects (CWaterLevel, CClouds) (w 3)
+- [~] Water: waves (done: the three swells of CalculateWavesOnlyForCoordinate on the 2 m lattice with the retail multiplier tables, from each poly's mean bigWaves / smallWaves, drawn as a displaced 4 m grid within 96 m of the camera and added to GetWaterLevel for boats and swimmers; left: per-vertex amplitudes, wave normals, glare), flowing rivers, volumetric clouds, water creatures (WaterCreature_c), underwater effects (CWaterLevel, CClouds) (w 3)
 - [ ] Particle and effects system: FxSystem_c with every fx file, plants, grass, procedural objects and surface infos (CPlantMgr, ProcObjectMan_c, SurfaceInfos_c) (w 4)
 - [ ] Decals and traces: bullet holes, blood, skid marks, tyre tracks, scorch marks, footprints, bullet traces, graffiti (CSkidmarks, CBulletTraces) (w 2)
 - [ ] Visual effects: coronas, lens flares, light cones, car reflections (env map pipeline), shadows (CShadows, stencil and real-time), motion blur, heat haze, shiny text, mirrors (w 4)

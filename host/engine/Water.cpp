@@ -14,6 +14,7 @@
 namespace {
 
 constexpr float kWorldHalf = 3000.0f;   // the map square, -3000..3000
+constexpr float kWaveBox = 96.0f;       // the waves are drawn this far (each way) round the camera
 
 }  // namespace
 
@@ -43,6 +44,7 @@ bool Water::Load(D3DRenderer& r, const std::string& gameDir) {
         }
         const int flags = v.size() > nf ? (int)v[nf] : 1;
         p.visible = (flags & 1) != 0;
+        for (int i = 0; i < p.n; i++) { p.bigW += v[i * 7 + 5] / (float)p.n; p.smallW += v[i * 7 + 6] / (float)p.n; }
         m_polys.push_back(p);
     }
 
@@ -99,6 +101,38 @@ void Water::RenderBoatWakes(D3DRenderer& r, const std::vector<BoatWake>& wakes) 
     if (!ix.empty()) r.DrawBlendedTriangles(vs.data(), (uint32_t)vs.size(), ix.data(), (uint32_t)ix.size(), m_wakeTex, false);
 }
 
+
+namespace {
+const float kWaveMulX[8] = {1.0f, 0.85f, 0.73f, 0.77f, 0.75f, 0.8f, 0.73f, 0.8f};   // faWaveMultipliersX / Y (0x8D38C8, 0x8D38E8)
+const float kWaveMulY[8] = {0.75f, 0.9f, 0.95f, 0.82f, 0.7f, 0.75f, 0.9f, 1.0f};
+}  // namespace
+
+// CWaterLevel::CalculateWavesOnlyForCoordinate on the lattice point (ix, iy), the heights of its three swells.
+static float LatticeWave(int ix, int iy, float bigW, float smallW, uint32_t ms, float wavyness) {
+    const int x = std::abs(ix), y = std::abs(iy);
+    const float mult = kWaveMulX[(x / 2) % 8] * kWaveMulY[(y / 2) % 8] * wavyness;
+    auto swell = [&](uint32_t period, float fx, float fy, float amp) {
+        const float phase = (float)(ms % period) * 6.2831853f / (float)period + (float)x * 6.2831853f * fx + (float)y * 6.2831853f * fy;
+        return std::sin(phase) * mult * amp;
+    };
+    return swell(5000, 1.0f / 64.0f, 1.0f / 64.0f, 2.0f * bigW) + swell(3500, 1.0f / 26.0f, 1.0f / 52.0f, 1.0f * smallW) +
+           swell(3000, 0.0f, 1.0f / 20.0f, 0.5f * smallW);
+}
+
+float Water::WaveHeight(float x, float y, float bigW, float smallW) const {
+    const float hx = x * 0.5f, hy = y * 0.5f;
+    const float flx = std::floor(hx), fly = std::floor(hy);
+    const float fx = hx - flx, fy = hy - fly;
+    const int ix = (int)flx * 2, iy = (int)fly * 2;
+    auto w = [&](int a, int b) { return LatticeWave(a, b, bigW, smallW, m_timeMs, m_wavyness); };
+    if (fx + fy < 1.0f) {
+        const float w00 = w(ix, iy);
+        return w00 + (w(ix + 2, iy) - w00) * fx + (w(ix, iy + 2) - w00) * fy;
+    }
+    const float w11 = w(ix + 2, iy + 2);
+    return w11 + (w(ix + 2, iy) - w11) * (1.0f - fy) + (w(ix, iy + 2) - w11) * (1.0f - fx);
+}
+
 bool Water::GetWaterLevel(float x, float y, float* z) const {
     for (const Poly& p : m_polys) {
         bool in = false;
@@ -111,7 +145,7 @@ bool Water::GetWaterLevel(float x, float y, float* z) const {
             const float s0 = side(0, 1), s1 = side(1, 2), s2 = side(2, 0);
             in = (s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0);
         }
-        if (in) { *z = p.z[0]; return true; }
+        if (in) { *z = p.z[0] + ((p.bigW != 0.0f || p.smallW != 0.0f) ? WaveHeight(x, y, p.bigW, p.smallW) : 0.0f); return true; }
     }
     if (std::fabs(x) > kWorldHalf || std::fabs(y) > kWorldHalf) { *z = 0.0f; return true; }
     return false;
@@ -126,6 +160,8 @@ void Water::Shutdown(D3DRenderer& r) {
 void Water::Render(D3DRenderer& r, float camX, float camY, float range, uint32_t timeMs,
                    const float rgba[4], float wavyness) {
     if (m_polys.empty()) return;
+    m_timeMs = timeMs;
+    m_wavyness = wavyness;
 
     // Layer alphas (RenderWater): the second layer uses the timecyc alpha a,
     // the first a*256/(256-a), clamped to 255.
@@ -185,7 +221,41 @@ void Water::Render(D3DRenderer& r, float camX, float camY, float range, uint32_t
             nx = std::clamp(nx, minX, maxX);
             ny = std::clamp(ny, minY, maxY);
             if ((nx - camX) * (nx - camX) + (ny - camY) * (ny - camY) > rangeSq) continue;
-            emit(layer, p.n, p.x, p.y, p.z);
+            const bool waved = p.bigW != 0.0f || p.smallW != 0.0f;
+            const bool rect = p.n == 4 && ((p.x[0] == minX || p.x[0] == maxX) && (p.y[0] == minY || p.y[0] == maxY)) &&
+                              ((p.x[1] == minX || p.x[1] == maxX) && (p.y[1] == minY || p.y[1] == maxY)) &&
+                              ((p.x[2] == minX || p.x[2] == maxX) && (p.y[2] == minY || p.y[2] == maxY)) &&
+                              ((p.x[3] == minX || p.x[3] == maxX) && (p.y[3] == minY || p.y[3] == maxY));
+            const float bx0 = std::max(minX, camX - kWaveBox), bx1 = std::min(maxX, camX + kWaveBox);
+            const float by0 = std::max(minY, camY - kWaveBox), by1 = std::min(maxY, camY + kWaveBox);
+            if (!(waved && rect && bx0 < bx1 && by0 < by1)) { emit(layer, p.n, p.x, p.y, p.z); }
+            else {
+                // flat strips round the box, then the box as a displaced grid
+                auto flat = [&](float x0, float y0, float x1, float y1) {
+                    if (x0 >= x1 || y0 >= y1) return;
+                    const float xs[4] = {x0, x1, x0, x1}, ys[4] = {y0, y0, y1, y1}, zs[4] = {p.z[0], p.z[0], p.z[0], p.z[0]};
+                    emit(layer, 4, xs, ys, zs);
+                };
+                flat(minX, minY, bx0, maxY); flat(bx1, minY, maxX, maxY); flat(bx0, minY, bx1, by0); flat(bx0, by1, bx1, maxY);
+                const int nx = std::clamp((int)std::ceil((bx1 - bx0) / 4.0f), 1, 60), ny = std::clamp((int)std::ceil((by1 - by0) / 4.0f), 1, 60);
+                if (m_verts.size() + (size_t)(nx + 1) * (size_t)(ny + 1) > 64000) flush();
+                const uint16_t base = (uint16_t)m_verts.size();
+                for (int j = 0; j <= ny; j++) {
+                    for (int i = 0; i <= nx; i++) {
+                        const float x = bx0 + (bx1 - bx0) * (float)i / (float)nx, y = by0 + (by1 - by0) * (float)j / (float)ny;
+                        const float edge = std::min({x - (camX - kWaveBox), (camX + kWaveBox) - x, y - (camY - kWaveBox), (camY + kWaveBox) - y});
+                        const float fade = std::clamp(edge / 16.0f, 0.0f, 1.0f);
+                        const float z = p.z[0] + WaveHeight(x, y, p.bigW, p.smallW) * fade;
+                        m_verts.push_back({x, y, z, color[layer], x * scale[layer] + shift[layer][0], y * scale[layer] + shift[layer][1]});
+                    }
+                }
+                for (int j = 0; j < ny; j++) {
+                    for (int i = 0; i < nx; i++) {
+                        const uint16_t a0i = (uint16_t)(base + j * (nx + 1) + i), b0i = (uint16_t)(a0i + 1), a1i = (uint16_t)(a0i + nx + 1), b1i = (uint16_t)(a1i + 1);
+                        for (uint16_t k : {a0i, b0i, a1i, b0i, b1i, a1i}) m_indices.push_back(k);
+                    }
+                }
+            }
             if (m_verts.size() > 60000) flush();
         }
         for (const Rect& s : sea) {

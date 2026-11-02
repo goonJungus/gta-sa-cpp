@@ -11,8 +11,9 @@
 // timecyc Water RGB. The timecyc Water alpha is the second layer's alpha and
 // the first layer's is a*256/(256-a), so the pair composites to roughly `a`.
 // The texture shift wobbles with CWeather::Wavyness. Waves (bigWaves /
-// smallWaves, RenderHighDetailWaterRectangle) are not displaced yet: the
-// surface is flat.
+// smallWaves, RenderHighDetailWaterRectangle) lift the surface: within 96 m of
+// the camera a rectangle is a 4 m grid displaced by them (fading out at the edge
+// of that box), and GetWaterLevel adds the same height for boats and swimmers.
 
 #include "D3DRenderer.h"
 
@@ -51,8 +52,13 @@ private:
         int n = 0;               // 3 or 4 vertices
         float x[4] = {}, y[4] = {}, z[4] = {};
         bool visible = true;
+        float bigW = 0.0f, smallW = 0.0f;   // the vertices' mean bigWaves / smallWaves
     };
 
+    // CWaterLevel::AddWaveToResult: the wave height at (x, y) over the 2 m lattice, from the poly's amplitudes.
+    float WaveHeight(float x, float y, float bigW, float smallW) const;
+    uint32_t m_timeMs = 0;
+    float m_wavyness = 0.5f;   // as of the last Render
     std::vector<Poly> m_polys;
     IDirect3DTexture9* m_tex = nullptr;
     IDirect3DTexture9* m_wakeTex = nullptr;
