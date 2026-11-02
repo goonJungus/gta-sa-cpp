@@ -4013,6 +4013,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     return t < 1.0f ? z + 6.0f - t * 14.0f : -1e9f;
                 };
                 g_traffic.Update(g_vehicles, g_renderer, g_paths, te);
+                if (getenv("GTA_TRAFFICFOLLOW") && g_traffic.FirstCar() >= 0) {   // dev: hover 7 m off the first traffic car, looking at it
+                    const VehicleInstance& fc = g_vehicles.Car((size_t)g_traffic.FirstCar());
+                    playerX = fc.x + 5.0f; playerY = fc.y + 5.0f; playerZ = fc.z + 5.0f + EYE_HEIGHT;
+                    yaw = atan2f(fc.y - playerY, fc.x - playerX);
+                }
                 g_vehicles.onCrash = [&](const float* pos, float hard, int) {
                     const float dx = pos[0] - playerX, dy = pos[1] - playerY;
                     const float dd = sqrtf(dx * dx + dy * dy);

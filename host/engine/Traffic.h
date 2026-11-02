@@ -32,6 +32,7 @@ public:
     int maxCars = 12;                       // CCarCtrl::MaxNumberOfCarsInUse by density, a fixed number for now
     void Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const Env& e);
     size_t Count() const { return m_drives.size(); }
+    int FirstCar() const { return m_drives.empty() ? -1 : m_drives[0].car; }   // dev: a car to point a test camera at
     void Clear() { m_drives.clear(); }
     template <class F> void EachCar(F f) const { for (const Drive& d : m_drives) f(d.car); }
 
