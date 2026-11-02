@@ -4012,6 +4012,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     return t < 1.0f ? z + 6.0f - t * 14.0f : -1e9f;
                 };
                 g_traffic.Update(g_vehicles, g_renderer, g_paths, te);
+                {   // the traffic cars' engines, the nearest few
+                    Audio::CarSound cs[6]; int ncs = 0;
+                    const float rx = sinf(yaw), ry = -cosf(yaw);   // the camera's right, flat
+                    g_traffic.EachCar([&](int ci) {
+                        if (ncs >= 6 || ci < 0) return;
+                        const VehicleInstance& c = g_vehicles.Car((size_t)ci);
+                        const float dx = c.x - playerX, dy = c.y - playerY, dd = sqrtf(dx * dx + dy * dy);
+                        if (dd > 70.0f) return;
+                        cs[ncs++] = {ci, c.model, dd, std::clamp((dx * rx + dy * ry) / std::max(dd, 1.0f), -1.0f, 1.0f), fabsf(c.speed) / 25.0f};
+                    });
+                    g_audio.OtherEngines(cs, ncs);
+                }
             }
             if (worldReady) g_vehicles.ProcessAbandoned(dt, g_driveCar, CarWorld());   // cars the player left roll on until they rest
             if (worldReady && g_vehicles.Ready() && g_trains.Loaded()) {   // CTrain::UpdateTrains

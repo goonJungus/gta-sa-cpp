@@ -497,6 +497,31 @@ void Audio::HornSiren(int model, bool horn, bool siren, bool fastSiren) {
     loop(m_sirenVoice, siren && !fastSiren, 10);     // SND_GENRL_HORN_SIREN_LONG
 }
 
+void Audio::OtherEngines(const CarSound* cars, int n) {
+    if (!m_ready) return;
+    for (auto it = m_otherEng.begin(); it != m_otherEng.end();) {
+        bool live = false;
+        for (int i = 0; i < n; i++) if (cars[i].key == it->first) { live = true; break; }
+        if (live) ++it; else { Stop(it->second); it = m_otherEng.erase(it); }
+    }
+    for (int i = 0; i < n; i++) {
+        const CarSound& c = cars[i];
+        const int idx = c.model - 400;
+        if (idx < 0 || idx >= (int)(sizeof(kVehAudio) / sizeof(kVehAudio[0]))) continue;
+        const VehAudioRow& row = kVehAudio[idx];
+        if (row.type != 0 && row.type != 1) continue;
+        const float fall = std::clamp(1.0f - c.dist / 70.0f, 0.0f, 1.0f);
+        const float vol = 0.4f * fall * fall * std::pow(10.0f, row.volOffset / 20.0f);
+        const float pitch = (0.85f + 0.65f * std::clamp(c.speedRatio, 0.0f, 1.0f)) * row.pitch;
+        auto it = m_otherEng.find(c.key);
+        if (it == m_otherEng.end()) {
+            if (vol <= 0.001f) continue;
+            const int v = Play(row.dummy, 1, vol, c.pan, pitch, true);
+            if (v) m_otherEng[c.key] = v;
+        } else SetVoice(it->second, vol, c.pan, pitch);
+    }
+}
+
 void Audio::EngineStop() {
     for (int* v : {&m_engAC, &m_engCRZ, &m_engID}) { if (*v) Stop(*v); *v = 0; }
     m_engModel = -1;

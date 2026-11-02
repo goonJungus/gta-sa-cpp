@@ -13,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Bank ids from the retail bank table.
@@ -63,6 +64,10 @@ public:
     // The player's car engine (retail vehicle audio banks): model id, throttle 0..1, speed in m/s,
     // top speed in m/s, number of gears. Call every frame while driving, EngineStop on leaving.
     void Engine(int model, float throttle, float speed, float maxSpeed, int numGears, float dt);
+    // Other cars' engines (CAEVehicleAudioEntity for the non-player cars): the dummy bank's idle loop, quieter by distance,
+    // faster with speed. `key` names the car between calls; a car missing from a call falls silent.
+    struct CarSound { int key, model; float dist, pan, speedRatio; };
+    void OtherEngines(const CarSound* cars, int n);
     void EngineStop();
     // CAEVehicleAudioEntity::PlayHornOrSiren for the player's vehicle: the model's horn (bank 74) while
     // held, the long siren loop, or the short one while the horn is held with the siren on.
@@ -115,6 +120,7 @@ private:
     double m_musPos = 0.0;
     int m_engModel = -1, m_engAC = 0, m_engCRZ = 0, m_engID = 0;
     int m_hornVoice = 0, m_hornModel = -1, m_sirenVoice = 0, m_fastSirenVoice = 0, m_alarmVoice = 0, m_alarmModel = -1;
+    std::unordered_map<int, int> m_otherEng;   // car key -> its voice
     float m_engGainAC = 0.0f, m_engGainCRZ = 0.0f, m_engGainID = 0.0f;
     int m_ambCity = 0, m_ambRain = 0, m_ambWindL = 0, m_ambWindR = 0;
     int Rand(int n) { m_rng = m_rng * 1664525u + 1013904223u; return (int)((m_rng >> 8) % (unsigned)n); }
