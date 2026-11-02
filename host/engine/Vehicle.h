@@ -405,6 +405,7 @@ struct VehicleInstance {
         bool fresh = true;            // the hook still has to be hung from the belly
         int carried = -1;             // the car on the hook
         bool canPickVehicles = true;
+        int carriedPed = 0;           // the Peds uid on the hook (a script char), 0 none
     } winch;
     CarPhys phys;
 };

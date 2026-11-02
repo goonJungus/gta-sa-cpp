@@ -587,10 +587,11 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     // ---- winches (CVehicle::InitWinch, CRopes) ----
     case 0x0788: if (cars && c.I(0) >= 1) cars->AttachWinch((size_t)c.I(0) - 1, c.I(1)); return true;      // ATTACH_WINCH_TO_HELI(heli, type)
     case 0x0795: if (cars && c.I(0) >= 1) cars->RemoveWinch((size_t)c.I(0) - 1); return true;             // DELETE_WINCH_FOR_HELI(heli)
-    case 0x0789: if (cars && c.I(0) >= 1) cars->WinchRelease((size_t)c.I(0) - 1); return true;            // RELEASE_ENTITY_FROM_WINCH(heli)
+    case 0x0789: if (cars && c.I(0) >= 1) { cars->WinchRelease((size_t)c.I(0) - 1); if (VehicleInstance* v = carAlive(c.I(0))) { if (v->winch.carriedPed && peds) { const int pi = peds->FindUid(v->winch.carriedPed); if (pi >= 0) peds->Drop((size_t)pi, v->winch.h[0], v->winch.h[1], v->winch.h[2] - 1.0f); } v->winch.carriedPed = 0; } } return true;            // RELEASE_ENTITY_FROM_WINCH(heli)
     case 0x078B: case 0x08CD: if (cars && c.I(0) >= 1 && c.I(1) >= 1) cars->WinchPick((size_t)c.I(0) - 1, (size_t)c.I(1) - 1); return true;   // GRAB_ENTITY_ON_WINCH / PICK_UP_VEHICLE_WITH_WINCH(heli, car)
     case 0x08A5: if (VehicleInstance* v = carAlive(c.I(0))) v->winch.canPickVehicles = c.I(1) != 0; return true;   // WINCH_CAN_PICK_VEHICLE_UP(heli, bool)
-    case 0x08CC: case 0x08CE: case 0x0916: case 0x07EA: return true;   // PICK_UP_OBJECT / _CHAR_WITH_WINCH, WINCH_CAN_PICK_OBJECT_UP, SET_ROPE_HEIGHT_FOR_HELI
+    case 0x08CE: if (VehicleInstance* v = carAlive(c.I(0))) if (v->winch.on && !v->winch.carriedPed) v->winch.carriedPed = c.I(1); return true;   // PICK_UP_CHAR_WITH_WINCH(heli, char)
+    case 0x08CC: case 0x0916: case 0x07EA: return true;   // PICK_UP_OBJECT / _CHAR_WITH_WINCH, WINCH_CAN_PICK_OBJECT_UP, SET_ROPE_HEIGHT_FOR_HELI
     case 0x07EB: c.OutF(1, 9.0f); return true;   // GET_ROPE_HEIGHT_FOR_HELI
     // ---- helicopters on a target: HELI_FOLLOW_ENTITY / HELI_ATTACK_PLAYER / POLICE_HELI_CHASE_ENTITY(heli, entity, ...) hold a point
     // 18 m above the entity, re-aimed every frame (Update) ----
@@ -1406,6 +1407,13 @@ void ScriptGame::PlaybackAI(int s) {
 
 void ScriptGame::Update(float dt) {
     PlaybackStep(dt);
+    if (cars && peds) for (size_t ci = 0; ci < cars->Count(); ci++) {   // a char hanging on a winch hook
+        VehicleInstance& hv = cars->Car(ci);
+        if (!hv.winch.on || !hv.winch.carriedPed) continue;
+        const int pi = peds->FindUid(hv.winch.carriedPed);
+        if (pi < 0) { hv.winch.carriedPed = 0; continue; }
+        peds->SetPos((size_t)pi, hv.winch.h[0], hv.winch.h[1], hv.winch.h[2] - 1.8f);
+    }
     for (auto it = m_heliTargets.begin(); it != m_heliTargets.end();) {   // helicopters following a char or a car
         VehicleInstance* hv = cars && it->first >= 1 && (size_t)it->first <= cars->Count() ? &cars->Car((size_t)it->first - 1) : nullptr;
         float tx = 0, ty = 0, tz = 0;
