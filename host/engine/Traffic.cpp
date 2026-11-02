@@ -139,6 +139,10 @@ void Traffic::Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e
     if (t + look <= segLen) { ax = d.sx + ux * (t + look); ay = d.sy + uy * (t + look); }
     else if (d.haveNext) { const float over = t + look - segLen; ax = d.nx + d.ndx * over; ay = d.ny + d.ndy * over; }
     else { ax = ex + ux * (t + look - segLen); ay = ey + uy * (t + look - segLen); }
+    if (d.passT > 0.0f) {   // overtaking: the aim point swings into the lane on the right-hand side's left
+        const float off = 3.4f * std::min({1.0f, (6.0f - d.passT) * 0.8f, d.passT * 0.8f});
+        ax -= uy * off; ay += ux * off;
+    }
     const float err = Wrap(std::atan2(ay - c.y, ax - c.x) - std::atan2(fy, fx));
     const float maxSteer = now > 14.0f ? 0.12f : now > 8.0f ? 0.25f : 0.5f;
     const float steer = std::clamp(err, -maxSteer, maxSteer);
@@ -152,20 +156,36 @@ void Traffic::Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e
     d.dbgHit = -1.0f;
     {
         const float rx = fy, ry = -fx, reach = 8.0f + now * 1.6f;
-        auto consider = [&](float ox, float oy, float halfWidth, float halfLength) {
+        float blockSpeed = 1e9f;
+        auto consider = [&](float ox, float oy, float halfWidth, float halfLength, float ospeed = 1e9f) {
             const float relx = ox - c.x, rely = oy - c.y;
             const float along = relx * fx + rely * fy, side = relx * rx + rely * ry;
             if (along <= 0.0f || along > reach + halfLength + 2.4f || std::fabs(side) > halfWidth + 1.1f) return;
             const float gap = along - halfLength - 2.4f;
             want = std::min(want, std::max(0.0f, gap - 1.0f) * 0.9f);
-            d.dbgHit = gap;
+            d.dbgHit = gap; blockSpeed = ospeed;
         };
         for (size_t i = 0; i < v.Count(); i++) {
             const VehicleInstance& o = v.Car(i);
             if ((int)i == d.car || o.removed) continue;
-            consider(o.x, o.y, 1.0f, 2.4f);
+            consider(o.x, o.y, 1.0f, 2.4f, std::fabs(o.speed));
         }
         if (e.playerCar < 0) consider(e.px, e.py, 0.4f, 0.4f);
+        // CCarCtrl overtaking, reduced: stuck behind a car that is nearly stopped, with the lane to the left empty, swing round it
+        if (d.passT > 0.0f) d.passT -= dt;
+        if (d.dbgHit >= 0.0f && d.dbgHit < 12.0f && blockSpeed < 0.35f * d.cruise && now < 3.0f) d.blockedT += dt;
+        else d.blockedT = std::max(0.0f, d.blockedT - dt);
+        if (d.blockedT > 4.0f && d.passT <= 0.0f) {
+            bool clear = true;
+            for (size_t i = 0; i < v.Count() && clear; i++) {
+                const VehicleInstance& o = v.Car(i);
+                if ((int)i == d.car || o.removed) continue;
+                const float rx2 = o.x - c.x, ry2 = o.y - c.y;
+                const float along = rx2 * ux + ry2 * uy, lat = -rx2 * uy + ry2 * ux;
+                if (along > -10.0f && along < 38.0f && lat > 1.2f && lat < 6.0f) clear = false;
+            }
+            if (clear) { d.passT = 6.0f; d.blockedT = 0.0f; }
+        }
     }
     // CTrafficLights::ShouldCarStopForLight: a link that arrives at a signal holds the car short of it while its axis
     // shows amber or red (an amber too close to stop for is run)
@@ -242,7 +262,7 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
         }
         {   // CCarCtrl / CTaskComplexCarReactToVehicleCollision: a hard knock stops the car for a moment; if the player's car
             // did it, or it is nearly wrecked, the driver gets out and runs
-            if (std::getenv("GTA_TRAFFICKNOCK") && d.age > 6.0f && d.age < 6.05f) { c.phys.lastDI = 100.0f; c.phys.damager = e.playerCar; }   // dev: a fake knock from the player's car
+            if (std::getenv("GTA_TRAFFICKNOCK") && i == 0 && d.age > 6.0f && d.age < 6.05f) { c.phys.lastDI = 100.0f; c.phys.damager = e.playerCar; }   // dev: a fake knock from the player's car
             const float knock = c.phys.lastDI;
             if (knock > 25.0f && d.shock <= 0.0f) {
                 d.shock = 2.5f;

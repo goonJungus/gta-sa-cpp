@@ -51,6 +51,7 @@ private:
         float shock = 0.0f;                 // seconds left standing after a knock
         int thiefUid = 0;                   // a passer-by on his way to steal the parked car
         float thiefScan = 0.0f;
+        float blockedT = 0.0f, passT = 0.0f;   // held up behind a slow car this long; overtaking for this much longer
         bool cop = false;                   // a police car after the player
         bool parked = false;                // abandoned: the driver left it where it stopped
         bool bail = false;                  // the driver gets out when the shock is over
