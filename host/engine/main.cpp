@@ -4012,6 +4012,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     return t < 1.0f ? z + 6.0f - t * 14.0f : -1e9f;
                 };
                 g_traffic.Update(g_vehicles, g_renderer, g_paths, te);
+                g_vehicles.onCrash = [&](const float* pos, float hard, int) {
+                    const float dx = pos[0] - playerX, dy = pos[1] - playerY;
+                    const float dd = sqrtf(dx * dx + dy * dy);
+                    g_audio.CarCrash(hard, dd, std::clamp((dx * sinf(yaw) - dy * cosf(yaw)) / std::max(dd, 1.0f), -1.0f, 1.0f));
+                };
                 {   // the traffic cars' engines, the nearest few
                     Audio::CarSound cs[6]; int ncs = 0;
                     const float rx = sinf(yaw), ry = -cosf(yaw);   // the camera's right, flat

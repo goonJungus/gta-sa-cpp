@@ -393,6 +393,8 @@ struct VehicleInstance {
 
 class Vehicles {
 public:
+    // A knock on a car worth hearing: where, how hard (0..1, 1 a full smash) and the model. Set by the game for the sound.
+    std::function<void(const float* pos, float hardness, int model)> onCrash;
     bool Init(D3DRenderer& r, const std::string& gameDir);
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return m_ready; }

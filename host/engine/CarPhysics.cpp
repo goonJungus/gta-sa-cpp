@@ -1738,6 +1738,10 @@ void Vehicles::CollisionDamage(float dt, int playerCar) {
         const float di = p.damageIntensity;
         p.damageIntensity = 0.0f;   // taken once per frame
         p.lastDI = di;
+        if (di > 0.0f && h && onCrash) {   // a knock worth hearing: above a tenth of the damage threshold, a full smash at ten times it
+            const float hard = std::clamp((di / (h->mass / 1500.0f * 25.0f) - 0.1f) / 9.9f, 0.0f, 1.0f);
+            if (hard > 0.0f) onCrash(p.impactPos, hard, c.model);
+        }
         if (!h || c.wrecked) continue;
         // CAutomobile::VehicleDamage(0, ...): the frame's strongest knock
         if (c.rot[8] < 0.0f && (int)i != playerCar) c.health = std::max(0.0f, c.health - dt * 50.0f * 4.0f);   // lying on its roof

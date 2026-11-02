@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -520,6 +521,19 @@ void Audio::OtherEngines(const CarSound* cars, int n) {
             if (v) m_otherEng[c.key] = v;
         } else SetVoice(it->second, vol, c.pan, pitch);
     }
+}
+
+void Audio::CarCrash(float hardness, float dist, float pan) {
+    if (!m_ready) return;
+    const double now = (double)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() * 0.001;
+    if (now - m_lastCrash < 0.12) return;   // one knock sounds once, not once a frame
+    const float fall = std::clamp(1.0f - dist / 90.0f, 0.0f, 1.0f);
+    const float vol = (0.25f + 0.75f * hardness) * fall;
+    if (vol < 0.03f) return;
+    static const int kCrash[] = {0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C};   // COLCAR01 .. COLCAR12
+    if (SoundCount(39) <= 0x1C) return;
+    m_lastCrash = now;
+    Play(39, kCrash[Rand((int)(sizeof(kCrash) / sizeof(kCrash[0])))], vol, pan, 0.95f + 0.1f * (float)Rand(10) / 10.0f);
 }
 
 void Audio::EngineStop() {
