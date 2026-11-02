@@ -25,11 +25,13 @@ public:
     int MaxCars(int type, float hour, bool weekend) const;
     // A car for the people of that zone type and time: a group by the percentages, then one of its models that `ok`
     // allows. r1 and r2 are 0..1 random numbers. -1 when nothing fits.
+    // popcycle.dat's share of the cars that are police patrols (0..1) for the type and time.
+    float CopShare(int type, float hour, bool weekend) const;
     int PickCar(int type, float hour, bool weekend, float r1, float r2, const std::function<bool(int)>& ok) const;
 
 private:
     struct Zone { std::string label; float x1, y1, z1, x2, y2, z2; };
-    struct Row { int cars = 0; float group[kGroups] = {}; };
+    struct Row { int cars = 0; float cops = 0.0f; float group[kGroups] = {}; };
     std::vector<Zone> m_zones;
     std::unordered_map<std::string, int> m_typeByLabel;
     Row m_rows[kTypes][2][12];

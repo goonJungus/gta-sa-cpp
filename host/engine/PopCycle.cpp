@@ -59,6 +59,7 @@ bool PopCycle::Load(const std::string& gameDir, const std::function<int(const st
             if (v.size() < (size_t)(6 + kGroups)) continue;
             Row& r = m_rows[row / 24][(row / 12) % 2][row % 12];
             r.cars = (int)v[1];
+            r.cops = v[4];
             for (int g = 0; g < kGroups; g++) r.group[g] = v[(size_t)(6 + g)];
             row++;
         }
@@ -113,6 +114,11 @@ int PopCycle::MaxCars(int type, float hour, bool weekend) const {
     if (type < 0 || type >= kTypes) type = kResidentialAverage;
     const int slot = std::clamp((int)(hour / 2.0f), 0, 11);
     return m_rows[type][weekend ? 1 : 0][slot].cars;
+}
+
+float PopCycle::CopShare(int type, float hour, bool weekend) const {
+    if (type < 0 || type >= kTypes) type = kResidentialAverage;
+    return std::clamp(m_rows[type][weekend ? 1 : 0][std::clamp((int)(hour / 2.0f), 0, 11)].cops / 100.0f, 0.0f, 1.0f);
 }
 
 int PopCycle::PickCar(int type, float hour, bool weekend, float r1, float r2, const std::function<bool(int)>& ok) const {
