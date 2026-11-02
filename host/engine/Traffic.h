@@ -47,6 +47,9 @@ private:
         bool tlDir = false, ntlDir = false; //   whether the link runs the way the light faces: it arrives at the signal
         float cruise = 12.0f;               // m/s
         float dbgWant = 0.0f, dbgErr = 0.0f, dbgHit = -1.0f, dbgLat = 0.0f;
+        float shock = 0.0f;                 // seconds left standing after a knock
+        bool parked = false;                // abandoned: the driver left it where it stopped
+        bool bail = false;                  // the driver gets out when the shock is over
         float stuck = 0.0f, idle = 0.0f, age = 0.0f;   // stuck: pushing but not moving; idle: not moving at all
     };
     std::vector<Drive> m_drives;

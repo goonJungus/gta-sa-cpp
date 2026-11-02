@@ -218,6 +218,30 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
             if (pi >= 0 && v.SeatLocal((size_t)d.car, seat)) { v.BodyMatrix((size_t)d.car, body); e.peds->Seat((size_t)pi, body, seat); }
             else d.driverUid = 0;
         }
+        {   // CCarCtrl / CTaskComplexCarReactToVehicleCollision: a hard knock stops the car for a moment; if the player's car
+            // did it, or it is nearly wrecked, the driver gets out and runs
+            const float knock = c.phys.lastDI;
+            if (knock > 25.0f && d.shock <= 0.0f) {
+                d.shock = 2.5f;
+                if (c.phys.damager == e.playerCar || c.health < 300.0f) d.bail = true;
+            }
+            if (d.parked) { v.SetAIControls((size_t)d.car, 0.0f, 0.0f, 1.0f, true); i++; continue; }
+            if (d.shock > 0.0f) {
+                d.shock -= e.dt;
+                v.SetAIControls((size_t)d.car, 0.0f, 0.0f, 1.0f, false);
+                if (d.shock <= 0.0f && d.bail && e.peds && d.driverUid) {
+                    const int pi = e.peds->FindUid(d.driverUid);
+                    if (pi >= 0) {
+                        const float rx = c.phys.active ? c.rot[0] : std::cos(c.heading), ry = c.phys.active ? c.rot[1] : std::sin(c.heading);
+                        e.peds->Unseat((size_t)pi, c.x - rx * 2.0f, c.y - ry * 2.0f, c.z);
+                    }
+                    d.driverUid = 0;
+                    d.parked = true;   // the car stays where it stopped until it is far away
+                }
+                i++;
+                continue;
+            }
+        }
         Drive_(v, paths, d, e);
         i++;
     }
