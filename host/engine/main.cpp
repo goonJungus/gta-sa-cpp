@@ -3949,6 +3949,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 static float s_statSave = 0.0f;
                 if ((s_statSave += dt) > 5.0f) { s_statSave = 0.0f; Stats::Save(g_iniPath); }
             }
+            for (const Peds::Strike& st : g_peds.TakeStrikes()) {   // a ped out for CJ lands a punch
+                if (g_cj.MeleeHit(st.x, st.y, playerX, playerY, 1)) g_cj.AddHealth(-8.0f);
+                if (getenv("GTA_TRAFFICDBG")) fprintf(stderr, "[RAGE] strike from %.1f %.1f, health now %.0f", st.x, st.y, g_cj.Health()), fputc(10, stderr);
+            }
             for (const Peds::SpeechEvent& e : g_peds.TakeSpeech()) {   // ped lines, quieter and panned with distance
                 const float dx = g_peds.X(e.actor) - camPosX, dy = g_peds.Y(e.actor) - camPosY;
                 const float dist = sqrtf(dx * dx + dy * dy);

@@ -61,6 +61,12 @@ public:
     // Carjacked: out of the seat to (x, y, z) beside the car, running from the player.
     void Unseat(size_t i, float x, float y, float z) { if (i < m_actors.size()) { Actor& a = m_actors[i]; a.seated = false; a.x = x; a.y = y; a.z = z; a.fleeTimer = 10.0f; a.walking = true; } }
     bool Fleeing(size_t i) const { return i < m_actors.size() && m_actors[i].fleeTimer > 0.0f; }
+    // CTaskComplexKillPedOnFoot, reduced: this ped runs at the player and strikes him every 1.3 s from within 1.4 m.
+    void SetAggro(size_t i, bool on) { if (i < m_actors.size()) { m_actors[i].aggro = on; m_actors[i].fleeTimer = 0.0f; } }
+    // The strikes thrown since the last call: the attacker's x, y.
+    struct Strike { float x, y; };
+    std::vector<Strike> TakeStrikes() { std::vector<Strike> s; s.swap(m_strikes); return s; }
+    bool Aggressive(size_t i) const { return i < m_actors.size() && m_actors[i].aggro; }
     bool Seated(size_t i) const { return i < m_actors.size() && m_actors[i].seated; }
     void SetHidden(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].hidden = on; }
     bool Hidden(size_t i) const { return i < m_actors.size() && m_actors[i].hidden; }
@@ -184,6 +190,8 @@ private:
         float gx = 0, gy = 0;
         int gspeed = 0;                   // 0 walk, 1 run
         bool hidden = false;              // inside a car
+        bool aggro = false;               // out for the player: runs at him and hits
+        float attackTimer = 0.0f;
         bool seated = false;              // at the wheel: drawn in the seat pose, not wandering
         float seatBody[16] = {};          // the vehicle's matrix and the seat's place in the world
         float seatPos[3] = {};
@@ -223,6 +231,7 @@ private:
     std::unordered_map<std::string, std::vector<std::string>> m_groups;   // animation group -> clip names
     std::vector<Actor> m_actors;
     std::vector<SpeechEvent> m_speech;
+    std::vector<Strike> m_strikes;
     std::unordered_map<std::string, float> m_defend;   // pedstats.dat name -> defend weakness
     unsigned m_rng = 99;
     int m_nextUid = 2;                // 1 is the player

@@ -246,6 +246,16 @@ void Traffic::Pursue(Vehicles& v, Drive& d, const Env& e) {
     if (diff <= 0.0f) brake = std::min(-diff * 0.15f + (want < 0.5f ? 0.4f : 0.0f), 1.0f);
     else gas = std::min(diff * (now >= 2.0f ? 0.15f : 0.4f), 1.0f);
     if (std::getenv("GTA_TRAFFICDBG")) { static float acc = 0.0f; acc += e.dt; if (acc > 3.0f) { acc = 0.0f; std::fprintf(stderr, "[COP] car %d now %.1f dist %.0f err %.2f gas %.2f brake %.2f stuck %.1f active %d", d.car, now, dist, err, gas, brake, d.stuck, (int)c.phys.active); std::fputc(10, stderr); } }
+    if (dist < 9.0f && now < 2.0f && d.driverUid && e.peds) {   // the officer gets out and goes for the player
+        const int pi = e.peds->FindUid(d.driverUid);
+        if (pi >= 0) {
+            const float rx = c.phys.active ? c.rot[0] : std::cos(c.heading), ry = c.phys.active ? c.rot[1] : std::sin(c.heading);
+            e.peds->Unseat((size_t)pi, c.x - rx * 2.0f, c.y - ry * 2.0f, c.z);
+            e.peds->SetAggro((size_t)pi, true);
+        }
+        d.driverUid = 0;
+        d.cop = false; d.parked = true; c.siren = false;   // left at the kerb
+    }
     v.SetAIControls((size_t)d.car, steer, gas, brake, false);
     if (now < 0.4f && dist > 15.0f) d.stuck += e.dt; else d.stuck = std::max(0.0f, d.stuck - e.dt);
 }
@@ -287,7 +297,7 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
             const float knock = c.phys.lastDI;
             if (knock > 25.0f && d.shock <= 0.0f) {
                 d.shock = 2.5f;
-                if (c.phys.damager == e.playerCar || c.health < 300.0f) d.bail = true;
+                if ((e.playerCar >= 0 && c.phys.damager == e.playerCar) || (std::getenv("GTA_TRAFFICKNOCK") && i == 0) || c.health < 300.0f) d.bail = true;
             }
             if (d.parked) {
                 v.SetAIControls((size_t)d.car, 0.0f, 0.0f, 1.0f, true);
@@ -308,7 +318,7 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
                         d.thiefScan = 4.0f;
                         int best = -1; float bestD = 25.0f;
                         for (size_t k = 0; k < e.peds->Count(); k++) {
-                            if (!e.peds->Alive(k) || e.peds->Seated(k) || e.peds->Hidden(k) || e.peds->HasGoal(k) || e.peds->Fleeing(k)) continue;
+                            if (!e.peds->Alive(k) || e.peds->Seated(k) || e.peds->Hidden(k) || e.peds->HasGoal(k) || e.peds->Fleeing(k) || e.peds->Aggressive(k)) continue;
                             const float dd = std::hypot(e.peds->X(k) - c.x, e.peds->Y(k) - c.y);
                             if (dd < bestD) { bestD = dd; best = (int)k; }
                         }
@@ -327,6 +337,7 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
                     if (pi >= 0) {
                         const float rx = c.phys.active ? c.rot[0] : std::cos(c.heading), ry = c.phys.active ? c.rot[1] : std::sin(c.heading);
                         e.peds->Unseat((size_t)pi, c.x - rx * 2.0f, c.y - ry * 2.0f, c.z);
+                        if (((e.playerCar >= 0 && c.phys.damager == e.playerCar) || std::getenv("GTA_TRAFFICKNOCK")) && Rand() < 0.6f) { e.peds->SetAggro((size_t)pi, true); if (std::getenv("GTA_TRAFFICDBG")) { std::fprintf(stderr, "[RAGE] driver of car %d goes for the player", d.car); std::fputc(10, stderr); } }   // road rage: he comes for the player
                     }
                     d.driverUid = 0;
                     d.parked = true;   // the car stays where it stopped until it is far away

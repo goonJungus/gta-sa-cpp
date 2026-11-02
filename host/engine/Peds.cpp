@@ -543,6 +543,26 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
                 }
             } else continue;
         }
+        if (a.aggro) {   // out for the player
+            a.animTime += dt;
+            a.attackTimer -= dt;
+            const float adx = player.x - a.x, ady = player.y - a.y, ad = std::sqrt(adx * adx + ady * ady);
+            a.walking = false;
+            if (ad > 1.2f) {
+                a.heading = std::atan2(ady, adx);
+                const float sp = 5.0f * dt;
+                a.x += adx / ad * std::min(ad, sp); a.y += ady / ad * std::min(ad, sp);
+                a.walking = true;
+            } else if (a.attackTimer <= 0.0f) {
+                a.attackTimer = 1.3f;
+                a.heading = std::atan2(ady, adx);
+                m_strikes.push_back({a.x, a.y});
+            }
+            if (std::getenv("GTA_TRAFFICDBG")) { static float acc = 0.0f; acc += dt; if (acc > 2.0f) { acc = 0.0f; std::fprintf(stderr, "[RAGE] ped %d at %.1f %.1f, %.1f m from the player", (int)ai, a.x, a.y, ad); std::fputc(10, stderr); } }
+            if (ad > 60.0f) a.aggro = false;
+            if (groundAt) { const float g = groundAt(a.x, a.y, a.z + 1.0f); if (g > -1e5f) a.z += (g - a.z) * std::min(1.0f, 10.0f * dt); }
+            continue;
+        }
         if (a.scripted) {   // a story character: stands still or walks to the point the script gave it
             a.animTime += dt;
             a.walking = false;
