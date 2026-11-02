@@ -3996,7 +3996,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (g_garages.TypeOf(gi) == Garages::kPayNSpray && g_garages.State(gi) != Garages::kOpen)
                             Log("GARAGE %s state %d door %.2f money %d wanted %d", g_garages.Name(gi).c_str(), g_garages.State(gi), g_garages.DoorPosition(gi), g_money, g_wanted);
             }
-            if (worldReady && g_paths.Ready() && !getenv("GTA_NOTRAFFIC") && !g_scriptedRun) {   // road traffic around the player
+            if (worldReady && g_paths.Ready() && !getenv("GTA_NOTRAFFIC") && (!g_scriptedRun || getenv("GTA_TRAFFICNEAR"))) {   // road traffic around the player
                 Traffic::Env te;
                 te.dt = dt; te.px = playerX; te.py = playerY; te.pz = playerZ;
                 te.camFx = cosf(yaw); te.camFy = sinf(yaw);
