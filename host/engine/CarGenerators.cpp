@@ -97,6 +97,12 @@ void CarGenerators::Process(Vehicles& v, D3DRenderer& r, const float player[3], 
         if (!ignoreLimit && m_parked >= (night ? 10 : 5)) continue;
         int model = g.file.modelId;
         if (model < 0) {   // PickRandomCar: anything that is not a boat and is up to 8 m long
+            for (int tries = 0; tries < 8 && g.randomModel <= 0 && zoneCar; tries++) {   // the zone's people first
+                const int id = zoneCar(g.file.x, g.file.y, g.file.z);
+                const VehicleInfo* zi = id > 0 ? v.Info(id) : nullptr;
+                const VehicleModel* vm = zi && zi->type != "boat" ? v.LoadModel(r, id) : nullptr;
+                if (vm && vm->bbMaxY - vm->bbMinY <= 8.0f) g.randomModel = id;
+            }
             if (g.randomModel <= 0) {
                 for (int tries = 0; tries < 8 && g.randomModel <= 0; tries++) {
                     const int id = v.IdAt(GenRand(v.ModelCount()));

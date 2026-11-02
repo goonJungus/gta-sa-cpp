@@ -1483,6 +1483,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         Log("SURFINFO: %d surfaces, %d sand", id, sand);
     }
     g_pop.Load(g_gameDir, [](const std::string& dff) { return g_vehicles.IdOfDff(dff); });
+    g_carGens.zoneCar = [](float x, float y, float z) {
+        if (!g_pop.Ready()) return -1;
+        float hr = fmodf(g_gameSeconds / 3600.0f, 24.0f);
+        if (hr < 0.0f) hr += 24.0f;
+        return g_pop.PickCar(g_pop.TypeAt(x, y, z), hr, false, (float)(rand() % 1000) / 1000.0f, (float)(rand() % 1000) / 1000.0f,
+                             [](int id) { return g_vehicles.UsesCarPhysics(id) && !g_vehicles.IsTrailer(id); });
+    };
     if (g_paths.Load(g_gameDir)) {   // a spot check: the node nearest Grove Street and what it joins
         const PathNodes::Address a = g_paths.Nearest(2495.0f, -1680.0f, 13.0f, 100.0f);
         if (const PathNodes::Node* n = g_paths.Get(a)) {

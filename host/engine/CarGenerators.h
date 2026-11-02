@@ -34,6 +34,8 @@ public:
     void Process(Vehicles& v, D3DRenderer& r, const float player[3], const float playerVel[2], int hour, uint32_t nowMs,
                  const std::function<float(float, float, float)>& groundZ);
     size_t Count() const { return m_gens.size(); }
+    // CPopulation::m_AppropriateLoadedCars.PickRandomCar: a car the people round (x, y, z) would own now, -1 for none.
+    std::function<int(float, float, float)> zoneCar;
     int ParkedCars() const { return m_parked; }
 
 private:
