@@ -22,7 +22,7 @@ float Wrap(float a) {
 // The links that leave `node` the way traffic goes (a lane in its own direction), not back to `avoid` unless it is
 // the only way out: one chosen at random, its lane start and direction.
 bool Traffic::PickLink(const PathNodes& paths, PathNodes::Address node, PathNodes::Address avoid, PathNodes::Address* to, float* sx, float* sy,
-                       float* dx, float* dy) {
+                       float* dx, float* dy, int* tl, bool* tlDir) {
     const PathNodes::Node* n = paths.Get(node);
     if (!n) return false;
     struct Cand { PathNodes::Address to; const PathNodes::CarLink* lane; };
@@ -40,6 +40,8 @@ bool Traffic::PickLink(const PathNodes& paths, PathNodes::Address node, PathNode
     if (use.empty()) return false;
     const Cand& c = use[(size_t)(Rand() * (float)use.size()) % use.size()];
     *to = c.to; *sx = c.lane->x; *sy = c.lane->y; *dx = c.lane->dx; *dy = c.lane->dy;
+    if (tl) *tl = c.lane->trafficLightState;
+    if (tlDir) *tlDir = c.lane->trafficLightDirection;
     return true;
 }
 
@@ -57,12 +59,16 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         if (Rand() * 15.0f > (float)n->spawnProbability) continue;
         PathNodes::Address to;
         float sx, sy, dx, dy;
-        if (!PickLink(paths, a, PathNodes::Address{}, &to, &sx, &sy, &dx, &dy)) continue;
+        int tl = 0;
+        bool tlDir = false;
+        if (!PickLink(paths, a, PathNodes::Address{}, &to, &sx, &sy, &dx, &dy, &tl, &tlDir)) continue;
         const PathNodes::Node* tn = paths.Get(to);
         // the lane runs on to the start of the next link
         PathNodes::Address nextTo;
         float nx, ny, ndx, ndy;
-        if (!PickLink(paths, to, a, &nextTo, &nx, &ny, &ndx, &ndy) || nextTo == a) continue;   // not a dead end
+        int ntl = 0;
+        bool ntlDir = false;
+        if (!PickLink(paths, to, a, &nextTo, &nx, &ny, &ndx, &ndy, &ntl, &ntlDir) || nextTo == a) continue;   // not a dead end
         const float vx = nx - sx, vy = ny - sy, segLen = std::sqrt(vx * vx + vy * vy);
         if (segLen < 6.0f) continue;
         const float ux = vx / segLen, uy = vy / segLen;
@@ -85,6 +91,7 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         Drive d;
         d.car = ci; d.from = a; d.to = to; d.sx = sx; d.sy = sy; d.dx = dx; d.dy = dy; d.len = segLen;
         d.nextTo = nextTo; d.nx = nx; d.ny = ny; d.ndx = ndx; d.ndy = ndy; d.haveNext = true;
+        d.tl = tl; d.tlDir = tlDir; d.ntl = ntl; d.ntlDir = ntlDir;
         d.cruise = (n->highway ? 20.0f : 10.0f) + 5.0f * Rand();
         c.vx = ux * d.cruise * 0.8f; c.vy = uy * d.cruise * 0.8f;
         m_drives.push_back(d);
@@ -110,7 +117,8 @@ void Traffic::Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e
         if (!d.haveNext) { d.stuck = 99.0f; return; }
         d.from = d.to; d.to = d.nextTo;
         d.sx = d.nx; d.sy = d.ny; d.dx = d.ndx; d.dy = d.ndy;
-        d.haveNext = paths.Get(d.to) && PickLink(paths, d.to, d.from, &d.nextTo, &d.nx, &d.ny, &d.ndx, &d.ndy) && d.nextTo != d.from;   // a dead end ends the trip
+        d.tl = d.ntl; d.tlDir = d.ntlDir;
+        d.haveNext = paths.Get(d.to) && PickLink(paths, d.to, d.from, &d.nextTo, &d.nx, &d.ny, &d.ndx, &d.ndy, &d.ntl, &d.ntlDir) && d.nextTo != d.from;   // a dead end ends the trip
         if (!d.haveNext) d.stuck = 99.0f;
         return;
     }
@@ -147,6 +155,18 @@ void Traffic::Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e
             consider(o.x, o.y, 1.0f, 2.4f);
         }
         if (e.playerCar < 0) consider(e.px, e.py, 0.4f, 0.4f);
+    }
+    // CTrafficLights::ShouldCarStopForLight: a link that arrives at a signal holds the car short of it while its axis
+    // shows amber or red (an amber too close to stop for is run)
+    if (d.tl && d.tlDir) {
+        const uint32_t u = (e.tlMs >> 1) & 0x3fffu;   // the car phase, as the signals themselves read it
+        const int s1 = u > 4999 ? (u > 5999 ? 2 : 1) : 0;                                  // LightForCars1_Visual
+        const int s2 = u < 6000 ? 2 : u > 10999 ? (u > 11999 ? 2 : 1) : 0;                  // LightForCars2_Visual
+        const int st = d.tl == 1 ? s1 : d.tl == 2 ? s2 : std::max(s1, s2);
+        if (const PathNodes::Node* tn = paths.Get(d.to)) {
+            const float dist = std::sqrt((tn->x - c.x) * (tn->x - c.x) + (tn->y - c.y) * (tn->y - c.y));
+            if (st >= 1 && dist < 45.0f && !(st == 1 && dist < 12.0f)) want = std::min(want, std::max(0.0f, dist - 8.0f) * 0.5f);
+        }
     }
     if (std::fabs(err) > 1.0f) want = std::min(want, 3.0f);
     d.dbgWant = want; d.dbgErr = err; d.dbgLat = (c.x - d.sx) * -uy + (c.y - d.sy) * ux;

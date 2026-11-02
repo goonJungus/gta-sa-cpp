@@ -17,6 +17,7 @@ public:
         float px = 0, py = 0, pz = 0;       // the player
         float camFx = 0, camFy = 1;         // the camera's forward, flat
         int playerCar = -1;
+        uint32_t tlMs = 0;                  // the signals' clock (CTrafficLights runs on wall time)
         // road height under (x, y) near z, below -1e5 when the world is not there yet
         std::function<float(float x, float y, float z)> ground;
     };
@@ -34,6 +35,8 @@ private:
         PathNodes::Address nextTo;          // where the next link goes
         float nx = 0, ny = 0, ndx = 0, ndy = 1, nlen = 1;   // the next link: its start, direction, length
         bool haveNext = false;
+        int tl = 0, ntl = 0;                // the link's signal axis (0 none, 1 / 2 the axis, 3 both) and
+        bool tlDir = false, ntlDir = false; //   whether the link runs the way the light faces: it arrives at the signal
         float cruise = 12.0f;               // m/s
         float dbgWant = 0.0f, dbgErr = 0.0f, dbgHit = -1.0f, dbgLat = 0.0f;
         float stuck = 0.0f, idle = 0.0f, age = 0.0f;   // stuck: pushing but not moving; idle: not moving at all
@@ -44,7 +47,7 @@ private:
 
     float Rand() { m_rng = m_rng * 1664525u + 1013904223u; return (float)(m_rng >> 8) / 16777216.0f; }
     bool PickLink(const PathNodes& paths, PathNodes::Address node, PathNodes::Address avoid, PathNodes::Address* to, float* sx, float* sy,
-                  float* dx, float* dy);
+                  float* dx, float* dy, int* tl = nullptr, bool* tlDir = nullptr);
     bool Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const Env& e);
     void Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e);
 };

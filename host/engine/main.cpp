@@ -3991,6 +3991,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 te.dt = dt; te.px = playerX; te.py = playerY; te.pz = playerZ;
                 te.camFx = cosf(yaw); te.camFy = sinf(yaw);
                 te.playerCar = g_driveCar;
+                te.tlMs = GetTickCount();
+                if (const char* tlf = getenv("GTA_TLMS")) te.tlMs = (uint32_t)strtoul(tlf, nullptr, 10);
                 te.ground = [](float x, float y, float z) {
                     const float t = g_world.RayCast(x, y, z + 6.0f, x, y, z - 8.0f);
                     return t < 1.0f ? z + 6.0f - t * 14.0f : -1e9f;
