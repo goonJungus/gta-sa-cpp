@@ -2551,6 +2551,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // distance deterministically (collision test, not a timing test).
         if (g_autoWalk || getenv("GTA_KEYS")) dt = 1.0f / 60.0f;   // headless motion tests: fixed step
         if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); g_sg.Update(dt); }
+        if (scmRun && getenv("GTA_SCMTHREADS") && frame == atoi(getenv("GTA_SCMTHREADS"))) {   // dev: what each script thread is doing
+            for (size_t ti = 0; ti < s_scm.ThreadCount(); ti++) {
+                const ScmThread& t = s_scm.Thread(ti);
+                fprintf(stderr, "[SCMTHREAD] %zu '%s' pc 0x%X wake %d %s stoppedAt 0x%04X ran %llu\n", ti, t.name.c_str(), t.pc, t.wakeTime, t.finished ? "finished" : "live", t.stoppedAt, (unsigned long long)t.executed);
+            }
+        }
         else if (getenv("GTA_CARREC")) g_sg.PlaybackStep(dt);   // dev: a playback with no script running
         if (worldReady && playMode) {
             g_enex.warp = [&](float x, float y, float z, float hdg, int area) {
