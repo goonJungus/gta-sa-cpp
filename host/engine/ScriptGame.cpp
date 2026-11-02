@@ -15,6 +15,7 @@
 #include "Peds.h"
 #include "Pickups.h"
 #include "EntryExit.h"
+#include "Garages.h"
 #include "Stats.h"
 #include "Vehicle.h"
 
@@ -951,7 +952,9 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x07D0: c.Out(0, 3); return true;      // GET_CURRENT_DAY_OF_WEEK
     case 0x09FB: c.Out(0, 0); return true;      // GET_CURRENT_LANGUAGE: American
     case 0x0842: c.Out(1, 1); return true;      // GET_CITY_PLAYER_IS_IN: Los Santos
-    case 0x03B0: c.result = false; return true; // IS_GARAGE_OPEN
+    case 0x03B0: c.result = garages && garages->StateOfName(c.S(0)) == 1; return true;   // IS_GARAGE_OPEN(name)
+    case 0x03B1: c.result = garages && garages->StateOfName(c.S(0)) == 0; return true;   // IS_GARAGE_CLOSED(name)
+    case 0x0360: case 0x0361: if (garages) garages->SetOpen(c.S(0), c.op == 0x0360); return true;   // OPEN_GARAGE / CLOSE_GARAGE(name)
     case 0x0491: c.result = false; return true; // HAS_CHAR_GOT_WEAPON
     case 0x075C: c.result = c.I(0) != 0; return true;   // DOES_BLIP_EXIST
     case 0x00A3: case 0x00A4: return InArea(c, c.op == 0x00A3 ? "IS_CHAR_IN_AREA_2D" : "IS_CHAR_IN_AREA_3D");
@@ -1008,7 +1011,6 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     }
     case 0x0767: if (pop) pop->SetZonePopulationType(c.S(0), c.I(1)); return true;   // SET_ZONE_POPULATION_TYPE
     case 0x014C: if (carGens) carGens->SwitchScript(c.I(0), c.I(1), nowMs ? nowMs() : 0); return true;   // SWITCH_CAR_GENERATOR
-    case 0x0926: c.Out(1, 0); return true;                                                    // GET_NUMBER_OF_INSTANCES_OF_STREAMED_SCRIPT
     case 0x08AB: c.result = true; return true;                                                // HAS_STREAMED_SCRIPT_LOADED
     case 0x0A40: c.Out(4, ++m_markers); return true;                                          // CREATE_USER_3D_MARKER
     case 0x044B: c.result = !(c.I(0) == kPlayer ? (playerInCar && playerInCar()) : m_charCar.count(c.I(0)) != 0); return true;   // IS_CHAR_ON_FOOT
@@ -1019,7 +1021,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         c.OutF(4, x + c.F(1) * cs - c.F(2) * sn); c.OutF(5, y + c.F(1) * sn + c.F(2) * cs); c.OutF(6, z + c.F(3));
         return true;
     }
-    case 0x093A: case 0x0361: case 0x0750: case 0x0382: case 0x08E0: case 0x08DF: case 0x08DE: case 0x08DD:
+    case 0x093A: case 0x0750: case 0x0382: case 0x08E0: case 0x08DF: case 0x08DE: case 0x08DD:
         return true;   // SET_GARAGE_RESPRAY_FREE, CLOSE_GARAGE, SET_OBJECT_VISIBLE / COLLISION, restart points, penalties
     // ---- pickups -----------------------------------------------------------------------------
     case 0x0213: c.Out(5, AddPickup(c.I(0), c.I(1), -1, c.F(2), c.F(3), c.F(4))); return true;                 // CREATE_PICKUP(model, type, x, y, z)

@@ -601,6 +601,16 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
         m_pending.push_back(n);
         return true;
     }
+    case 0x0926: {   // GET_NUMBER_OF_INSTANCES_OF_STREAMED_SCRIPT(id) -> count of live threads running it
+        int n = 0;
+        auto it = m_streamedBase.find(inum(0));
+        if (it != m_streamedBase.end()) {
+            for (const ScmThread& th : m_threads) if (th.base == it->second && !th.finished) n++;
+            for (const ScmThread& th : m_pending) if (th.base == it->second && !th.finished) n++;
+        }
+        out(1, n);
+        return true;
+    }
     case 0x070D: return true;   // BUILD_PLAYER_MODEL: the outfit is rebuilt as soon as it is given
     case 0x0793: if (host.storeClothes) host.storeClothes(); return true;     // STORE_CLOTHES_STATE
     case 0x0794: if (host.restoreClothes) host.restoreClothes(); return true; // RESTORE_CLOTHES_STATE

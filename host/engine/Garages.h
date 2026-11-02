@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <cctype>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,10 @@ public:
     float DoorPosition(size_t i) const { return m_garages[i].door; }
     const std::string& Name(size_t i) const { return m_garages[i].name; }
     int TypeOf(size_t i) const { return m_garages[i].type; }
+    // The script's door commands by garage name (OPEN_GARAGE, CLOSE_GARAGE, IS_GARAGE_OPEN, IS_GARAGE_CLOSED); false when no garage has the name.
+    static bool same(const std::string& a, const std::string& b) { if (a.size() != b.size()) return false; for (size_t i = 0; i < a.size(); i++) if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false; return true; }
+    bool SetOpen(const std::string& name, bool open) { for (Garage& g : m_garages) if (same(g.name, name)) { g.state = open ? kOpen : kClosed; return true; } return false; }
+    int StateOfName(const std::string& name) const { for (const Garage& g : m_garages) if (same(g.name, name)) return g.state; return -1; }
 
 private:
     struct Door { size_t inst; float baseZ, height; };

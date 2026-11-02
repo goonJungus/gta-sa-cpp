@@ -1621,7 +1621,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
         g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud; g_sg.trains = &g_trains;
         g_sg.wantedLevel = [] { return g_wanted; }; g_sg.setWantedLevel = [](int w) { g_wanted = w; };
-        g_sg.pickups = &g_pickups; g_sg.enex = &g_enex; g_sg.carGens = &g_carGens; g_sg.pop = &g_pop;
+        g_sg.pickups = &g_pickups; g_sg.enex = &g_enex; g_sg.carGens = &g_carGens; g_sg.garages = &g_garages; g_sg.pop = &g_pop;
         g_sg.getArea = [] { return g_world.Area(); };
         g_sg.setArea = [](int a) { Log("SCRIPT: area %d", a); g_world.SetArea(a); g_enex.ForceArea(a); }; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
         g_sg.playerInCar = [] { return g_driveCar >= 0; };
@@ -2553,7 +2553,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); g_sg.Update(dt); }
         if (const char* tp = getenv("GTA_TELEPORT")) {   // dev: "frame,x,y,z" puts the player there once (after the scripts have placed him)
             int tf = 0; float tx = 0, ty = 0, tz = 0;
-            if (sscanf(tp, "%d,%f,%f,%f", &tf, &tx, &ty, &tz) == 4 && frame == tf) { playerX = camPosX = tx; playerY = camPosY = ty; playerZ = camPosZ = tz + EYE_HEIGHT; velZ = 0.0f; g_world.SetArea(0); g_enex.ForceArea(0); for (int si = 0; si < 300; si++) g_world.Stream(playerX, playerY, tz); Log("DEV: teleport to %.0f %.0f %.0f", tx, ty, tz); }
+            if (sscanf(tp, "%d,%f,%f,%f", &tf, &tx, &ty, &tz) == 4 && frame == tf) { playerX = camPosX = tx; playerY = camPosY = ty; playerZ = camPosZ = tz + EYE_HEIGHT; velZ = 0.0f; g_world.SetArea(0); g_enex.ForceArea(0); for (int si = 0; si < 300; si++) g_world.Stream(playerX, playerY, tz); Log("DEV: teleport to %.0f %.0f %.0f, ground there %.2f (from z+3), %.2f (from z+60); %zu insts loaded", tx, ty, tz, g_world.GetGroundHeight(tx, ty, tz + 3.0f), g_world.GetGroundHeight(tx, ty, tz + 60.0f), (size_t)0); }
         }
         if (scmRun && getenv("GTA_SCMTHREADS") && frame == atoi(getenv("GTA_SCMTHREADS"))) {   // dev: what each script thread is doing
             for (size_t ti = 0; ti < s_scm.ThreadCount(); ti++) {

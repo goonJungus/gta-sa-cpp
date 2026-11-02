@@ -92,6 +92,7 @@ public:
 
     bool Handle(ScmMachine::Call& c);
     int m_remoteCar = 0;                        // the RC vehicle the player drives (a car handle), 0 none
+    class Garages* garages = nullptr;           // the garage doors the script opens and closes
     bool HandleMore(ScmMachine::Call& c);       // language extensions, queries, objects, areas
     void Update(float dt);
     // CVehicleRecording: the recorded car paths of carrec.img.
