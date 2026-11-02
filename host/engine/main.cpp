@@ -2553,7 +2553,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); g_sg.Update(dt); }
         if (const char* tp = getenv("GTA_TELEPORT")) {   // dev: "frame,x,y,z" puts the player there once (after the scripts have placed him)
             int tf = 0; float tx = 0, ty = 0, tz = 0;
-            if (sscanf(tp, "%d,%f,%f,%f", &tf, &tx, &ty, &tz) == 4 && frame == tf) { playerX = camPosX = tx; playerY = camPosY = ty; playerZ = camPosZ = tz + EYE_HEIGHT; velZ = 0.0f; Log("DEV: teleport to %.0f %.0f %.0f", tx, ty, tz); }
+            if (sscanf(tp, "%d,%f,%f,%f", &tf, &tx, &ty, &tz) == 4 && frame == tf) { playerX = camPosX = tx; playerY = camPosY = ty; playerZ = camPosZ = tz + EYE_HEIGHT; velZ = 0.0f; g_world.SetArea(0); g_enex.ForceArea(0); Log("DEV: teleport to %.0f %.0f %.0f", tx, ty, tz); }
         }
         if (scmRun && getenv("GTA_SCMTHREADS") && frame == atoi(getenv("GTA_SCMTHREADS"))) {   // dev: what each script thread is doing
             for (size_t ti = 0; ti < s_scm.ThreadCount(); ti++) {
