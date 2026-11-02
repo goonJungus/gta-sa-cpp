@@ -615,7 +615,17 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0431: c.result = carAlive(c.I(0)) != nullptr; return true;                                           // IS_CAR_PASSENGER_SEAT_FREE: no passengers are simulated
     case 0x0432: c.Out(2, -1); return true;                                                                      // GET_CHAR_IN_CAR_PASSENGER_SEAT
     case 0x0A32: c.result = false; return true;                                                                  // IS_CHAR_ATTACHED_TO_ANY_CAR
-    case 0x096E: case 0x0803: c.result = false; return true;                                                     // IS_CAR_LOW_RIDER, DOES_CAR_HAVE_HYDRAULICS
+    case 0x0803: { VehicleInstance* v = carAlive(c.I(0)); c.result = v && v->hyd.on; return true; }   // DOES_CAR_HAVE_HYDRAULICS
+    case 0x073A: { VehicleInstance* v = carAlive(c.I(0)); c.result = v && v->hyd.on; return true; }   // DOES_CAR_HAVE_LOWRIDER_SUSPENSION
+    case 0x096E: case 0x07EC: {   // IS_CAR_LOW_RIDER / IS_CAR_LOWRIDER: the model's handling has HYDRAULIC_GEOM
+        VehicleInstance* v = carAlive(c.I(0));
+        const VehicleInfo* vi = v && cars ? cars->Info(v->model) : nullptr;
+        const HandlingData* hd = vi ? cars->Handling(vi->handling) : nullptr;
+        c.result = hd && (hd->handlingFlags & 0x10000u);
+        return true;
+    }
+    case 0x07FF: case 0x0739: { VehicleInstance* v = carAlive(c.I(0)); if (v) v->hyd.on = c.op == 0x0739 ? true : c.I(1) != 0; return true; }   // SET_CAR_HYDRAULICS(car, bool) / GIVE_LOWRIDER_SUSPENSION_TO_CAR
+    case 0x09FE: { VehicleInstance* v = carAlive(c.I(0)); if (v) { const bool on = v->hyd.on; v->hyd = VehicleInstance::Hydraulics{}; v->hyd.on = on; } return true; }   // RESET_VEHICLE_HYDRAULICS
     case 0x096D: c.Out(2, 0); return true;                                                                       // GET_CURRENT_CAR_MOD: nothing fitted
     case 0x0811: c.Out(1, c.I(0) == kPlayer && playerCar && playerCar() >= 0 ? playerCar() + 1 : (m_charCar.count(c.I(0)) ? m_charCar[c.I(0)] : -1)); return true;   // GET_CAR_CHAR_IS_USING
     case 0x056C: case 0x0602: {   // IS_CHAR_IN_ANY_POLICE_VEHICLE / IS_CHAR_IN_TAXI
