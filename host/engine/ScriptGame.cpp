@@ -549,6 +549,22 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     if (name.compare(0, 7, "LOCATE_") == 0 && Locate(c, name)) return true;
     if (name.size() > 12 && name.compare(0, 3, "IS_") == 0 && name.find("_IN_AREA_") != std::string::npos && InArea(c, name)) return true;
     switch (c.op) {
+    // ---- remote controlled vehicles: the player drives the toy (CPlayerInfo::MakePlayerSafe / TakeRemoteControlledCar), here
+    // from its seat, with the usual driving controls ----
+    case 0x010C: case 0x046E: {   // GIVE_REMOTE_CONTROLLED_CAR_TO_PLAYER(player, x, y, z, heading) -> car / ..._MODEL_..(…, model) -> car
+        const bool withModel = c.op == 0x046E;
+        if (!cars || !r) { c.Out(withModel ? 6 : 5, 0); return true; }
+        const int model = withModel ? c.I(5) : 441;   // the RC Bandit
+        float z = c.F(3);
+        if (groundAt) { const float gz = groundAt(c.F(1), c.F(2)); if (gz > -1e5f && z < gz + 0.3f) z = gz + 0.4f; }
+        const int i = cars->Spawn(*r, model, c.F(1), c.F(2), z, c.F(4) * 0.0174533f);
+        if (i >= 0) { m_remoteCar = i + 1; if (putPlayerInCar) putPlayerInCar(i); }
+        c.Out(withModel ? 6 : 5, i >= 0 ? i + 1 : 0);
+        return true;
+    }
+    case 0x0715: if (c.I(1) >= 1) { m_remoteCar = c.I(1); if (putPlayerInCar) putPlayerInCar(c.I(1) - 1); } return true;   // TAKE_REMOTE_CONTROL_OF_CAR(player, car)
+    case 0x0241: c.result = m_remoteCar > 0 && playerCar && playerCar() == m_remoteCar - 1; return true;   // IS_PLAYER_IN_REMOTE_MODE(player)
+    case 0x0484: c.Out(1, m_remoteCar); return true;   // GET_REMOTE_CONTROLLED_CAR(player) -> car
     // ---- car bombs (CVehicle::m_nBombOnBoard) ------------------------------------------------------------------
     case 0x0242: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, c.I(1)); return true;   // ARM_CAR_WITH_BOMB(car, type)
     case 0x059B: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, 0); return true;        // DISARM_CAR_BOMB(car)
