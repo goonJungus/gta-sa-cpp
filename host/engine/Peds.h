@@ -58,6 +58,8 @@ public:
     // A driver (CPed::SetPedPositionInCar): this actor sits at `seat` (car space) on the vehicle's drawn matrix `body`
     // (D3D rows right, forward, up, position) in the drive_l pose, and does not wander. Call it every frame.
     void Seat(size_t i, const float body[16], const float seat[3]);
+    // Carjacked: out of the seat to (x, y, z) beside the car, running from the player.
+    void Unseat(size_t i, float x, float y, float z) { if (i < m_actors.size()) { Actor& a = m_actors[i]; a.seated = false; a.x = x; a.y = y; a.z = z; a.fleeTimer = 10.0f; a.walking = true; } }
     bool Seated(size_t i) const { return i < m_actors.size() && m_actors[i].seated; }
     void SetHidden(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].hidden = on; }
     bool Hidden(size_t i) const { return i < m_actors.size() && m_actors[i].hidden; }

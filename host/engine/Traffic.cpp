@@ -203,7 +203,10 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
             if (e.peds && d.driverUid) {   // the driver goes with a removed car, and gets out of one the player takes
                 const int pi = e.peds->FindUid(d.driverUid);
                 if (pi >= 0 && c.removed) e.peds->Remove((size_t)pi);
-                else if (pi >= 0) e.peds->Remove((size_t)pi);
+                else if (pi >= 0) {   // jacked: out on the driver's side, running
+                    const float side = -1.6f;
+                    e.peds->Unseat((size_t)pi, c.x + (c.phys.active ? c.rot[0] : std::cos(c.heading)) * side, c.y + (c.phys.active ? c.rot[1] : std::sin(c.heading)) * side, c.z);
+                }
             }
             m_drives.erase(m_drives.begin() + (long)i);
             continue;
