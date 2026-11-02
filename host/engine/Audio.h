@@ -70,6 +70,9 @@ public:
     void OtherEngines(const CarSound* cars, int n);
     // A car knock (CAECollisionAudioEntity): one of the collisions bank's car crashes, louder the harder it was.
     void CarCrash(float hardness, float dist, float pan);
+    // The player car's tyre noise (CAEVehicleAudioEntity::ProcessVehicleSkidding): the summed wheel skid (0 none, up to
+    // 0.75 a wheel) over its four wheels, on tarmac. Call every frame in a car; 0 fades it out.
+    void Skid(float sumWheelSkid, int numWheels);
     void EngineStop();
     // CAEVehicleAudioEntity::PlayHornOrSiren for the player's vehicle: the model's horn (bank 74) while
     // held, the long siren loop, or the short one while the horn is held with the siren on.
@@ -122,6 +125,7 @@ private:
     double m_musPos = 0.0;
     int m_engModel = -1, m_engAC = 0, m_engCRZ = 0, m_engID = 0;
     int m_hornVoice = 0, m_hornModel = -1, m_sirenVoice = 0, m_fastSirenVoice = 0, m_alarmVoice = 0, m_alarmModel = -1;
+    int m_skidVoice = 0;
     double m_lastCrash = -1.0;
     std::unordered_map<int, int> m_otherEng;   // car key -> its voice
     float m_engGainAC = 0.0f, m_engGainCRZ = 0.0f, m_engGainID = 0.0f;

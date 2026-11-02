@@ -4441,6 +4441,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (worldReady) g_world.DynVehicle(c.x, c.y, c.z, c.vx, c.vy, 1.3f, 1500.0f);
                     if (const VehicleInfo* vi = g_vehicles.Info(c.model)) {
                         const HandlingData* hd = g_vehicles.Handling(vi->handling);
+                        {   // the tyres: spinning wheels with the pedal down, skidding or locked ones by speed
+                            float skid = 0.0f;
+                            const float spd = fabsf(c.speed);
+                            for (int w = 0; w < 4; w++) {
+                                switch (c.phys.wheelState[w]) {
+                                    case 1: if (c.phys.gas > 0.4f) skid += (c.phys.gas - 0.4f) / 0.6f * 0.75f; break;
+                                    case 2: skid += std::min(1.0f, spd * 0.2f) * 0.75f; break;
+                                    case 3: if (spd >= 0.04f) skid += std::min(spd * 5.0f, 1.0f); break;
+                                }
+                            }
+                            g_audio.Skid(c.phys.numContactWheels > 0 ? skid : 0.0f, 4);
+                        }
                         g_audio.Engine(c.model, th, c.speed, (hd ? hd->maxVelocity : 160.0f) / 3.6f, hd ? hd->numGears : 5, dt);
                     }
                     {

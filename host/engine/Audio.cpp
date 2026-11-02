@@ -536,7 +536,21 @@ void Audio::CarCrash(float hardness, float dist, float pan) {
     Play(39, kCrash[Rand((int)(sizeof(kCrash) / sizeof(kCrash[0])))], vol, pan, 0.95f + 0.1f * (float)Rand(10) / 10.0f);
 }
 
+void Audio::Skid(float sumWheelSkid, int numWheels) {
+    if (!m_ready) return;
+    const float per = numWheels > 0 ? sumWheelSkid / (float)numWheels : 0.0f;
+    const float db = per > 0.00001f ? 20.0f * std::log10(per) - 12.0f : -200.0f;   // Skid.VolBase -12 dB
+    if (db < -100.0f || SoundCount(138) <= 0x18) {
+        if (m_skidVoice) { Stop(m_skidVoice); m_skidVoice = 0; }
+        return;
+    }
+    const float vol = std::pow(10.0f, db / 20.0f), pitch = 0.9f + 0.25f * sumWheelSkid;   // StdSurface FrqBase / FrqWheelSkidFactor
+    if (!m_skidVoice) m_skidVoice = Play(138, 0x18, vol, 0.0f, pitch, true);   // SND_GENRL_VEHICLE_GEN_TARSKIDTWIN1
+    else SetVoice(m_skidVoice, vol, 0.0f, pitch);
+}
+
 void Audio::EngineStop() {
+    if (m_skidVoice) { Stop(m_skidVoice); m_skidVoice = 0; }
     for (int* v : {&m_engAC, &m_engCRZ, &m_engID}) { if (*v) Stop(*v); *v = 0; }
     m_engModel = -1;
     m_engGainAC = m_engGainCRZ = m_engGainID = 0.0f;
