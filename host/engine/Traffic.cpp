@@ -45,7 +45,7 @@ bool Traffic::PickLink(const PathNodes& paths, PathNodes::Address node, PathNode
     return true;
 }
 
-bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const Env& e) {
+bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const Env& e, int forceModel) {
     const std::vector<PathNodes::Address> closeNodes = paths.NodesNear(e.px, e.py, 170.0f, 1024);
     if (closeNodes.empty()) return false;
     const size_t start = (size_t)(Rand() * (float)closeNodes.size()) % closeNodes.size();
@@ -55,9 +55,10 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         if (!n || n->switchedOff || n->water || n->roadBlock || n->deadEnd || n->spawnProbability == 0) continue;
         const float ddx = n->x - e.px, ddy = n->y - e.py, dist = std::sqrt(ddx * ddx + ddy * ddy);
         const bool nearTest = std::getenv("GTA_TRAFFICNEAR") != nullptr;   // dev: spawn within sight
-        if (dist < (nearTest ? 14.0f : 85.0f) || (nearTest && dist > 40.0f)) continue;
-        if (!nearTest && dist < 140.0f && (ddx * e.camFx + ddy * e.camFy) / std::max(dist, 1.0f) > 0.3f) continue;   // not where it is seen appearing
-        if (Rand() * 15.0f > (float)n->spawnProbability) continue;
+        if (forceModel >= 0) { if (dist < 55.0f || dist > 120.0f) continue; }   // a police car comes from further down the road
+        else if (dist < (nearTest ? 14.0f : 85.0f) || (nearTest && dist > 40.0f)) continue;
+        if (forceModel < 0 && !nearTest && dist < 140.0f && (ddx * e.camFx + ddy * e.camFy) / std::max(dist, 1.0f) > 0.3f) continue;   // not where it is seen appearing
+        if (forceModel < 0 && Rand() * 15.0f > (float)n->spawnProbability) continue;
         PathNodes::Address to;
         float sx, sy, dx, dy;
         int tl = 0;
@@ -81,8 +82,8 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
             if (!o.removed && std::fabs(o.x - px) < 7.0f && std::fabs(o.y - py) < 7.0f) clear = false;
         }
         if (!clear) continue;
-        int model = -1;
-        if (e.pop && e.pop->Ready())   // CPopCycle: the zone's people and what they drive
+        int model = forceModel;
+        if (model < 0 && e.pop && e.pop->Ready())   // CPopCycle: the zone's people and what they drive
             model = e.pop->PickCar(e.pop->TypeAt(px, py, n->z), e.hour, e.weekend, Rand(), Rand(),
                                    [&](int id) { return v.Info(id) && v.UsesCarPhysics(id) && !v.IsTrailer(id); });
         if (model < 0) model = kModels[(size_t)(Rand() * (float)(sizeof(kModels) / sizeof(kModels[0]))) % (sizeof(kModels) / sizeof(kModels[0]))];
@@ -98,6 +99,7 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         d.nextTo = nextTo; d.nx = nx; d.ny = ny; d.ndx = ndx; d.ndy = ndy; d.haveNext = true;
         d.tl = tl; d.tlDir = tlDir; d.ntl = ntl; d.ntlDir = ntlDir;
         d.cruise = (n->highway ? 20.0f : 10.0f) + 5.0f * Rand();
+        if (forceModel >= 0) { d.cop = true; c.siren = true; }
         c.vx = ux * d.cruise * 0.8f; c.vy = uy * d.cruise * 0.8f;
         if (e.peds && e.peds->Ready()) {   // a driver, any civilian of the pool
             const int pi = e.peds->Spawn(r, -1, px, py, z, 0.0f);
@@ -188,6 +190,25 @@ void Traffic::Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e
     if (now < 0.4f) d.idle += dt; else d.idle = 0.0f;
 }
 
+// CCarAI police behaviour, reduced: drive straight at the player, hard, and stop alongside.
+void Traffic::Pursue(Vehicles& v, Drive& d, const Env& e) {
+    VehicleInstance& c = v.Car((size_t)d.car);
+    const float fx = c.phys.active ? c.rot[3] : -std::sin(c.heading), fy = c.phys.active ? c.rot[4] : std::cos(c.heading);
+    const float now = c.phys.active ? std::sqrt(c.phys.mv[0] * c.phys.mv[0] + c.phys.mv[1] * c.phys.mv[1]) * 50.0f : 0.0f;
+    const float tx = e.px - c.x, ty = e.py - c.y, dist = std::sqrt(tx * tx + ty * ty);
+    const float err = Wrap(std::atan2(ty, tx) - std::atan2(fy, fx));
+    const float steer = std::clamp(err * 1.2f, -0.6f, 0.6f);
+    float want = dist < 9.0f ? 0.0f : std::min(24.0f, 6.0f + dist * 0.4f);
+    if (std::fabs(err) > 1.2f) want = std::min(want, 5.0f);
+    float gas = 0.0f, brake = 0.0f;
+    const float diff = want - now;
+    if (diff <= 0.0f) brake = std::min(-diff * 0.15f + (want < 0.5f ? 0.4f : 0.0f), 1.0f);
+    else gas = std::min(diff * (now >= 2.0f ? 0.15f : 0.4f), 1.0f);
+    if (std::getenv("GTA_TRAFFICDBG")) { static float acc = 0.0f; acc += e.dt; if (acc > 3.0f) { acc = 0.0f; std::fprintf(stderr, "[COP] car %d now %.1f dist %.0f err %.2f gas %.2f brake %.2f stuck %.1f active %d", d.car, now, dist, err, gas, brake, d.stuck, (int)c.phys.active); std::fputc(10, stderr); } }
+    v.SetAIControls((size_t)d.car, steer, gas, brake, false);
+    if (now < 0.4f && dist > 15.0f) d.stuck += e.dt; else d.stuck = std::max(0.0f, d.stuck - e.dt);
+}
+
 void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const Env& e) {
     if (!paths.Ready()) return;
     for (size_t i = 0; i < m_drives.size();) {
@@ -198,6 +219,7 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
         bool drop = false;
         if (c.removed || c.wrecked) drop = true;
         else if (d.car == e.playerCar) { v.ClearAIControls((size_t)d.car); c.speed = 0.0f; drop = true; }   // the player took it
+        else if (d.cop && ((e.wanted == 0 && dx * dx + dy * dy > 60.0f * 60.0f) || d.stuck > 8.0f)) { c.removed = true; drop = true; }
         else if (tooFar || d.stuck > 10.0f || d.idle > 20.0f || c.health <= 0.0f || (c.phys.active && c.rot[8] < 0.2f)) { c.removed = true; drop = true; }   // gone, stuck or flipped
         if (drop) {
             if (e.peds && d.driverUid) {   // the driver goes with a removed car, and gets out of one the player takes
@@ -272,6 +294,7 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
                 continue;
             }
         }
+        if (d.cop) { Pursue(v, d, e); i++; continue; }
         Drive_(v, paths, d, e);
         i++;
     }
@@ -288,8 +311,15 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
     }
     int limit = maxCars;
     if (e.pop && e.pop->Ready()) limit = std::min(maxCars, std::max(2, e.pop->MaxCars(e.pop->TypeAt(e.px, e.py, e.pz), e.hour, e.weekend)));   // #Cars
-    if ((int)m_drives.size() < limit && m_spawnTimer <= 0.0f) {
+    int civ = 0, cops = 0;
+    for (const Drive& dd : m_drives) { if (dd.cop) cops++; else civ++; }
+    if (civ < limit && m_spawnTimer <= 0.0f) {
         Spawn(v, r, paths, e);
         m_spawnTimer = 0.5f;
     }
+    if (e.wanted > 0 && cops < std::min(1 + e.wanted, 5) && m_copTimer <= 0.0f && v.Info(596)) {   // CWanted: the police come to the player
+        Spawn(v, r, paths, e, 596);
+        m_copTimer = 3.0f;
+    }
+    m_copTimer -= e.dt;
 }

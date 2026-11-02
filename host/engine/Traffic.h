@@ -19,6 +19,7 @@ public:
         float px = 0, py = 0, pz = 0;       // the player
         float camFx = 0, camFy = 1;         // the camera's forward, flat
         int playerCar = -1;
+        int wanted = 0;                     // the player's wanted level (stars)
         Peds* peds = nullptr;               // the drivers
         const PopCycle* pop = nullptr;      // which cars, and how many, for the zone and the hour
         float hour = 12.0f;
@@ -50,17 +51,19 @@ private:
         float shock = 0.0f;                 // seconds left standing after a knock
         int thiefUid = 0;                   // a passer-by on his way to steal the parked car
         float thiefScan = 0.0f;
+        bool cop = false;                   // a police car after the player
         bool parked = false;                // abandoned: the driver left it where it stopped
         bool bail = false;                  // the driver gets out when the shock is over
         float stuck = 0.0f, idle = 0.0f, age = 0.0f;   // stuck: pushing but not moving; idle: not moving at all
     };
     std::vector<Drive> m_drives;
-    float m_spawnTimer = 0.0f;
+    float m_spawnTimer = 0.0f, m_copTimer = 0.0f;
     unsigned m_rng = 0x7a11c5u;
 
     float Rand() { m_rng = m_rng * 1664525u + 1013904223u; return (float)(m_rng >> 8) / 16777216.0f; }
     bool PickLink(const PathNodes& paths, PathNodes::Address node, PathNodes::Address avoid, PathNodes::Address* to, float* sx, float* sy,
                   float* dx, float* dy, int* tl = nullptr, bool* tlDir = nullptr);
-    bool Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const Env& e);
+    bool Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const Env& e, int forceModel = -1);
+    void Pursue(Vehicles& v, Drive& d, const Env& e);
     void Drive_(Vehicles& v, const PathNodes& paths, Drive& d, const Env& e);
 };
