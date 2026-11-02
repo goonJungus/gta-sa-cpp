@@ -2551,6 +2551,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // distance deterministically (collision test, not a timing test).
         if (g_autoWalk || getenv("GTA_KEYS")) dt = 1.0f / 60.0f;   // headless motion tests: fixed step
         if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); g_sg.Update(dt); }
+        if (const char* tp = getenv("GTA_TELEPORT")) {   // dev: "frame,x,y,z" puts the player there once (after the scripts have placed him)
+            int tf = 0; float tx = 0, ty = 0, tz = 0;
+            if (sscanf(tp, "%d,%f,%f,%f", &tf, &tx, &ty, &tz) == 4 && frame == tf) { playerX = camPosX = tx; playerY = camPosY = ty; playerZ = camPosZ = tz + EYE_HEIGHT; velZ = 0.0f; Log("DEV: teleport to %.0f %.0f %.0f", tx, ty, tz); }
+        }
         if (scmRun && getenv("GTA_SCMTHREADS") && frame == atoi(getenv("GTA_SCMTHREADS"))) {   // dev: what each script thread is doing
             for (size_t ti = 0; ti < s_scm.ThreadCount(); ti++) {
                 const ScmThread& t = s_scm.Thread(ti);
