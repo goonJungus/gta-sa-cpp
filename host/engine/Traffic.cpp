@@ -197,14 +197,14 @@ void Traffic::Update(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const 
         const bool tooFar = dx * dx + dy * dy > 250.0f * 250.0f;
         bool drop = false;
         if (c.removed || c.wrecked) drop = true;
-        else if (d.car == e.playerCar) { v.ClearAIControls((size_t)d.car); drop = true; }   // the player took it
+        else if (d.car == e.playerCar) { v.ClearAIControls((size_t)d.car); c.speed = 0.0f; drop = true; }   // the player took it
         else if (tooFar || d.stuck > 10.0f || d.idle > 20.0f || c.health <= 0.0f || (c.phys.active && c.rot[8] < 0.2f)) { c.removed = true; drop = true; }   // gone, stuck or flipped
         if (drop) {
             if (e.peds && d.driverUid) {   // the driver goes with a removed car, and gets out of one the player takes
                 const int pi = e.peds->FindUid(d.driverUid);
                 if (pi >= 0 && c.removed) e.peds->Remove((size_t)pi);
                 else if (pi >= 0) {   // jacked: out on the driver's side, running
-                    const float side = -1.6f;
+                    const float side = -2.0f;
                     e.peds->Unseat((size_t)pi, c.x + (c.phys.active ? c.rot[0] : std::cos(c.heading)) * side, c.y + (c.phys.active ? c.rot[1] : std::sin(c.heading)) * side, c.z);
                 }
             }

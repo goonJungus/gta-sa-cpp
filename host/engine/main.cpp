@@ -4000,7 +4000,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Traffic::Env te;
                 te.dt = dt; te.px = playerX; te.py = playerY; te.pz = playerZ;
                 te.camFx = cosf(yaw); te.camFy = sinf(yaw);
-                te.playerCar = g_driveCar;
+                te.playerCar = g_driveCar >= 0 ? g_driveCar : (g_vehTransEnter ? g_vehTransCar : -1);   // jacked once CJ opens the door
                 te.pop = &g_pop;
                 te.peds = &g_peds;
                 te.hour = fmodf(g_gameSeconds / 3600.0f, 24.0f);
