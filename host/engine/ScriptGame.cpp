@@ -170,10 +170,12 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     }
     // ---- camera -------------------------------------------------------------------------
     case 0x015F:   // SET_FIXED_CAMERA_POSITION(x, y, z, offx, offy, offz)
+        if (std::getenv("GTA_INCARDBG")) { std::fprintf(stderr, "[CAM] fixed %.1f %.1f %.1f by %s", c.F(0), c.F(1), c.F(2), c.t.name.c_str()); std::fputc(10, stderr); }
         cam.active = true; cam.pos[0] = c.F(0); cam.pos[1] = c.F(1); cam.pos[2] = c.F(2);
         cam.moveOn = false;
         return true;
     case 0x0160: {   // POINT_CAMERA_AT_POINT(x, y, z, switch type); z <= -100 means "the ground there"
+        if (std::getenv("GTA_INCARDBG")) { std::fprintf(stderr, "[CAM] look %.1f %.1f %.1f by %s", c.F(0), c.F(1), c.F(2), c.t.name.c_str()); std::fputc(10, stderr); }
         cam.active = true; cam.look[0] = c.F(0); cam.look[1] = c.F(1); cam.look[2] = c.F(2);
         if (cam.look[2] <= -100.0f && groundAt) { const float g = groundAt(cam.look[0], cam.look[1]); if (g > -1e5f) cam.look[2] = g; }
         cam.trackOn = false;
@@ -1065,9 +1067,10 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     }
     // ---- mission set-up: cars, characters, tasks (instant where the retail task takes time) ----------
     case 0x00AB: {   // SET_CAR_COORDINATES(car, x, y, z)
+        if (std::getenv("GTA_INCARDBG")) { std::fprintf(stderr, "[CAM] car %d to %.1f %.1f %.1f by %s", c.I(0), c.F(1), c.F(2), c.F(3), c.t.name.c_str()); std::fputc(10, stderr); }
         if (VehicleInstance* v = carAlive(c.I(0))) {
             float z = c.F(3);
-            if (groundAt) { const float g = groundAt(c.F(1), c.F(2)); if (g > -1e5f && z < g + 0.3f) z = g + 0.9f; }
+            if (groundAt) { const float g = groundAt(c.F(1), c.F(2)); if (g > -1e5f && z < g + 0.3f && g - z < 3.0f) z = g + 0.9f; }   // ground just above: lift; a floor far above is another storey or a roof, the script's z stands
             v->x = c.F(1); v->y = c.F(2); v->z = z; v->speed = 0; v->vx = v->vy = 0;
         }
         return true;
