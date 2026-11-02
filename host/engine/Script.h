@@ -11,6 +11,7 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <map>
 #include <vector>
 
 struct ScmHeader {
@@ -132,6 +133,8 @@ private:
     ScmFile m_file;
     std::vector<uint8_t> m_space;        // the whole script image: variables are read and written in place
     std::vector<ScmThread> m_threads;
+    std::string m_gameDir;
+    std::map<int, uint32_t> m_streamedBase;   // streamed script id -> where its code sits in m_space once loaded
     std::vector<ScmThread> m_pending;    // threads started during a step
     std::set<uint16_t> m_logged;         // opcodes already reported as not implemented
     int32_t m_lastMs = 0;                // the clock at the previous update, for the thread timers

@@ -573,6 +573,17 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0564: { VehicleInstance* v = carAlive(c.I(0)); if (v) v->health = std::min(v->health, 200.0f); return true; }   // MAKE_HELI_COME_CRASHING_DOWN
     case 0x0825: { VehicleInstance* v = carAlive(c.I(0)); if (v) v->phys.rotorSpeed = 0.22f; return true; }   // SET_HELI_BLADES_FULL_SPEED
     case 0x04DF: case 0x0853: case 0x0A1C: return true;   // SET_HELI_STABILISER, SET_HELI_REACHED_TARGET_DISTANCE, DISABLE_HELI_AUDIO
+    // ---- car commands the streamed scripts (car park, car mod, GF dates) call ----
+    case 0x0506: case 0x00AD: case 0x072F: case 0x02AA: case 0x03F4: case 0x023E: case 0x0681: return true;   // SET_CAR_MODEL_COMPONENTS, SET_CAR_CRUISE_SPEED, ADD_STUCK_CAR_CHECK_WITH_WARP, SET_CAR_ONLY_DAMAGED_BY_PLAYER, SET_ALL_CARS_CAN_BE_DAMAGED, FLASH_CAR, ATTACH_OBJECT_TO_CAR
+    case 0x0449: c.result = c.I(0) == kPlayer ? (playerInCar && playerInCar()) : m_charCar.count(c.I(0)) != 0; return true;   // IS_CHAR_SITTING_IN_ANY_CAR(char)
+    case 0x03C5: {   // CREATE_RANDOM_CAR_FOR_CAR_PARK(x, y, z, heading): one of the cars a car park holds
+        static const int kParked[] = {401, 410, 412, 419, 436, 439, 458, 466, 475, 491, 496, 517, 518, 527, 540, 549, 562, 576};
+        if (cars && r) {
+            const int model = kParked[(size_t)(std::fabs(c.F(0) * 7.0f + c.F(1) * 13.0f)) % (sizeof(kParked) / sizeof(kParked[0]))];
+            cars->Spawn(*r, model, c.F(0), c.F(1), c.F(2), c.F(3) * 0.0174533f);
+        }
+        return true;
+    }
     // ---- car bombs (CVehicle::m_nBombOnBoard) ------------------------------------------------------------------
     case 0x0242: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, c.I(1)); return true;   // ARM_CAR_WITH_BOMB(car, type)
     case 0x059B: if (cars && c.I(0) >= 1) cars->InstallBomb((size_t)c.I(0) - 1, 0); return true;        // DISARM_CAR_BOMB(car)

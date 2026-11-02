@@ -1,4 +1,5 @@
 #include "Script.h"
+#include "ImgLoader.h"
 #include <algorithm>
 #include <map>
 
@@ -176,6 +177,7 @@ bool ScmFile::Load(const std::string& path) {
 }
 
 bool ScmMachine::Init(const std::string& gameDir) {
+    m_gameDir = gameDir;
     if (!m_file.Load(gameDir + "/data/script/main.scm")) return false;
     m_space = m_file.Bytes();
     ScmThread main;
@@ -576,6 +578,29 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
     case 0x0500:                // IS_PLAYER_WEARING(player, texture part, texture)
         result = host.wearing && host.wearing(inum(1), str(2).c_str());
         return true;
+    case 0x0913: {   // START_NEW_STREAMED_SCRIPT(id, parameters...): the script from script.img runs as a thread of its own (shops, minigames)
+        const int id = inum(0);
+        const auto& st = m_file.Header().streamed;
+        if (id < 0 || (size_t)id >= st.size()) return true;
+        auto it = m_streamedBase.find(id);
+        if (it == m_streamedBase.end()) {
+            ImgLoader img;
+            std::vector<uint8_t> code;
+            if (img.Open(m_gameDir + "/data/script/script.img")) code = img.Extract(st[(size_t)id].name + ".scm");
+            if (code.empty()) { std::fprintf(stderr, "[SCM] streamed script %d (%s) not found in script.img\n", id, st[(size_t)id].name.c_str()); return true; }
+            const uint32_t base = (uint32_t)m_space.size();
+            m_space.insert(m_space.end(), code.begin(), code.end());
+            it = m_streamedBase.emplace(id, base).first;
+            std::fprintf(stderr, "[SCM] streamed script %d (%s): %zu bytes at 0x%X\n", id, st[(size_t)id].name.c_str(), code.size(), base);
+        }
+        ScmThread n;
+        n.pc = n.base = it->second;
+        n.name = st[(size_t)id].name;
+        n.wakeTime = m_lastMs;
+        for (size_t i = 1; i < args.size() && i - 1 < 32; i++) n.locals[i - 1] = inum(i);
+        m_pending.push_back(n);
+        return true;
+    }
     case 0x070D: return true;   // BUILD_PLAYER_MODEL: the outfit is rebuilt as soon as it is given
     case 0x0793: if (host.storeClothes) host.storeClothes(); return true;     // STORE_CLOTHES_STATE
     case 0x0794: if (host.restoreClothes) host.restoreClothes(); return true; // RESTORE_CLOTHES_STATE
