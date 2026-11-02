@@ -202,9 +202,41 @@ void Vehicles::RenderLights(D3DRenderer& r, const float cam[3], const LightEnv& 
             }
             for (uint16_t i : {0, 1, 4, 1, 3, 4, 2, 3, 4, 0, 2, 4}) beamIdx.push_back((uint16_t)(base + i));
         };
+        // CVehicle::DoHeadLightReflectionImpl -> CShadows::StoreCarLightShadow: a soft pool on the road ahead of the lit
+        // headlights (one for a twin pair, one a light for a single), grey 45, seen within 27 m and fading from 20.
+        auto pool = [&](bool twinPool, bool right) {
+            if (!beams || !vm.lightFound[0] || c.phys.numContactWheels <= 0) return;
+            const float* lp = vm.lightPos[0];
+            const bool bike = c.model == 448 || c.model == 461 || c.model == 462 || c.model == 463 || c.model == 468 || c.model == 471 || c.model == 521 || c.model == 522 || c.model == 523 || c.model == 581 || c.model == 586;
+            const float size = (!twinPool && bike) ? 1.25f : std::fabs(lp[0]) * 4.0f;
+            const float fl = std::sqrt(fw[0] * fw[0] + fw[1] * fw[1]);
+            if (fl < 1e-4f || size < 0.2f) return;
+            const float fx = fw[0] / fl, fy = fw[1] / fl;
+            const float off = size * 2.0f + 1.0f + lp[1];
+            float cx = c.x + fx * off, cy = c.y + fy * off;
+            if (!twinPool) { const float sgn = right ? 1.0f : -1.0f; cx += fy * lp[0] * sgn; cy -= fx * lp[0] * sgn; }
+            float gz = 0.0f;
+            for (int w = 0; w < 4; w++) gz += c.phys.colPt[w][2];
+            gz = gz * 0.25f + 0.05f;
+            const float dx = cx - cam[0], dy = cy - cam[1], dd = std::sqrt(dx * dx + dy * dy);
+            if (dd >= 27.0f) return;
+            const float fade = dd < 20.0f ? 1.0f : 1.0f - (dd - 20.0f) / 7.0f;
+            const uint32_t g = (uint32_t)std::clamp((int)(45.0f * fade), 0, 255);
+            const uint16_t base = (uint16_t)beamVerts.size();
+            beamVerts.push_back({cx, cy, gz, 0xFF000000u | (g << 16) | (g << 8) | g, 0.5f, 0.5f});
+            const int N = 12;
+            for (int k = 0; k < N; k++) {
+                const float a = 6.2831853f * (float)k / (float)N, ca = std::cos(a), sa = std::sin(a);
+                const float ex = fx * ca * size * 2.0f + fy * sa * size, ey = fy * ca * size * 2.0f - fx * sa * size;
+                beamVerts.push_back({cx + ex, cy + ey, gz, 0xFF000000u, 0.5f, 0.5f});
+            }
+            for (int k = 0; k < N; k++) {
+                beamIdx.push_back(base); beamIdx.push_back((uint16_t)(base + 1 + k)); beamIdx.push_back((uint16_t)(base + 1 + (k + 1) % N));
+            }
+        };
         if (on) {
-            if (head(0, true, !frOk)) { head(2, true, !frOk); beam(true); }
-            if (twin && head(0, false, !flOk)) { head(2, false, !flOk); beam(false); }
+            if (head(0, true, !frOk)) { head(2, true, !frOk); beam(true); pool(false, true); }
+            if (twin && head(0, false, !flOk)) { head(2, false, !flOk); beam(false); pool(false, false); }
         }
         tail(1, true, !rearOk, on);
         tail(3, true, !rearOk, on);
