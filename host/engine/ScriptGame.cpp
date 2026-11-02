@@ -290,6 +290,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     }
     case 0x00DF: {   // IS_CHAR_IN_ANY_CAR(char)
         c.result = c.I(0) == kPlayer ? (playerInCar && playerInCar()) : m_charCar.count(c.I(0)) != 0;
+        if (std::getenv("GTA_INCARDBG") && c.t.name == "CARMOD") { static int n = 0; if (c.result && n++ % 200 == 0) { std::fprintf(stderr, "[INCAR] char %d -> %d (playerCar %d)", c.I(0), (int)c.result, playerCar ? playerCar() : -9); std::fputc(10, stderr); } }
         return true;
     }
     case 0x0430: {   // WARP_CHAR_INTO_CAR_AS_PASSENGER(char, car, seat)
@@ -519,6 +520,7 @@ bool ScriptGame::Locate(ScmMachine::Call& c, const std::string& n) {
     if (mode == 1 && inCar) ok = false;
     if (mode == 2 && !inCar && subjKind == 0) ok = false;
     if (stopped && spd > 0.5f) ok = false;
+    if (std::getenv("GTA_INCARDBG") && c.t.name == "CARMOD" && std::fabs(tx - 1042.01f) < 0.1f) { static int n = 0; if (n++ % 100 == 0) { std::fprintf(stderr, "[LOCATE] car at %.1f %.1f %.1f speed %.2f box %.1f %.1f %.1f +-%.0f %.0f %.0f ok %d", sx, sy, sz, spd, tx, ty, tz, rx, ry, rz, (int)ok); std::fputc(10, stderr); } }
     c.result = ok;
     return true;
 }
