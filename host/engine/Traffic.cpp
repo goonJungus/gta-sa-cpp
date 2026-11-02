@@ -86,7 +86,6 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         if (model < 0 && e.pop && e.pop->Ready())   // CPopCycle: the zone's people and what they drive
             model = e.pop->PickCar(e.pop->TypeAt(px, py, n->z), e.hour, e.weekend, Rand(), Rand(),
                                    [&](int id) { return v.Info(id) && v.UsesCarPhysics(id) && !v.IsTrailer(id); });
-        if (forceModel < 0 && e.pop && e.pop->Ready() && v.Info(596) && Rand() < e.pop->CopShare(e.pop->TypeAt(px, py, n->z), e.hour, e.weekend)) model = 596;   // a police patrol
         if (model < 0) model = kModels[(size_t)(Rand() * (float)(sizeof(kModels) / sizeof(kModels[0]))) % (sizeof(kModels) / sizeof(kModels[0]))];
         if (!v.Info(model)) continue;
         const float gz = e.ground ? e.ground(px, py, n->z + (tn ? (tn->z - n->z) * frac : 0.0f)) : -1e9f;
