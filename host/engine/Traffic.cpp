@@ -264,7 +264,7 @@ void Traffic::UpdateSwat(Vehicles& v, D3DRenderer& r, const Env& e) {
     if (m_swatHeli >= 0 && (m_swatHeli >= (int)v.Count() || v.Car((size_t)m_swatHeli).removed)) { m_swatHeli = -1; m_swatDropped = 0; m_swatLeaving = false; }
     if (m_swatHeli < 0) {
         if (e.wanted < 4 || !v.Info(497)) return;
-        const int h = v.Spawn(r, 497, e.px + 90.0f, e.py + 90.0f, e.pz + 45.0f, 0.0f);
+        const int h = v.Spawn(r, 497, e.px + 50.0f, e.py + 50.0f, e.pz + 40.0f, 0.0f);
         if (h < 0) return;
         m_swatHeli = h; m_swatDropped = 0; m_swatTimer = 0.0f; m_swatLeaving = false;
         v.Car((size_t)h).hasDriver = true;
@@ -273,6 +273,7 @@ void Traffic::UpdateSwat(Vehicles& v, D3DRenderer& r, const Env& e) {
     }
     VehicleInstance& c = v.Car((size_t)m_swatHeli);
     const float dx = c.x - e.px, dy = c.y - e.py, dist = std::sqrt(dx * dx + dy * dy);
+    if (std::getenv("GTA_TRAFFICDBG")) { static int n = 0; if (n++ % 120 == 0) { std::fprintf(stderr, "[SWAT] heli at %.0f %.0f %.0f player %.0f %.0f %.0f dropped %d leaving %d", c.x, c.y, c.z, e.px, e.py, e.pz, m_swatDropped, (int)m_swatLeaving); std::fputc(10, stderr); } }
     if (m_swatLeaving) {
         v.HeliGoTo((size_t)m_swatHeli, c.x + 200.0f, c.y + 200.0f, c.z + 20.0f, 1);
         if (dist > 260.0f) { v.RemoveWinch((size_t)m_swatHeli); c.removed = true; }

@@ -510,6 +510,7 @@ public:
         if (i >= m_cars.size()) return;
         Activate(m_cars[i]);
         CarPhys& p = m_cars[i].phys;
+        if (p.rotorSpeed < 0.22f && m_cars[i].z > 20.0f) p.rotorSpeed = 0.22f;   // already in the air: the rotor is turning
         p.fakePhysics = 0; p.aiFly = true; p.aiHeliMode = mode; p.aiTarget[0] = x; p.aiTarget[1] = y; p.aiTarget[2] = z;
     }
     void HeliStopAI(size_t i) { if (i < m_cars.size()) m_cars[i].phys.aiFly = false; }
