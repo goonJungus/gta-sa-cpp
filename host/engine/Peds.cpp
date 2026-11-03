@@ -532,6 +532,13 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
             a.walking = false;
             continue;
         }
+        if (a.arresting) {   // CTaskSimpleArrestPed: stands with the pistol on the player, ARRESTgun held at its end
+            a.walking = false;
+            a.vx = a.vy = 0.0f;
+            a.heading = std::atan2(a.arrestY - a.y, a.arrestX - a.x);
+            a.arrestTime += dt;
+            continue;
+        }
         if (a.hitClip) {   // a melee hit reaction plays out before the ped carries on
             a.hitTime += dt;
             if (a.hitTime >= a.hitClip->duration) {
@@ -548,12 +555,12 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
             a.attackTimer -= dt;
             const float adx = player.x - a.x, ady = player.y - a.y, ad = std::sqrt(adx * adx + ady * ady);
             a.walking = false;
-            if (ad > 1.2f) {
+            if (ad > (player.door ? 0.3f : 1.2f)) {
                 a.heading = std::atan2(ady, adx);
                 const float sp = 5.0f * dt;
                 a.x += adx / ad * std::min(ad, sp); a.y += ady / ad * std::min(ad, sp);
                 a.walking = true;
-            } else if (a.attackTimer <= 0.0f) {
+            } else if (!player.door && a.attackTimer <= 0.0f) {
                 a.attackTimer = 1.3f;
                 a.heading = std::atan2(ady, adx);
                 m_strikes.push_back({a.x, a.y});
@@ -682,8 +689,10 @@ void Peds::Draw(D3DRenderer& r) {
             auto cc = m_clips.find(a.chokeTimer > 0.0f ? "gas_cwr" : "idle_tired");
             if (cc != m_clips.end()) chokeClip = &cc->second;
         }
-        const AnimClip* clip = chokeClip ? chokeClip : a.dead ? a.deathClip : a.hitClip ? a.hitClip : a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
-        Pose(m, clip, chokeClip ? std::fmod(a.chokeAnim, std::max(0.01f, chokeClip->duration)) : a.dead && clip ? std::min(a.animTime, clip->duration * 0.999f) : a.hitClip && !a.dead ? a.hitTime : a.animTime);
+        const AnimClip* arrestClip = nullptr;
+        if (a.arresting && !a.dead) { auto ac = m_clips.find("arrestgun"); if (ac != m_clips.end()) arrestClip = &ac->second; }
+        const AnimClip* clip = arrestClip ? arrestClip : chokeClip ? chokeClip : a.dead ? a.deathClip : a.hitClip ? a.hitClip : a.fleeTimer > 0.0f && m.run ? m.run : (a.walking && m.walk ? m.walk : m.idle);
+        Pose(m, clip, arrestClip ? std::min(a.arrestTime, arrestClip->duration * 0.999f) : chokeClip ? std::fmod(a.chokeAnim, std::max(0.01f, chokeClip->duration)) : a.dead && clip ? std::min(a.animTime, clip->duration * 0.999f) : a.hitClip && !a.dead ? a.hitTime : a.animTime);
         // Stand the posed feet on the ground: the animation sets the pelvis height, the bind pose does not.
         float footZ = 1e9f;
         for (const MeshVertex& v : m.skinned) footZ = std::min(footZ, v.z);

@@ -59,6 +59,8 @@ public:
     GameLogic* logic = nullptr;         // CGameLogic / CRestart: death, arrest and the restart points
     Markers3D* markers = nullptr;       // C3dMarkers / CCheckpoints: locate rings, user markers, checkpoints
     bool OnMission() const;             // the DECLARE_MISSION_FLAG variable is set
+    // A car or char blip: the entity's position now and its cone height and size (false: a coord blip, or gone).
+    bool BlipEntity(int blip, float pos[3], float& coneZ, float& coneSize);
     EntryExit* enex = nullptr;
     std::function<int()> getArea;                                // CGame::currArea
     std::function<void(int)> setArea;
@@ -162,6 +164,7 @@ private:
     // the rest (property signs, collectibles) are tracked and collected by walking into them.
     struct ScriptPickup { int slot = -1; float x = 0, y = 0, z = 0; bool removed = false, collected = false, locked = false; };
     std::vector<ScriptPickup> m_pickups;
+    std::map<int, std::pair<int, int>> m_blipEntity;   // blip -> (EntityPos kind, script handle)
     int m_missionFlag = -1;             // DECLARE_MISSION_FLAG: the global's offset
     void Highlight(float x1, float y1, float x2, float y2, float z);
     // CMenuSystem standard menus (CREATE_MENU and friends): two slots, up to 4 columns of 12 rows.

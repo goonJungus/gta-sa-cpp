@@ -97,7 +97,14 @@ private:
     void UpdateZ(Marker& m, const float point[3], float zDistance);
     void CheckpointPlace(Checkpoint& c);
 
+    struct Arrow { float pos[3], size, dir[3]; uint8_t rgba[4]; };   // tDirectionArrow
+    struct Flag { float pos[3], size; uint8_t rgba[4]; };             // CCheckpoint::Render's finish flag sprite
+    void DrawArrowsAndFlags(D3DRenderer& r);
+
     Model m_cylinder, m_hoop, m_diamond;
+    IDirect3DTexture9* m_finishFlag = nullptr;   // particle.txd finishFlag
+    std::vector<Arrow> m_arrows;                 // this frame's (C3dMarkers::DirectionArrowSet, 5 slots)
+    std::vector<Flag> m_flags;
     Marker m_m[32];
     UserMarker m_user[5];
     Checkpoint m_cp[32];

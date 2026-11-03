@@ -652,6 +652,21 @@ static Vehicles g_vehicles;
 static CarGenerators g_carGens;   // the IPL parked cars
 static Garages g_garages;         // CGarages: the IPL garages, the Pay 'n' Spray
 static bool g_garageFreeze = false;   // a garage door is coming down on the player (CPad::DisablePlayerControls)
+// Where an officer stands to open car i's driver door and pull the driver out (beside the left front door), or false
+// when CTaskComplexArrestPed would not try: a bike, boat or aircraft, a car on its side or roof, or one moving at more
+// than 0.1 units a step (5 m/s), CTaskComplexEnterCar's limit for a ped that is not the player.
+static bool DriverDoorSpot(size_t i, float out[3]) {
+    if (i >= g_vehicles.Count()) return false;
+    const VehicleInstance& car = g_vehicles.Car(i);
+    const VehicleModel* vm = g_vehicles.LoadModel(g_renderer, car.model);
+    float rt[3], fw[3], up[3], mn[3], mx[3];
+    g_vehicles.Frame(i, rt, fw, up);
+    if (!vm || vm->isBike || vm->isBoat || vm->isHeli || vm->isPlane || up[2] < 0.3f || !g_vehicles.ColBounds(i, mn, mx)) return false;
+    if (std::sqrt(car.vx * car.vx + car.vy * car.vy) > 5.0f) return false;
+    const float p[3] = {car.x, car.y, car.z};
+    for (int k = 0; k < 3; k++) out[k] = p[k] + rt[k] * (mn[0] - 0.5f) + fw[k] * 0.3f;
+    return true;
+}
 // The world as the car physics sees it (CWorld::ProcessLineOfSight / CCollision::ProcessColModels).
 static VehicleWorld CarWorld() {
     VehicleWorld w;
@@ -2650,11 +2665,28 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             static bool s_textSet = false;
             if (!s_textSet && g_hudReady) { s_textSet = true; g_logic.SetMessageText(g_hud.Text().Get("DEAD"), g_hud.Text().Get("BUSTED")); }
             const float feet = playerZ - EYE_HEIGHT;
-            // CTaskComplexArrestPed, reduced: an officer after a wanted player on foot gets within reach of him
             if (const char* k = getenv("GTA_KILL"); k && frame == atoi(k)) g_cj.Hurt(10000.0f);   // dev: wasted at this frame
             const char* bust = getenv("GTA_BUST");   // dev: busted at this frame
-            const bool arrest = (bust && frame == atoi(bust)) ||
-                                (g_wanted > 0 && g_driveCar < 0 && !g_cj.Dead() && !g_cj.Jetpacking() && g_peds.PoliceInReach(playerX, playerY, feet, 1.2f));
+            bool arrest = bust && frame == atoi(bust);
+            // CTaskComplexPolicePursuit -> CTaskComplexArrestPed at any wanted level. On foot: the officer reaches
+            // him and holds him at gunpoint (CTaskSimpleArrestPed). In a car (not a bike, boat or aircraft, upright,
+            // under 0.1 units a step = 5 m/s, CTaskComplexEnterCar's limit for a ped that is not the player): the
+            // officer comes to the driver's door, opens it (CTaskComplexCarOpenDriverDoor), then arrests.
+            static float s_doorOpen = 0.0f;   // the driver's door the officer is opening, 0..1
+            if (!arrest && g_wanted > 0 && !g_cj.Dead() && !g_cj.Jetpacking() && g_logic.Playing()) {
+                if (g_driveCar < 0) {
+                    s_doorOpen = 0.0f;
+                    if (g_peds.PoliceInReach(playerX, playerY, feet, 1.2f)) arrest = g_peds.StartArrest(playerX, playerY, feet, 1.2f) >= 0;
+                } else {
+                    float door[3];
+                    if (DriverDoorSpot((size_t)g_driveCar, door) && g_peds.PoliceInReach(door[0], door[1], door[2], 1.0f)) {
+                        VehicleInstance& car = g_vehicles.Car((size_t)g_driveCar);
+                        s_doorOpen = std::min(1.0f, s_doorOpen + dt * 2.0f);
+                        car.doorRatio[0] = std::max(car.doorRatio[0], s_doorOpen);
+                        if (s_doorOpen >= 1.0f) arrest = g_peds.StartArrest(door[0], door[1], door[2], 1.0f) >= 0;
+                    } else s_doorOpen = 0.0f;
+                }
+            }
             g_logic.Update(dt, g_cj.Dead(), arrest, playerX, playerY, feet + 1.0f);
             g_logic.UpdateHunger(((int)(g_gameSeconds / 3600.0f)) % 24, false);
             static bool s_vendInit = false;
@@ -3951,7 +3983,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                           [](float x, float y, float ox, float oy, float z) {
                               if (g_vehicles.Nearest(x, y, 2.4f) >= 0) return true;   // keep clear of cars
                               return g_world.HitsSolidCircle(x, y, z, ox, oy, 0.4f, 0.3f, 1.8f); },
-                          [&] { Peds::Player pl; pl.x = playerX; pl.y = playerY; pl.threat = cjReady && g_cj.GunIndex() >= 0 && g_cj.Aiming(); return pl; }());
+                          [&] {
+                              Peds::Player pl; pl.x = playerX; pl.y = playerY; pl.threat = cjReady && g_cj.GunIndex() >= 0 && g_cj.Aiming();
+                              float door[3];   // in a car the officers make for the driver's door
+                              if (g_driveCar >= 0 && g_wanted > 0 && DriverDoorSpot((size_t)g_driveCar, door)) { pl.x = door[0]; pl.y = door[1]; pl.door = true; }
+                              return pl; }());
             g_speech.Tick(dt);
             if (cjReady) {
                 // CStats::UpdateFatAndMuscleStats @ 0055c470 with ar_stats.dat: exercise counts time at its rate;
@@ -5125,12 +5161,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             g_world.RenderTrafficLights(g_renderer, camPosX, camPosY, camPosZ, tlMs, lampI);
             g_fx.Render(g_renderer);
             {   // CRadar::Draw3dMarkers (contact points off mission, outdoors), then C3dMarkers::Render
-                if (g_world.Area() == 0 && !(scmRun && g_sg.OnMission()))
-                    for (const RadarBlip& b : g_blips) {
-                        if (!b.contact || (b.display != 1 && b.display != 3)) continue;
+                const bool outdoors = g_world.Area() == 0;
+                for (RadarBlip& b : g_blips) {
+                    if (b.display != 1 && b.display != 3) continue;   // the 3D marker is shown
+                    float pos[3], coneZ, size;
+                    if (scmRun && g_sg.BlipEntity(b.handle, pos, coneZ, size)) {   // a car or ped: a cone over it
+                        b.x = pos[0]; b.y = pos[1]; b.z = pos[2];
+                        const float at[3] = {pos[0], pos[1], coneZ};
+                        g_markers.PlaceMarkerCone(0xB1000000u | (uint32_t)b.handle, at, size, (uint8_t)(b.colour >> 16), (uint8_t)(b.colour >> 8), (uint8_t)b.colour, 0x400, 0.2f, 5, true);
+                    } else if (b.contact && outdoors && !(scmRun && g_sg.OnMission())) {
                         const float at[3] = {b.x, b.y, b.z};
                         g_markers.PlaceMarkerSet(0xB0000000u | (uint32_t)b.handle, Markers3D::CYLINDER, at, 2.0f, 255, 0, 0, 228, 0x800, 0.2f);
                     }
+                }
                 const float camPos3[3] = {camPosX, camPosY, camPosZ};
                 g_markers.Render(g_renderer, camPos3);
             }

@@ -78,8 +78,26 @@ public:
                 return true;
         return false;
     }
+    // CTaskSimpleArrestPed::StartAnim: the nearest officer after the player within r of (x, y, z) arrests him -
+    // stops, turns to him with ARRESTgun and says CTX_GLOBAL_ARREST. Returns the officer, or -1.
+    int StartArrest(float x, float y, float z, float r) {
+        int best = -1;
+        float bd = r * r;
+        for (size_t i = 0; i < m_actors.size(); i++) {
+            const Actor& a = m_actors[i];
+            if (!a.police || !a.aggro || a.dead || a.flying || a.hitClip || a.hidden || a.seated || std::fabs(a.z - z) > 2.0f) continue;
+            const float d = (a.x - x) * (a.x - x) + (a.y - y) * (a.y - y);
+            if (d < bd) { bd = d; best = (int)i; }
+        }
+        if (best < 0) return -1;
+        Actor& a = m_actors[(size_t)best];
+        a.arresting = true; a.arrestTime = 0.0f; a.arrestX = x; a.arrestY = y;
+        a.walking = false;
+        m_speech.push_back({best, 13});   // CTX_GLOBAL_ARREST
+        return best;
+    }
     // CWanted::Reset after a resurrection: the officers stop coming for the player.
-    void CalmPolice() { for (Actor& a : m_actors) if (a.police) a.aggro = false; }
+    void CalmPolice() { for (Actor& a : m_actors) if (a.police) { a.aggro = false; a.arresting = false; } }
     bool Seated(size_t i) const { return i < m_actors.size() && m_actors[i].seated; }
     void SetHidden(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].hidden = on; }
     bool Hidden(size_t i) const { return i < m_actors.size() && m_actors[i].hidden; }
@@ -100,7 +118,7 @@ public:
     // Advance animation and wandering. groundAt gives the ground height or a value below -1e5.
     // `player` is where CJ stands; `threat` is true while CJ aims or fires a weapon, which makes
     // nearby pedestrians run away. `blocked` covers walls and cars.
-    struct Player { float x = 0, y = 0; bool threat = false; };
+    struct Player { float x = 0, y = 0; bool threat = false; bool door = false; };   // door: (x, y) is a car door to reach, no striking
     void Update(float dt, const std::function<float(float, float, float)>& groundAt,
                 const std::function<bool(float, float, float, float, float)>& blocked, const Player& player);
     void Draw(D3DRenderer& r);
@@ -205,6 +223,8 @@ private:
         bool hidden = false;              // inside a car
         bool aggro = false;               // out for the player: runs at him and hits
         bool police = false;              // CCopPed
+        bool arresting = false;           // CTaskSimpleArrestPed: holding the player at gunpoint
+        float arrestTime = 0.0f, arrestX = 0.0f, arrestY = 0.0f;
         float attackTimer = 0.0f;
         bool seated = false;              // at the wheel: drawn in the seat pose, not wandering
         float seatBody[16] = {};          // the vehicle's matrix and the seat's place in the world

@@ -421,7 +421,9 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x0873: return true;                                                // REMOVE_CAR_RECORDING
     case 0x0186: {   // ADD_BLIP_FOR_CAR(car) -> blip
         VehicleInstance* v = carAlive(c.I(0));
-        c.Out(1, v && scm && scm->host.addBlip ? scm->host.addBlip(v->x, v->y, v->z, 0, false, false) : 0);
+        const int b = v && scm && scm->host.addBlip ? scm->host.addBlip(v->x, v->y, v->z, 0, false, false) : 0;
+        if (b) m_blipEntity[b] = {1, c.I(0)};
+        c.Out(1, b);
         return true;
     }
     // ---- mission trains -------------------------------------------------------------
@@ -507,6 +509,26 @@ void ScriptGame::Highlight(float x1, float y1, float x2, float y2, float z) {
     uint32_t id = 0x5C000000u;
     for (float v : {x1, y1, x2, y2}) { uint32_t b; std::memcpy(&b, &v, 4); id = (id ^ b) * 16777619u; }
     markers->HighlightArea(id | 0x80000000u, x1, y1, x2, y2, z);
+}
+
+// CRadar::Draw3dMarkers for an entity blip: where the thing is now and its cone, a car's 2 m one 1.2 times its height
+// plus 2 m up (0.6 for the Skimmer-sized model 553), a ped's 1.2 m one 2.7 m over its root.
+bool ScriptGame::BlipEntity(int blip, float pos[3], float& coneZ, float& coneSize) {
+    const auto it = m_blipEntity.find(blip);
+    if (it == m_blipEntity.end()) return false;
+    const int kind = it->second.first, h = it->second.second;
+    bool inCar = false;
+    if (!EntityPos(kind, h, pos[0], pos[1], pos[2], inCar)) { m_blipEntity.erase(it); return false; }
+    if (kind == 1) {
+        float mn[3], mx[3];
+        const float top = cars->ColBounds((size_t)h - 1, mn, mx) ? mx[2] : 1.0f;
+        coneZ = pos[2] + top * (cars->Car((size_t)h - 1).model == 553 ? 0.6f : 1.2f) + 2.0f;
+        coneSize = 2.0f;
+    } else {
+        coneZ = pos[2] + 1.0f + 2.7f;   // the ped's root is about a metre over its feet
+        coneSize = 1.2f;
+    }
+    return true;
 }
 
 bool ScriptGame::OnMission() const {   // CTheScripts::IsPlayerOnAMission
@@ -1133,7 +1155,9 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x070C: if (cars && carAlive(c.I(0))) cars->Damage(c.I(0) - 1, 1e6f); return true;   // EXPLODE_CAR_IN_CUTSCENE
     case 0x0187: {   // ADD_BLIP_FOR_CHAR(char) -> blip
         float x, y, z;
-        c.Out(1, CharPos(c.I(0), x, y, z) && scm && scm->host.addBlip ? scm->host.addBlip(x, y, z, 0, false, false) : 0);
+        const int b = CharPos(c.I(0), x, y, z) && scm && scm->host.addBlip ? scm->host.addBlip(x, y, z, 0, false, false) : 0;
+        if (b) m_blipEntity[b] = {0, c.I(0)};
+        c.Out(1, b);
         return true;
     }
     case 0x01B2: if (c.I(0) == kPlayer && giveWeapon) giveWeapon(c.I(1), c.I(2)); return true;   // GIVE_WEAPON_TO_CHAR(char, weapon, ammo)

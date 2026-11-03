@@ -61,6 +61,9 @@ bool Markers3D::Load(D3DRenderer& r, const std::string& gameDir) {
     std::ifstream f(gameDir + "\\models\\particle.txd", std::ios::binary);
     const std::vector<uint8_t> td((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     if (!td.empty()) txd = TxdLoader::LoadFromMemory(td.data(), td.size());
+    for (const TxdTexture& t : txd)   // CSpecialFX::Init
+        if (TxdLoader::KeyOf(t.name) == TxdLoader::KeyOf("finishFlag"))
+            m_finishFlag = r.CreateTexture(t.width, t.height, t.d3dFormat, t.mip0.data(), (uint32_t)t.mip0.size(), &t.extraMips);
     // C3dMarkers::Init: cylinder for the cylinder and tube, hoop for the torus, diamond_3 for the rest
     const bool ok = LoadModel(r, gta3, "cylinder", txd, m_cylinder) & LoadModel(r, gta3, "hoop", txd, m_hoop) &
                     LoadModel(r, gta3, "diamond_3", txd, m_diamond);
@@ -75,6 +78,8 @@ void Markers3D::Shutdown(D3DRenderer& r) {
         for (IDirect3DTexture9* t : m->textures) if (t) r.DestroyTexture(t);
         *m = Model();
     }
+    if (m_finishFlag) r.DestroyTexture(m_finishFlag);
+    m_finishFlag = nullptr;
     m_loaded = false;
 }
 
@@ -166,11 +171,11 @@ void Markers3D::PlaceMarker(uint32_t id, int type, const float posIn[3], float s
         else if (dist <= 5.0f) m->stdSize = s - s * 0.3f;
         else m->stdSize = s - (25.0f - dist) * s * 0.015f;
     };
-    auto fadeAlpha = [&](float s) {   // full beyond 12 m outside the marker, half inside it
+    auto fadeAlpha = [&](float s) {   // full beyond 12 m outside the marker, 65% within a metre of it (gta_sa.exe 007256cd)
         if (type == ARROW2) return;
         if (dist >= s + 12.0f) m->col[3] = a;
-        else if (dist <= s + 1.0f) m->col[3] = ToByte(a * 0.5f);
-        else m->col[3] = ToByte(a * (0.5f + 0.5f * (dist - s - 1.0f) / 11.0f));
+        else if (dist <= s + 1.0f) m->col[3] = ToByte(a * 0.65f);
+        else m->col[3] = ToByte(a * (1.0f - (s + 12.0f - dist) * 0.031818185f));
     };
 
     if (m->id != id || m->type != type) {   // C3dMarker::AddMarker
@@ -331,7 +336,12 @@ void Markers3D::CheckpointPlace(Checkpoint& c) {
         bool zCheck = true;   // on water the column stands on the surface
         float wz;
         if (hooks.water && hooks.water(c.pos[0], c.pos[1], &wz) && c.pos[2] <= wz) { c.pos[2] = wz; zCheck = false; }
+        if (c.type == CP_ENDTUBE) {   // the chequered flag three metres up, the checkpoint's size across
+            m_flags.push_back({{c.pos[0], c.pos[1], c.pos[2] + 3.0f}, c.size, {c.col[0], c.col[1], c.col[2], c.col[3]}});
+        }
         PlaceMarker(c.id, TUBE, c.pos, c.size * 1.5f, c.col[0], c.col[1], c.col[2], 0x80, c.pulsePeriod, c.pulseFraction, 1, zero, zCheck);
+        if (c.type == CP_TUBE && m_arrows.size() < 5)   // C3dMarkers::DirectionArrowSet: toward the next checkpoint
+            m_arrows.push_back({{c.pos[0], c.pos[1], c.pos[2] + 3.0f}, c.size * 0.625f, {-c.fwd[0], -c.fwd[1], -c.fwd[2]}, {255, 64, 64, 255}});
         break;
     }
     case CP_TORUS: {   // fades out by vanishing once the player is within twice its size
@@ -398,6 +408,55 @@ void Markers3D::Render(D3DRenderer& r, const float cam[3]) {
         const uint32_t argb = (uint32_t)alpha << 24 | (uint32_t)m.col[0] << 16 | (uint32_t)m.col[1] << 8 | m.col[2];
         draw(*ModelOf(m.type), w, argb, m.type == CYLINDER || m.type == ARROW2);
     }
+    DrawArrowsAndFlags(r);
     const D3DMATRIX ident = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     dev->SetTransform(D3DTS_WORLD, &ident);
+}
+
+// C3dMarkers::DirectionArrowsDraw: the diamond turned to the arrow's direction, once black at its size and once in
+// its colour at 0.8 of it (a dark rim), both faces, opaque. Then the finish flags: camera-facing sprites.
+void Markers3D::DrawArrowsAndFlags(D3DRenderer& r) {
+    IDirect3DDevice9* dev = r.GetDevice();
+    for (const Arrow& a : m_arrows) {
+        float f[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+        const float* n = a.dir;
+        if (n[0] != 0.0f || n[1] != 0.0f || n[2] != 1.0f) {
+            float right[3] = {-n[1], n[0], 0.0f};   // (0,0,1) x normal
+            Normalise(right);
+            float fwd[3] = {n[1] * right[2] - n[2] * right[1], n[2] * right[0] - n[0] * right[2], n[0] * right[1] - n[1] * right[0]};
+            Normalise(fwd);
+            for (int j = 0; j < 3; j++) { f[0][j] = right[j]; f[1][j] = fwd[j]; f[2][j] = n[j]; }
+        }
+        for (int pass = 0; pass < 2; pass++) {
+            const float sc = a.size * (pass ? 0.8f : 1.0f);
+            D3DMATRIX out = {};
+            float* o = &out._11;
+            for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) o[i * 4 + j] = f[i][j] * sc;
+            out._41 = a.pos[0]; out._42 = a.pos[1]; out._43 = a.pos[2]; out._44 = 1.0f;
+            dev->SetTransform(D3DTS_WORLD, &out);
+            const uint32_t argb = pass ? (0xFF000000u | (uint32_t)a.rgba[0] << 16 | (uint32_t)a.rgba[1] << 8 | a.rgba[2]) : 0xFF000000u;
+            for (D3DRenderMesh* me : m_diamond.meshes) r.DrawMeshTinted(me, argb, true);
+        }
+    }
+    m_arrows.clear();
+    if (!m_flags.empty() && m_finishFlag) {
+        const D3DMATRIX ident = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        dev->SetTransform(D3DTS_WORLD, &ident);
+        const D3DMATRIX& v = r.GetViewMatrix();
+        const float right[3] = {v._11, v._21, v._31}, up[3] = {v._12, v._22, v._32};
+        std::vector<D3DRenderer::ColorTexVertex> verts;
+        std::vector<uint16_t> idx;
+        for (const Flag& fl : m_flags) {
+            const float h = fl.size * 0.5f;   // RenderOneXLUSprite's half size: the checkpoint's size across
+            const uint32_t col = (uint32_t)fl.rgba[3] << 24 | (uint32_t)fl.rgba[0] << 16 | (uint32_t)fl.rgba[1] << 8 | fl.rgba[2];
+            const uint16_t b = (uint16_t)verts.size();
+            const float sx[4] = {-1, 1, 1, -1}, sy[4] = {1, 1, -1, -1}, tu[4] = {0, 1, 1, 0}, tv[4] = {0, 0, 1, 1};
+            for (int k = 0; k < 4; k++)
+                verts.push_back({fl.pos[0] + (right[0] * sx[k] + up[0] * sy[k]) * h, fl.pos[1] + (right[1] * sx[k] + up[1] * sy[k]) * h,
+                                 fl.pos[2] + (right[2] * sx[k] + up[2] * sy[k]) * h, col, tu[k], tv[k]});
+            for (uint16_t k : {0, 1, 2, 0, 2, 3}) idx.push_back((uint16_t)(b + k));
+        }
+        r.DrawBlendedTriangles(verts.data(), (uint32_t)verts.size(), idx.data(), (uint32_t)idx.size(), m_finishFlag);
+    }
+    m_flags.clear();
 }
