@@ -34,3 +34,6 @@ CMakeCache.txt
 # Local-only notes
 DIRECTIVE.md
 __pycache__/
+
+# local test checklist, not published
+WINDOWS_TEST.md
