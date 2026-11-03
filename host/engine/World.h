@@ -166,6 +166,11 @@ public:
     const std::vector<IplGarage>& GarageDefs() const { return m_garageDefs; }
     std::vector<size_t> GarageDoorInsts() const;
     void InstPosition(size_t i, float out[3]) const;
+    // The detailed placements (not LODs) of these models (lower-case names), e.g. the vending machines.
+    std::vector<size_t> InstsOfModels(const std::vector<std::string>& names) const;
+    // A placement's matrix: position, right (+X), forward (+Y) and up (+Z) axes, and its area code.
+    void InstFrame(size_t i, float pos[3], float right[3], float fwd[3], float up[3], int& area) const;
+    bool InstHidden(size_t i) const { return m_insts[i].hidden; }
     float InstColHeight(size_t i);   // the height of its collision boxes (built if not yet)
     void SetInstZ(size_t i, float z);
 

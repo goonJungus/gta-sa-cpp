@@ -14,6 +14,7 @@
 #include <sstream>
 
 #include "D3DRenderer.h"
+#include "Markers3D.h"
 
 bool EntryExitDoor::IsIn(float x, float y, float z) const {
     // CEntryExit::IsInArea: rotate the point into the rect's frame when the rect is angled.
@@ -189,32 +190,16 @@ bool EntryExit::Update(float dt, float px, float py, float pz, bool inCar, int h
     return false;
 }
 
-void EntryExit::DrawMarkers(D3DRenderer& r, const float cam[3], uint32_t nowMs, int hour) {
+void EntryExit::PlaceMarkers(Markers3D& markers, const float cam[3], int hour) {
     if (m_state != 0 || m_disabled) return;
-    std::vector<DebugLineVertex> lines;
-    std::vector<D3DRenderer::GlowSprite> glow;
-    const float spin = (float)(nowMs & 0x7ff) * 0.0030566407f;
-    for (const EntryExitDoor& d : m_d) {
+    // CEntryExitManager::Update: a yellow cone a metre over each open door of this area within 40 m
+    for (size_t i = 0; i < m_d.size(); i++) {
+        const EntryExitDoor& d = m_d[i];
         if (!d.enabled || !InTime(d, hour)) continue;
         if (d.link >= 0 ? d.area != m_curArea : d.area == m_curArea) continue;
         const float dx = d.cx - cam[0], dy = d.cy - cam[1];
-        if (dx * dx + dy * dy > 40.0f * 40.0f) continue;
-        const float bob = 0.15f * std::sin(spin * 2.0f);
-        const float z0 = d.cz + 1.0f + bob;          // cone point, base above (the arrow points down)
-        const uint32_t col = 0xFFFFFF00;
-        const int N = 8;
-        float px[N], py[N];
-        for (int k = 0; k < N; k++) {
-            const float a = spin + k * 6.2831853f / N;
-            px[k] = d.cx + std::cos(a) * 0.5f; py[k] = d.cy + std::sin(a) * 0.5f;
-        }
-        for (int k = 0; k < N; k++) {
-            const int n = (k + 1) % N;
-            lines.push_back({px[k], py[k], z0 + 1.4f, col}); lines.push_back({px[n], py[n], z0 + 1.4f, col});
-            lines.push_back({px[k], py[k], z0 + 1.4f, col}); lines.push_back({d.cx, d.cy, z0, col});
-        }
-        glow.push_back({d.cx, d.cy, z0 + 0.7f, 1.2f, 0x60FFFF00});
+        if (dx * dx + dy * dy >= 40.0f * 40.0f) continue;
+        const float at[3] = {d.cx, d.cy, d.cz + 1.0f};
+        markers.PlaceMarkerCone(0xE0000000u | (uint32_t)i, at, 2.0f, 255, 255, 0, 0x400, 1.0f, 5, false);
     }
-    if (!lines.empty()) r.DrawDebugLines(lines.data(), (uint32_t)lines.size());
-    if (!glow.empty()) r.DrawCoronas(glow.data(), (int)glow.size());
 }

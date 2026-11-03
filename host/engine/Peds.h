@@ -69,6 +69,17 @@ public:
     // Dropped from a helicopter rope: at (x, y, z) in the air, falling.
     void Drop(size_t i, float x, float y, float z) { if (i < m_actors.size()) { Actor& a = m_actors[i]; a.x = x; a.y = y; a.z = z; a.vx = a.vy = 0.0f; a.vz = -3.0f; a.flying = true; a.slides = false; a.goal = false; } }
     bool Aggressive(size_t i) const { return i < m_actors.size() && m_actors[i].aggro; }
+    // CCopPed: an officer out of a police car or off the SWAT rope.
+    void SetPolice(size_t i) { if (i < m_actors.size()) m_actors[i].police = true; }
+    // An officer after the player, alive and on his feet, within r metres of (x, y, z): close enough to arrest.
+    bool PoliceInReach(float x, float y, float z, float r) const {
+        for (const Actor& a : m_actors)
+            if (a.police && a.aggro && !a.dead && !a.flying && !a.hitClip && std::fabs(a.z - z) < 2.0f && (a.x - x) * (a.x - x) + (a.y - y) * (a.y - y) < r * r)
+                return true;
+        return false;
+    }
+    // CWanted::Reset after a resurrection: the officers stop coming for the player.
+    void CalmPolice() { for (Actor& a : m_actors) if (a.police) a.aggro = false; }
     bool Seated(size_t i) const { return i < m_actors.size() && m_actors[i].seated; }
     void SetHidden(size_t i, bool on) { if (i < m_actors.size()) m_actors[i].hidden = on; }
     bool Hidden(size_t i) const { return i < m_actors.size() && m_actors[i].hidden; }
@@ -193,6 +204,7 @@ private:
         int gspeed = 0;                   // 0 walk, 1 run
         bool hidden = false;              // inside a car
         bool aggro = false;               // out for the player: runs at him and hits
+        bool police = false;              // CCopPed
         float attackTimer = 0.0f;
         bool seated = false;              // at the wheel: drawn in the seat pose, not wandering
         float seatBody[16] = {};          // the vehicle's matrix and the seat's place in the world

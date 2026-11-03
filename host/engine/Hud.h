@@ -49,6 +49,7 @@ struct RadarBlip {
     float x = 0, y = 0, z = 0;
     int sprite = 0;               // CRadar::RadarBlipFileNames index (0 = a plain coloured marker)
     bool shortRange = false;
+    bool contact = false;         // BLIP_CONTACT_POINT: a red ground ring off mission (CRadar::Draw3dMarkers)
     int display = 2;              // CHANGE_BLIP_DISPLAY: 0 none, 1 marker only, 2 blip only, 3 both
     uint32_t colour = 0xFFE10000;
 };
@@ -133,6 +134,8 @@ struct ScriptOverlay {
     std::string subtitle;              // PRINT_NOW / cutscene text
     std::vector<ScriptTextItem> text;
     std::vector<ScriptSprite> sprites;
+    std::string bustedWasted;          // CHud::m_BigMessage[2]: WASTED / BUSTED, drawn after the fade
+    float bustedWastedAlpha = 0.0f;    // 0..1
 };
 
 class Hud {

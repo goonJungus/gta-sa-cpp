@@ -25,6 +25,8 @@ class Pickups;
 class EntryExit;
 class Vehicles;
 class CarGenerators;
+class GameLogic;
+class Markers3D;
 
 // The camera the script placed (CCamera in fixed mode). main applies it over the player camera.
 struct ScriptCamera {
@@ -54,6 +56,9 @@ public:
     D3DRenderer* r = nullptr;
     Hud* hud = nullptr;
     Pickups* pickups = nullptr;
+    GameLogic* logic = nullptr;         // CGameLogic / CRestart: death, arrest and the restart points
+    Markers3D* markers = nullptr;       // C3dMarkers / CCheckpoints: locate rings, user markers, checkpoints
+    bool OnMission() const;             // the DECLARE_MISSION_FLAG variable is set
     EntryExit* enex = nullptr;
     std::function<int()> getArea;                                // CGame::currArea
     std::function<void(int)> setArea;
@@ -84,6 +89,7 @@ public:
 
     ScriptCamera cam;
     float fade = 0.0f;                 // 0 clear .. 1 solid (script fade layer)
+    void HoldFadeBlack() { fade = 1.0f; m_fading = false; }   // a restart with no fade in: the script fades in
     bool playerControl = true;
     struct PlayerGoal { bool on = false; float x = 0, y = 0; int mode = 3; } playerGoal;   // TASK_GO_STRAIGHT_TO_COORD on the player; main walks CJ there
     bool hudOn = true, radarOn = true; // DISPLAY_HUD / DISPLAY_RADAR
@@ -156,7 +162,8 @@ private:
     // the rest (property signs, collectibles) are tracked and collected by walking into them.
     struct ScriptPickup { int slot = -1; float x = 0, y = 0, z = 0; bool removed = false, collected = false, locked = false; };
     std::vector<ScriptPickup> m_pickups;
-    int m_markers = 0;
+    int m_missionFlag = -1;             // DECLARE_MISSION_FLAG: the global's offset
+    void Highlight(float x1, float y1, float x2, float y2, float z);
     // CMenuSystem standard menus (CREATE_MENU and friends): two slots, up to 4 columns of 12 rows.
     struct Menu {
         bool used = false, interactive = false, background = false;

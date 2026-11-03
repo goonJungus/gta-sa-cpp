@@ -434,6 +434,9 @@ public:
     int plateDesign = 2;
     // CVehicle::CustomCarPlate_TextureCreate with a plate text: this car shows that plate (up to 8 characters).
     void SetCustomPlate(D3DRenderer& r, size_t i, const std::string& text);
+    // CUSTOM_PLATE_FOR_NEXT_CAR (CVehicleModelInfo::SetCustomCarPlateText): the next car of this model spawned
+    // shows this plate, then the model goes back to its random one.
+    void SetNextCarPlate(int model, const std::string& text) { if (text.empty()) m_nextPlate.erase(model); else m_nextPlate[model] = text; }
     void Clear() { m_cars.clear(); }
     size_t Count() const { return m_cars.size(); }
     VehicleInstance& Car(size_t i) { return m_cars[i]; }
@@ -720,6 +723,7 @@ private:
     std::vector<uint8_t> m_sharedTxd;
     std::vector<uint8_t> m_plateCharset;   // vehicle.txd "platecharset": 32 x 256 X8R8G8B8, 4 x 16 characters of 8 x 16
     std::unordered_map<std::string, IDirect3DTexture9*> m_customPlates;
+    std::unordered_map<int, std::string> m_nextPlate;   // model -> CUSTOM_PLATE_FOR_NEXT_CAR text
     IDirect3DTexture9* CreatePlateTexture(D3DRenderer& r, const char* text);
     std::vector<std::array<uint8_t, 3>> m_colours;                  // carcols.dat colour table
     std::unordered_map<std::string, std::string> m_upgradeLinks;    // carmods.dat link pairs (a left wing and its right twin)

@@ -427,6 +427,47 @@ void D3DRenderer::DrawMesh(D3DRenderMesh* mesh) {
     m_device->SetTexture(0, nullptr);
 }
 
+void D3DRenderer::DrawMeshTinted(D3DRenderMesh* mesh, uint32_t argb, bool cullNone) {
+    if (!m_device || !mesh || !mesh->vb || !mesh->ib)
+        return;
+    SetLightState(false);
+    m_device->SetFVF(MESH_FVF);
+    m_device->SetStreamSource(0, mesh->vb, 0, sizeof(MeshVertex));
+    m_device->SetIndices(mesh->ib);
+    DWORD cop, ca1, ca2, aop, aa1, aa2;
+    m_device->GetTextureStageState(0, D3DTSS_COLOROP, &cop);
+    m_device->GetTextureStageState(0, D3DTSS_COLORARG1, &ca1);
+    m_device->GetTextureStageState(0, D3DTSS_COLORARG2, &ca2);
+    m_device->GetTextureStageState(0, D3DTSS_ALPHAOP, &aop);
+    m_device->GetTextureStageState(0, D3DTSS_ALPHAARG1, &aa1);
+    m_device->GetTextureStageState(0, D3DTSS_ALPHAARG2, &aa2);
+    m_device->SetRenderState(D3DRS_TEXTUREFACTOR, argb);
+    const DWORD op = mesh->texture ? D3DTOP_MODULATE : D3DTOP_SELECTARG2;
+    m_device->SetTextureStageState(0, D3DTSS_COLOROP, op);
+    m_device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    m_device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAOP, op);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+    m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    m_device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    m_device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    m_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    m_device->SetRenderState(D3DRS_CULLMODE, cullNone ? D3DCULL_NONE : D3DCULL_CW);
+    m_device->SetTexture(0, mesh->texture);
+    m_device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, mesh->vertexCount, 0, mesh->indexCount / 3);
+    m_device->SetTexture(0, nullptr);
+    m_device->SetRenderState(D3DRS_CULLMODE, D3DCULL_CW);
+    m_device->SetRenderState(D3DRS_ALPHABLENDENABLE, m_alphaBlend ? TRUE : FALSE);
+    m_device->SetRenderState(D3DRS_ZWRITEENABLE, m_alphaBlend ? FALSE : TRUE);
+    m_device->SetTextureStageState(0, D3DTSS_COLOROP, cop);
+    m_device->SetTextureStageState(0, D3DTSS_COLORARG1, ca1);
+    m_device->SetTextureStageState(0, D3DTSS_COLORARG2, ca2);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAOP, aop);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAARG1, aa1);
+    m_device->SetTextureStageState(0, D3DTSS_ALPHAARG2, aa2);
+}
+
 void D3DRenderer::DrawDebugLines(const DebugLineVertex* verts, uint32_t vertexCount) {
     if (!m_device || !verts || vertexCount < 2)
         return;

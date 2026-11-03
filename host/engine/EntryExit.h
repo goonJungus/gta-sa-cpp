@@ -10,6 +10,7 @@
 #include <vector>
 
 class D3DRenderer;
+class Markers3D;
 
 struct EntryExitDoor {
     char name[8] = {};
@@ -52,7 +53,7 @@ public:
     float Fade() const { return m_fade; }
     bool Busy() const { return m_state != 0; }
 
-    void DrawMarkers(D3DRenderer& r, const float cam[3], uint32_t nowMs, int hour);
+    void PlaceMarkers(Markers3D& markers, const float cam[3], int hour);   // before Markers3D::Render
 
     int  Trigger(int idx, bool inCar);       // start the transition through door idx (dev/test, script)
 

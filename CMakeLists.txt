@@ -48,6 +48,11 @@ if(WIN32)
     add_executable(gta_standalone WIN32
         host/engine/main.cpp
         host/engine/Speech.cpp
+        host/engine/GameLogic.cpp
+        host/engine/Vending.cpp
+        host/engine/IdleCam.cpp
+        host/engine/PlayerVending.cpp
+        host/engine/Markers3D.cpp
         host/engine/Delirium.cpp
         host/engine/World.cpp
         host/engine/DynObjects.cpp

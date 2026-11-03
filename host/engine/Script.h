@@ -65,9 +65,10 @@ struct ScmHost {
     std::function<void(int, int)> setTime;       // hour, minute
     std::function<void(int&, int&)> getTime;     // hour, minute
     std::function<int()> getMoney;               // the player's cash (the script's score)
+    std::function<bool()> playerPlaying;         // IS_PLAYER_PLAYING: not wasted or busted
     std::function<void(int)> addMoney;
     // radar blips: add (x, y, z, sprite, short range) -> handle; remove; display mode
-    std::function<int(float, float, float, int, bool)> addBlip;
+    std::function<int(float, float, float, int, bool, bool)> addBlip;   // x, y, z, sprite, short range, contact point
     std::function<void(int)> removeBlip;
     std::function<void(int, int)> blipDisplay;
     // clothes: give (texture, model, texture part) and rebuild; wearing (texture part, texture); store / restore the state

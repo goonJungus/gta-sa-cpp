@@ -244,6 +244,7 @@ bool PlayerPed::Init(D3DRenderer& r, const std::string& gameDir) {
             IfpLoader::LoadFromMemory(anims.Extract("swim.ifp"), m_clips, true);   // CTaskSimpleSwim
             for (const char* g : {"fight_b", "fight_c", "fight_d", "fight_e", "baseball", "knife", "sword", "dildo", "flowers", "chainsaw", "grenade", "rocket", "flame", "spraycan", "goggles", "camera"})   // melee groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
+            IfpLoader::LoadFromMemory(anims.Extract("vending.ifp"), m_clips, true);   // vending_machine.scm
             for (const char* g : {"bmx", "bikes"})   // CBmx / CBike rider groups
                 IfpLoader::LoadFromMemory(anims.Extract(std::string(g) + ".ifp"), m_clips, true);
             for (const char* g : {"fat", "muscular"})   // CClothes::GetPlayerMotionGroupToLoad
@@ -1436,6 +1437,41 @@ void PlayerPed::Update(const Input& inRaw) {
     m_stickX = in.stickX;
     m_stickY = in.stickY;
 
+    // CTaskComplexDie on foot: drop with the KO clip (DROWN in the water, CEventDamage::ComputeDeathAnim's
+    // KO_shot_front otherwise), hold its last frame and take no input until the game logic resurrects him.
+    if (Dead() && !m_seated && m_vehTrans == VehTrans::None) {
+        if (!m_deathAnim) {
+            m_deathAnim = true;
+            m_vend = Vend();   // the can drops with him
+            m_aiming = m_ducking = m_climbing = false;
+            m_fight.active = false;
+            m_jet.on = false;
+            m_sky = 0;
+            const AnimClip* c = m_swimming ? Clip("drown") : nullptr;
+            if (!c) c = Clip("ko_shot_front");
+            if (!c) c = Clip("ko_skid_front");
+            if (c) Blend(c, false, false, 4.0f);
+            m_busy = false;
+            m_ratio = 0.0f;
+        }
+        Advance(dt);
+        m_velX = m_velY = 0.0f;
+        m_rootDX = m_rootDY = 0.0f;
+        BuildPose(); BuildGlobals(m_pose); ShoulderBoneRotation();
+        if (in.rewrite) ApplyRewritePose();
+        Skin();
+        return;
+    }
+    if (m_vend.stage != 0) {   // at a vending machine: the sequence owns CJ
+        UpdateVending(in);
+        Advance(dt);
+        m_rootDX = m_rootDY = 0.0f;
+        BuildPose(); BuildGlobals(m_pose); ShoulderBoneRotation();
+        if (in.rewrite) ApplyRewritePose();
+        Skin();
+        return;
+    }
+
     if (m_vehTrans != VehTrans::None) {   // CTaskComplexEnterCar / LeaveCar: open-door / get-in / get-out
         UpdateVehTransition(in);
         Advance(dt);
@@ -1657,6 +1693,11 @@ void PlayerPed::Draw(D3DRenderer& r, float x, float y, float feetZ, bool hideHea
         }
     }
     if (m_jet.on) DrawJetpack(r, w);
+    if (m_vend.can) {
+        const float a2 = m_heading - kPi * 0.5f, c2 = std::cos(a2), s2 = std::sin(a2);
+        const float wv[4][4] = {{c2, s2, 0, 0}, {-s2, c2, 0, 0}, {0, 0, 1, 0}, {x, y, feetZ - m_bindMinZ, 1}};
+        DrawVendingCan(r, wv);
+    }
     if (!m_hideGun && m_vehTrans == VehTrans::None && (!m_seated || m_dbClip)) DrawGun(r, x, y, feetZ);
 }
 
@@ -2069,4 +2110,27 @@ void PlayerPed::ControlStance(const Input& in) {
     }
     if (m_aiming) UpdateGun(in);
     else m_attackCounter = 0.0f;   // CTaskSimpleUseGun::MakeAbortable
+}
+
+void PlayerPed::Resurrect() {
+    m_health = m_maxHealth;
+    m_armor = 0.0f;
+    m_damageFlash = 0.0f;
+    m_breath = m_breathMax;
+    m_deathAnim = false;
+    m_vend = Vend();
+    m_seated = false;   // out of any car at once (RestorePlayerStuffDuringResurrection: m_pVehicle = null)
+    m_vehTrans = VehTrans::None;
+    m_swimming = false;
+    m_vehicleDrowning = false;
+    m_aiming = m_ducking = m_climbing = false;
+    m_fight.active = false;
+    m_jet.on = false;
+    m_sky = 0;
+    m_busy = m_busyFall = m_busySoft = false;
+    m_busyClip = m_busyNext = nullptr;
+    m_velX = m_velY = 0.0f;
+    m_ratio = 0.0f;
+    m_assocs.clear();   // CPed::RestartNonPartialAnims: start over from the move set's idle
+    if (const AnimClip* idle = Clip(kSets[m_moveSet].idle)) Add(idle, true, false);
 }

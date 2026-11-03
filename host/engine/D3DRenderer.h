@@ -156,6 +156,9 @@ public:
                               bool prelit = false,
                               const uint32_t* nightColors = nullptr);
     void DrawMesh(D3DRenderMesh* mesh);
+    // C3dMarker::Render: unlit, the texture times one colour (ARGB, alpha blended), no depth write;
+    // cullNone draws both faces (the cylinder).
+    void DrawMeshTinted(D3DRenderMesh* mesh, uint32_t argb, bool cullNone);
     void DestroyMesh(D3DRenderMesh* mesh);
     // Rewrite a mesh's vertices in place (CPU-skinned peds, once per frame).
     // `count` must not exceed the mesh's vertexCount.

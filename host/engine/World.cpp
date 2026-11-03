@@ -839,6 +839,23 @@ std::vector<size_t> GameWorld::GarageDoorInsts() const {
     return out;
 }
 
+std::vector<size_t> GameWorld::InstsOfModels(const std::vector<std::string>& names) const {
+    std::vector<size_t> out;
+    for (size_t i = 0; i < m_insts.size(); i++)
+        if (m_insts[i].lodLevel == 0 && std::find(names.begin(), names.end(), m_insts[i].hdModel) != names.end()) out.push_back(i);
+    return out;
+}
+
+void GameWorld::InstFrame(size_t i, float pos[3], float right[3], float fwd[3], float up[3], int& area) const {
+    const Inst& in = m_insts[i];
+    const D3DMATRIX m = InstTransform(in);   // row vectors: rows 1-3 the axes, row 4 the position
+    right[0] = m._11; right[1] = m._12; right[2] = m._13;
+    fwd[0] = m._21; fwd[1] = m._22; fwd[2] = m._23;
+    up[0] = m._31; up[1] = m._32; up[2] = m._33;
+    pos[0] = in.x; pos[1] = in.y; pos[2] = in.z;
+    area = in.area;
+}
+
 void GameWorld::InstPosition(size_t i, float out[3]) const {
     const Inst& in = m_insts[i];
     out[0] = in.x; out[1] = in.y; out[2] = in.z;

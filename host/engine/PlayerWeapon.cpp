@@ -269,6 +269,10 @@ void PlayerPed::LoadGuns(D3DRenderer& r, const std::string& gameDir) {
     ImgLoader gta3;
     const bool haveImg = gta3.Open(gameDir + "\\models\\gta3.img");
     if (haveImg) { m_canopy.Load(r, gta3); LoadJetpack(r, gta3); }
+    {   // the juice can is an interior model (gta_int.img)
+        ImgLoader gtaInt;
+        if (gtaInt.Open(gameDir + "\\models\\gta_int.img")) LoadVendingCan(r, gtaInt);
+    }
 
     auto loadModel = [&](Gun& g, int model) {
         auto it = ide.find(model);

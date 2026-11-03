@@ -875,10 +875,16 @@ int Vehicles::Spawn(D3DRenderer& r, int id, float x, float y, float z, float hea
     if (const HandlingData* hd = Handling(Info(id)->handling))   // CAutomobile(): a lowrider comes with hydraulics one time in four
         c.hyd.on = (hd->handlingFlags & 0x10000u) && (Random(4) == 0 || getenv("GTA_HYDRAULICS"));   // dev: GTA_HYDRAULICS always
     if (id == 520) c.hoist = 5000;   // CPlane::CPlane: the Hydra's nozzles start at HARRIER_NOZZLE_ROTATE_LIMIT, straight down
-    for (size_t i = 0; i < m_cars.size(); i++)   // a removed generator car's slot
-        if (m_cars[i].removed && m_cars[i].recycle) { m_cars[i] = c; return (int)i; }
-    m_cars.push_back(c);
-    return (int)m_cars.size() - 1;
+    int slot = -1;
+    for (size_t i = 0; i < m_cars.size() && slot < 0; i++)   // a removed generator car's slot
+        if (m_cars[i].removed && m_cars[i].recycle) { m_cars[i] = c; slot = (int)i; }
+    if (slot < 0) { m_cars.push_back(c); slot = (int)m_cars.size() - 1; }
+    // CVehicle::CVehicle: a model's custom plate text goes on this car and is cleared from the model
+    if (auto np = m_nextPlate.find(id); np != m_nextPlate.end()) {
+        SetCustomPlate(r, (size_t)slot, np->second);
+        m_nextPlate.erase(np);
+    }
+    return slot;
 }
 
 bool Vehicles::HasDoor(size_t i, int door) const {

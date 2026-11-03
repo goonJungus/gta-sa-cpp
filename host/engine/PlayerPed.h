@@ -326,6 +326,14 @@ public:
     void RestoreVitals() { m_health = m_maxHealth; m_armor = 100.0f; }   // CHEAT_HEALTH_ARMOR_MONEY
     float DamageFlash() const { return m_damageFlash; }       // 1 right after a hit, fades out
     bool Dead() const { return m_health <= 0.0f; }
+    // CGameLogic::RestorePlayerStuffDuringResurrection: full max health, no armour, back on his feet in the idle
+    // (CPed::RestartNonPartialAnims), out of the water, the jetpack, the parachute and any stance.
+    void Resurrect();
+    // vending_machine.scm's sequence (PlayerVending.cpp): slide to (x, y) turning to heading (radians, 0 = +X)
+    // while VEND_USE plays, then drink with the can in hand or eat. No control until it is over.
+    bool StartVending(float x, float y, float heading, bool snack);
+    bool Vending() const { return m_vend.stage != 0; }
+    bool TakeVendingDone() { const bool d = m_vend.done; m_vend.done = false; return d; }   // the sequence just finished
     bool Ducking() const { return m_ducking; }
     bool Aiming() const { return m_aiming; }
     bool FistLock() const { return m_aiming && m_gun < 0 && m_meleeOk; }   // locked on with the fists: jump is the kick
@@ -508,6 +516,21 @@ private:
     float m_jumpMod = 1.0f;   // CStats::GetFatAndMuscleModifier(2): jump launch, launch / land clip speed
     float m_breathMax = 1150.0f;   // steps of air; CPlayerPedData::m_fBreath
     bool m_vehicleDrowning = false;
+    bool m_deathAnim = false;                  // CTaskComplexDie: the KO clip has started; CJ takes no input
+    struct Vend {
+        int stage = 0;                         // 0 none, 1 slide + VEND_USE, 2 VEND_USE_PT2, 3 the secondary clip
+        float x = 0, y = 0, heading = 0;
+        bool snack = false, can = false, done = false;
+        float t = 0.0f, animEnd = -1.0f;
+        const AnimClip* secondary = nullptr;
+    } m_vend;
+    std::vector<D3DRenderMesh*> m_canMeshes;   // cj_juice_can.dff
+    std::vector<IDirect3DTexture9*> m_canTextures;
+    float m_canOffsetY = 0.1f;
+    void UpdateVending(const Input& in);
+    void StartVendingSecondary(const char* clip);
+    void LoadVendingCan(D3DRenderer& r, ImgLoader& gtaInt);
+    void DrawVendingCan(D3DRenderer& r, const float w[4][4]);
     bool m_breathInit = false;
     int m_breathLog = 0;
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = 1150.0f, m_damageFlash = 0.0f;

@@ -66,6 +66,10 @@
 #include "BulletInfo.h"
 #include "ShotInfo.h"
 #include "Pickups.h"
+#include "GameLogic.h"
+#include "Vending.h"
+#include "Markers3D.h"
+#include "IdleCam.h"
 #include "EntryExit.h"
 #include "WeaponInfo.h"
 #include "Speech.h"
@@ -89,6 +93,12 @@
 static D3DRenderer g_renderer;
 static EntryExit g_enex;     // CEntryExitManager: the doors to the interiors
 static Pickups g_pickups;   // CPickups: 620 slots
+static GameLogic g_logic;   // CGameLogic: Wasted / Busted and the restart points (CRestart)
+static Vending g_vending;   // vending_machine.scm: the drink and snack machines
+static Markers3D g_markers;   // C3dMarkers, user 3D markers, CCheckpoints
+static IdleCam g_idleCam;   // CIdleCam: the camera that looks about after 90 s without input
+static bool g_inputTouched = false;   // CPad::LastTimeTouched: a key, a click, the wheel or the mouse moved since the last frame
+static float g_idleFov = 0.0f;        // the idle camera's FOV this frame (0: not running)
 static WaterCannons g_waterCannons;   // CWaterCannons
 static std::vector<std::array<float, 3>> g_tankBooms;   // rhino shells that landed this frame
 static int g_wanted = getenv("GTA_WANTED") ? atoi(getenv("GTA_WANTED")) : 0;
@@ -566,6 +576,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         // Play mode: ESC opens the pause menu (quit is Quit Game in there);
         // the capture modes have no menu, so ESC still exits them.
         if (getenv("GTA_KEYLOG")) Log("KEY %u", (unsigned)wp);
+        g_inputTouched = true;
         if (wp == VK_ESCAPE && !g_escOpensMenu) { g_running = false; return 0; }
         if (wp >= 'A' && wp <= 'Z' && !(lp & (1 << 30))) Cheat::Push((char)wp);   // CCheat::AddToCheatString
         if (g_keyQueueN < (int)(sizeof(g_keyQueue) / sizeof(g_keyQueue[0])))
@@ -579,6 +590,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         if (ri.header.dwType == RIM_TYPEMOUSE && !g_scriptedRun) {
             const RAWMOUSE& m = ri.data.mouse;
+            if (m.lLastX || m.lLastY || m.usButtonFlags) g_inputTouched = true;
             g_dbgRaw = g_dbgRaw + 1;
             if (g_dbgRaw <= 40) Log("MOUSE raw #%ld flags=0x%x dx=%ld dy=%ld buttons=0x%x", (long)g_dbgRaw, (unsigned)m.usFlags, (long)m.lLastX, (long)m.lLastY, (unsigned)m.usButtonFlags);
             if (m.usFlags & MOUSE_MOVE_ABSOLUTE) {
@@ -598,6 +610,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
+        g_inputTouched = true;
         g_msgBtn[msg == WM_LBUTTONDOWN ? 0 : msg == WM_RBUTTONDOWN ? 1 : 2] = true;
         SetCapture(hwnd);
         return 0;
@@ -616,6 +629,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_MOUSEWHEEL:
         g_wheelSteps += GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA;
+        g_inputTouched = true;
         return 0;
     case WM_SIZE:
         // Defer the device Reset to the render loop (WM_SIZE can fire many
@@ -1503,7 +1517,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     Log("STATS: ar_stats.dat %d values", Stats::LoadReactions(getenv("GTA_ARSTATS") ? getenv("GTA_ARSTATS") : (g_gameDir + "\\data\\ar_stats.dat").c_str())   /* dev: GTA_ARSTATS=alt file */);
     Stats::g_hooks.health = [] { return g_cj.Health() * 5.69f; };   // the stats count health in 569 = 100 hp
     Stats::g_hooks.maxHealth = [] { return g_cj.MaxHealth() * 5.69f; };
-    Stats::g_hooks.addHealth = [](float amount, bool) { g_cj.AddHealth(amount / 5.69f); };
+    Stats::g_hooks.addHealth = [](float amount, bool filled) { g_cj.AddHealth(amount / 5.69f); if (filled) g_logic.Ate(); };   // a full meal: not hungry any more
     {   // [Player] WeaponSkill (-1 = earned through play): 0 poor, 1 standard, 2 pro (twin pistols); GTA_SKILL overrides
         int skill = GetPrivateProfileIntA("Player", "WeaponSkill", -1, g_iniPath);
         if (const char* e = getenv("GTA_SKILL")) skill = atoi(e);
@@ -1556,6 +1570,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (getenv("GTA_NOGUNS") || _stricmp(sw, "none") == 0) g_cj.ClearWeapons();
         }
         g_pickups.Load(g_renderer, GameDir());
+        g_markers.Load(g_renderer, GameDir());
+        g_markers.hooks.ground = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
+        g_markers.hooks.water = [](float x, float y, float* z) { return g_water.Ready() && g_water.GetWaterLevel(x, y, z); };
+        g_markers.hooks.buildingLos = [](const float a[3], const float b[3], float* hitZ) {
+            const float f = g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]);
+            if (f >= 1.0f) return false;
+            *hitZ = a[2] + (b[2] - a[2]) * f;
+            return true;
+        };
         if (const char* e = getenv("GTA_GUN")) g_cj.SelectGun(atoi(e));   // dev: weapon index
         if (fat > 0.0f || mus > 0.0f) g_cj.SetBodyShape(fat, mus);
         Stats::Set(Stats::STAT_FAT, fat * 1000.0f); Stats::Set(Stats::STAT_MUSCLE, mus * 1000.0f);
@@ -1586,10 +1609,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             Log("SCM: player placed at %.1f %.1f %.1f", x, y, z);
         };
         s_scm.host.playerPos = [&](float& x, float& y, float& z) { x = playerX; y = playerY; z = playerZ - 1.75f; };
-        s_scm.host.addBlip = [](float x, float y, float z, int sprite, bool shortRange) {
+        s_scm.host.addBlip = [](float x, float y, float z, int sprite, bool shortRange, bool contact) {
             RadarBlip b;
             b.handle = g_nextBlip++; b.x = x; b.y = y; b.z = z; b.sprite = sprite; b.shortRange = shortRange;
-            b.display = sprite ? 2 : 3;
+            b.contact = contact;
+            b.display = sprite && !contact ? 2 : 3;   // a contact point shows its ground marker too
             g_blips.push_back(b);
             Log("SCM: blip %d sprite %d at %.1f %.1f %s", b.handle, sprite, x, y, shortRange ? "(short range)" : "");
             return b.handle;
@@ -1616,12 +1640,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         s_scm.host.removeBlip = [](int h) { g_blips.erase(std::remove_if(g_blips.begin(), g_blips.end(), [h](const RadarBlip& b) { return b.handle == h; }), g_blips.end()); };
         s_scm.host.blipDisplay = [](int h, int mode) { for (RadarBlip& b : g_blips) if (b.handle == h) b.display = mode; };
         s_scm.host.getMoney = [&]() { return g_money; };
+        s_scm.host.playerPlaying = [] { return g_logic.Playing(); };
         s_scm.host.addMoney = [&](int n) { g_money += n; };
         s_scm.host.getTime = [&](int& h, int& m) { const int t = (int)(g_gameSeconds / 60.0f) % 1440; h = t / 60; m = t % 60; };
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
         g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud; g_sg.trains = &g_trains;
         g_sg.wantedLevel = [] { return g_wanted; }; g_sg.setWantedLevel = [](int w) { g_wanted = w; };
-        g_sg.pickups = &g_pickups; g_sg.enex = &g_enex; g_sg.carGens = &g_carGens; g_sg.garages = &g_garages; g_sg.pop = &g_pop;
+        g_sg.pickups = &g_pickups; g_sg.logic = &g_logic; g_sg.markers = &g_markers; g_sg.enex = &g_enex; g_sg.carGens = &g_carGens; g_sg.garages = &g_garages; g_sg.pop = &g_pop;
         g_sg.getArea = [] { return g_world.Area(); };
         g_sg.setArea = [](int a) { Log("SCRIPT: area %d", a); g_world.SetArea(a); g_enex.ForceArea(a); }; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
         g_sg.playerInCar = [] { return g_driveCar >= 0; };
@@ -1694,6 +1719,47 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     bool prevV = false;       // edge-detect for V key
     const float EYE_HEIGHT = 1.7f;   // CJ eye height in meters
     const float GROUND_Z = 9.0f;     // safety-net grass plane; below lowest retail ground (~9.13)
+    // ---- CGameLogic / CRestart: Wasted and Busted ----
+    g_logic.Init(GameDir());
+    if (!scmRun) g_logic.AddRetailRestartPoints();   // the main script adds them itself (ADD_HOSPITAL_RESTART)
+    g_logic.hooks.log = [](const char* s) { Log("%s", s); };
+    g_logic.hooks.money = [] { return g_money; };
+    g_logic.hooks.setMoney = [](int m) { g_money = m; };
+    g_logic.hooks.wanted = [] { return g_wanted; };
+    g_logic.hooks.clearWeapons = [&] { if (cjReady) g_cj.ClearWeapons(); };
+    g_logic.hooks.passTime = [](int minutes) {   // CGameLogic::PassTime: a day passed counts in the stats
+        g_gameSeconds += minutes * 60.0f;
+        while (g_gameSeconds >= 86400.0f) { g_gameSeconds -= 86400.0f; g_gameDay++; Stats::Increment(Stats::STAT_DAYS_PASSED_IN_GAME, 1.0f); }
+    };
+    g_logic.hooks.resurrect = [&](float x, float y, float z, float heading) {   // RestorePlayerStuffDuringResurrection
+        if (g_driveCar >= 0) { g_driveCar = -1; g_audio.EngineStop(); g_radio.Tune(-1); }
+        g_world.SetArea(0); g_enex.ForceArea(0);   // back in the outside world
+        for (int si = 0; si < 300; si++) g_world.Stream(x, y, z);
+        const float gz = g_world.GetGroundHeight(x, y, z + 2.0f);
+        const float feet = gz > -500.0f ? gz : z - 1.0f;   // the restart point is the ped's centre, a metre up
+        playerX = camPosX = x; playerY = camPosY = y; playerZ = camPosZ = feet + EYE_HEIGHT;
+        yaw = heading * 0.01745329f + 1.5707963f; velZ = 0.0f; onGround = true;
+        if (cjReady) g_cj.Resurrect();
+        g_wanted = 0;            // CWanted::Reset
+        g_peds.CalmPolice();
+        g_sg.playerGoal.on = false;
+    };
+    g_logic.hooks.holdBlack = [] { g_sg.HoldFadeBlack(); };
+    g_logic.hooks.loseHealth = [&](float hp) { if (cjReady) g_cj.AddHealth(-hp); };
+    g_vending.hooks.money = [] { return g_money; };
+    g_vending.hooks.addMoney = [](int n) { g_money += n; };
+    g_vending.hooks.help = [](const std::string& key) {
+        if (!g_hudReady) return;
+        if (key.empty()) g_hud.ShowMessage("", 0.0f); else g_hud.ShowMessage(g_hud.Text().Get(key.c_str()), 1e6f);   // PRINT_HELP_FOREVER
+    };
+    g_vending.hooks.sound = [](int bank, int sound) { g_audio.Play(bank, sound, 1.0f); };
+    g_vending.hooks.addHealth = [&](float hp) { if (cjReady) g_cj.AddHealth(hp); };
+    g_logic.hooks.helpMessage = [](const std::string& key) { if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get(key.c_str()), 8.0f); };
+    g_logic.hooks.statDown = [](int stat, float v) {   // DecrementStat + DisplayScriptStatUpdateMessage(STAT_UPDATE_DECREASE)
+        Stats::Decrement(stat, v);
+        if (g_hudReady) g_hud.StatUpdate(Stats::Get(stat) / 10.0f, false);
+        if ((stat == Stats::STAT_FAT || stat == Stats::STAT_MUSCLE) && g_driveCar < 0) g_cj.SetBodyShape(Stats::Get(Stats::STAT_FAT) / 1000.0f, Stats::Get(Stats::STAT_MUSCLE) / 1000.0f);
+    };
     const float WALK_SPEED = 5.0f;       // scripted capture paths
     const float CJ_WALK_SPEED = 1.56f;   // WALK_player root travel / duration
     const float CJ_RUN_SPEED = 5.71f;    // run_player
@@ -2550,6 +2616,10 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         // player barely moves. Force a fixed 60Hz step so the walk covers real
         // distance deterministically (collision test, not a timing test).
         if (g_autoWalk || getenv("GTA_KEYS")) dt = 1.0f / 60.0f;   // headless motion tests: fixed step
+        {   // C3dMarkers::Update / CCheckpoints::Update before anything places markers this frame
+            const float feet[3] = {playerX, playerY, playerZ - EYE_HEIGHT}, cam[3] = {camPosX, camPosY, camPosZ};
+            g_markers.Update(dt * 50.0f, feet, cam, feet, (uint32_t)g_bulletMs);
+        }
         if (scmRun) { scmClock += dt; s_scm.Update((int32_t)(scmClock * 1000.0), 600); g_sg.Update(dt); }
         if (const char* tp = getenv("GTA_TELEPORT")) {   // dev: "frame,x,y,z" puts the player there once (after the scripts have placed him)
             int tf = 0; float tx = 0, ty = 0, tz = 0;
@@ -2575,6 +2645,23 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             };
             const int hr = ((int)(g_gameSeconds / 3600.0f)) % 24;
             g_enex.Update(dt, playerX, playerY, playerZ - EYE_HEIGHT + 1.0f, g_driveCar >= 0, hr);
+        }
+        if (worldReady && playMode && cjReady && !g_devPaused) {   // CGameLogic::Update: Wasted / Busted and the restart
+            static bool s_textSet = false;
+            if (!s_textSet && g_hudReady) { s_textSet = true; g_logic.SetMessageText(g_hud.Text().Get("DEAD"), g_hud.Text().Get("BUSTED")); }
+            const float feet = playerZ - EYE_HEIGHT;
+            // CTaskComplexArrestPed, reduced: an officer after a wanted player on foot gets within reach of him
+            if (const char* k = getenv("GTA_KILL"); k && frame == atoi(k)) g_cj.Hurt(10000.0f);   // dev: wasted at this frame
+            const char* bust = getenv("GTA_BUST");   // dev: busted at this frame
+            const bool arrest = (bust && frame == atoi(bust)) ||
+                                (g_wanted > 0 && g_driveCar < 0 && !g_cj.Dead() && !g_cj.Jetpacking() && g_peds.PoliceInReach(playerX, playerY, feet, 1.2f));
+            g_logic.Update(dt, g_cj.Dead(), arrest, playerX, playerY, feet + 1.0f);
+            g_logic.UpdateHunger(((int)(g_gameSeconds / 3600.0f)) % 24, false);
+            static bool s_vendInit = false;
+            if (!s_vendInit) { s_vendInit = true; g_vending.Init(g_world); Log("VENDING: %zu machines", g_vending.Count()); }
+            const bool vendUse = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen();
+            const bool canVend = g_driveCar < 0 && g_logic.Playing() && !g_cj.Dead() && g_sg.playerControl && !g_garageFreeze;
+            g_vending.Update(g_world, g_cj, playerX, playerY, feet + 1.0f, g_world.Area(), canVend, vendUse, (uint32_t)g_bulletMs);
         }
 
         // ---- Dev/test keys (ignored in the scripted/flyover capture modes) ----
@@ -3188,7 +3275,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     mx = gx / gd; my = gy / gd; mlen = 1.0f;
                     speed = g_sg.playerGoal.mode >= 4 ? CJ_SPRINT_SPEED : g_sg.playerGoal.mode == 2 ? CJ_WALK_SPEED : CJ_RUN_SPEED;
                 }
-            } else if (!g_sg.playerControl) { mx = my = 0.0f; mlen = 0.0f; }   // SET_PLAYER_CONTROL off
+            } else if (!g_sg.playerControl || !g_logic.Playing()) { mx = my = 0.0f; mlen = 0.0f; }   // SET_PLAYER_CONTROL off, or wasted / busted
             if (g_vehGoToCar >= 0) { mx = g_vehGoStick[0]; my = g_vehGoStick[1]; mlen = 1.0f; }   // walking to a car door
             if (scripted) {
                 // Scripted path: 5 legs x 4s, loop around Grove Street.
@@ -3363,7 +3450,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // does not re-jump on landing (CPad::JumpJustDown).
             bool jumped = false;
             static bool s_prevJumpKey = false;
-            const bool jumpKeyDown = (GameKey(VK_SHIFT) & 0x8000) != 0;   // PC SA: Shift jumps
+            const bool jumpKeyDown = (GameKey(VK_SHIFT) & 0x8000) != 0 && g_logic.Playing() && !g_cj.Vending();   // PC SA: Shift jumps (none while wasted / busted)
             const bool jumpJustDown = (jumpKeyDown && !s_prevJumpKey) || (g_autoWalk && g_autoGait == 3);
             s_prevJumpKey = jumpKeyDown;
             // ---- Climb: CTaskSimpleJump / CTaskSimpleInAir -> TestForClimb ----
@@ -3737,6 +3824,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 pin.climbScan = climbScan;
                 pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
                 if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
+                if (!g_logic.Playing()) {   // wasted / busted: CPad::DisablePlayerControls
+                    pin.stickX = pin.stickY = 0.0f;
+                    pin.walk = pin.sprint = pin.jumped = pin.jumpHeld = pin.jumpDown = false;
+                    pin.fireJust = pin.fireHeld = pin.reloadJust = pin.duckJust = pin.duckHeld = pin.aim = false;
+                    pin.diveDown = pin.diveUp = pin.diveJust = pin.exitPressed = false;
+                }
                 g_cj.Update(pin);
                 { static const bool seatDbg = getenv("GTA_SEATDBG") != nullptr; if (seatDbg && frame % 200 == 0) Log("SEATDBG frame %d pos %.1f %.1f seated %d drive %d stick %.2f %.2f noclip %d clip %s", frame, playerX, playerY, (int)g_cj.InVehicle(), g_driveCar, pin.stickX, pin.stickY, (int)pin.noclip, g_cj.ClipName()); }
                 if (!scripted && !flyover) { vx = g_cj.VelX(); vy = g_cj.VelY(); }
@@ -4236,7 +4329,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // ---- Cars: F enters the nearest one, F again gets out; the car drives from W/S/A/D ----
             {
                 static bool s_prevF = false;
-                const bool fDown = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen() && !g_garageFreeze;
+                const bool fDown = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen() && !g_garageFreeze && !g_vending.ClaimsEnterButton();   // SET_PLAYER_ENTER_CAR_BUTTON off at a machine
                 const bool fJust = fDown && !s_prevF;
                 s_prevF = fDown;
                 if (fJust && g_driveCar < 0 && g_vehTransCar < 0 && g_vehGoToCar < 0) {
@@ -4390,7 +4483,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         g_vehicles.Car((size_t)g_driveCar).radioStation = g_radio.IdOf(g_radioStation);
                         if (g_hudReady) g_hud.ShowMessage(g_radio.StationName(g_radioStation), 2.5f);
                     }
-                    const bool padOn = !g_garageFreeze;   // CPad::DisablePlayerControls (a garage door coming down)
+                    const bool padOn = !g_garageFreeze && g_logic.Playing();   // CPad::DisablePlayerControls (a garage door coming down, wasted / busted)
                     const float th = padOn && (RawGameKey('W') & 0x8000) ? 1.0f : 0.0f;
                     const float br = padOn && (RawGameKey('S') & 0x8000) ? 1.0f : 0.0f;
                     const float st = padOn ? ((RawGameKey('D') & 0x8000) ? 1.0f : 0.0f) - ((RawGameKey('A') & 0x8000) ? 1.0f : 0.0f) : 0.0f;
@@ -4674,6 +4767,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             prevV = vDown;
 
             // ---- Build view matrix from yaw/pitch ----
+            const bool padTouched = g_inputTouched || g_pad.Active() || g_menu.IsOpen() || (getenv("GTA_KEYS") && !getenv("GTA_IDLECAM"));   // headless key runs never idle unless asked
+            g_inputTouched = false;
+            g_idleFov = 0.0f;
             float cp = cosf(pitch), sp = sinf(pitch);
             float dirX = cosf(yaw) * cp, dirY = sinf(yaw) * cp, dirZ = sp;
             g_hideCjHead = false;
@@ -4766,6 +4862,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     };
                 PlayerCamera::Output co = g_playerCam.Update(ci);
                 g_camFovScale = co.fovScale;
+                {   // CIdleCam: left alone, the follow camera stays put and looks about
+                    static const bool s_idleInit = [] { if (const char* k = getenv("GTA_IDLECAM")) g_idleCam.SetKickInMs((float)atof(k)); return true; }();
+                    (void)s_idleInit;
+                    IdleCam::Target pt;
+                    pt.valid = true; pt.ped = true; pt.player = true;
+                    pt.pos[0] = playerX; pt.pos[1] = playerY; pt.pos[2] = playerZ - EYE_HEIGHT + 1.0f;
+                    IdleCam::LosFn los;
+                    if (worldReady) los = [](const float* a, const float* b) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]) >= 1.0f; };
+                    float idf[3], ifov = 70.0f;
+                    const bool canIdle = !ci.aimWeapon && !g_scoped && !co.firstPerson && !g_freeCam;
+                    if (!canIdle) g_idleCam.NotFollowingPed();
+                    else if (g_idleCam.Process(dt * 1000.0f, padTouched, co.eye, co.dir, pt, los, idf, ifov)) {
+                        for (int k = 0; k < 3; k++) co.dir[k] = idf[k];
+                        g_idleFov = ifov;
+                    }
+                }
                 if (getenv("GTA_CAMDBG") && frame % 30 == 0)
                     Log("CAMDBG aim %d eye %.2f %.2f %.2f feet %.2f %.2f %.2f dist %.2f fovScale %.2f", (int)ci.aimWeapon, co.eye[0], co.eye[1], co.eye[2],
                         ci.feet[0], ci.feet[1], ci.feet[2], sqrtf((co.eye[0] - ci.feet[0]) * (co.eye[0] - ci.feet[0]) + (co.eye[1] - ci.feet[1]) * (co.eye[1] - ci.feet[1])), co.fovScale);
@@ -4884,6 +4996,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 s_fovKick += (tgt - s_fovKick) * std::min(1.0f, dt * 5.0f);
             }
             float wantFov = (g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f) + s_fovKick;
+            if (g_idleFov > 0.0f) wantFov = g_idleFov;   // CIdleCam::ProcessFOVZoom sets the camera's FOV
             if (scmRun && g_sg.cam.active && g_sg.cam.cutscene && g_sg.cam.fov > 1.0f) wantFov = g_sg.cam.fov;   // the cutscene's own FOV
             if (g_camFovScale != 1.0f)   // the aim camera's weapon zoom, the car camera's speed widening
                 wantFov = 2.0f * atanf(tanf(wantFov * 3.14159265f / 360.0f) * g_camFovScale) * 180.0f / 3.14159265f;
@@ -4972,7 +5085,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (scmRun) g_sg.DrawCutscene(g_renderer);
             g_proj.Draw(g_renderer, g_cj);
             { const float camPos3[3] = {camPosX, camPosY, camPosZ};
-            g_enex.DrawMarkers(g_renderer, camPos3, (uint32_t)g_bulletMs, ((int)(g_gameSeconds / 3600.0f)) % 24);
+            g_enex.PlaceMarkers(g_markers, camPos3, ((int)(g_gameSeconds / 3600.0f)) % 24);
             g_pickups.Draw(g_renderer, (uint32_t)g_bulletMs, camPos3,
                            [&](int w, const float m[4][4]) { g_cj.DrawGunModel(g_renderer, g_cj.GunIndexOfType(w), m); },
                            [&](const float m[4][4]) { g_cj.DrawJetpackPickup(g_renderer, m); }); }
@@ -5011,6 +5124,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (const char* e = getenv("GTA_TLMS")) tlMs = (uint32_t)strtoul(e, nullptr, 10);
             g_world.RenderTrafficLights(g_renderer, camPosX, camPosY, camPosZ, tlMs, lampI);
             g_fx.Render(g_renderer);
+            {   // CRadar::Draw3dMarkers (contact points off mission, outdoors), then C3dMarkers::Render
+                if (g_world.Area() == 0 && !(scmRun && g_sg.OnMission()))
+                    for (const RadarBlip& b : g_blips) {
+                        if (!b.contact || (b.display != 1 && b.display != 3)) continue;
+                        const float at[3] = {b.x, b.y, b.z};
+                        g_markers.PlaceMarkerSet(0xB0000000u | (uint32_t)b.handle, Markers3D::CYLINDER, at, 2.0f, 255, 0, 0, 228, 0x800, 0.2f);
+                    }
+                const float camPos3[3] = {camPosX, camPosY, camPosZ};
+                g_markers.Render(g_renderer, camPos3);
+            }
             {
                 WaterCannons::RenderHooks rh;
                 rh.ray = [](const float* a, const float* b, float* nz) { return worldReady ? g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2], nullptr, nz) : 1.0f; };
@@ -6025,8 +6148,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (g_hudReady && g_camFlash > 0.0f) { g_hud.Flash(g_renderer, g_camFlash); g_camFlash = std::max(0.0f, g_camFlash - dt * 3.0f); }
             g_hud.Draw(g_renderer, hd);
         }
-        if (scmRun && g_hudReady) g_hud.DrawScript(g_renderer, g_sg.Overlay());
-        else if (g_hudReady && g_enex.Fade() > 0.0f) { ScriptOverlay eo; eo.fade = g_enex.Fade(); g_hud.DrawScript(g_renderer, eo); }
+        if (g_hudReady) {   // the script's layer (or the entry-exit fade), the game logic's fade and WASTED / BUSTED on top
+            ScriptOverlay ov;
+            if (scmRun) ov = g_sg.Overlay(); else ov.fade = g_enex.Fade();
+            ov.fade = std::max(ov.fade, g_logic.Fade());
+            ov.bustedWasted = g_logic.BigMessage();
+            ov.bustedWastedAlpha = g_logic.BigMessageAlpha();
+            if (scmRun || ov.fade > 0.0f || !ov.bustedWasted.empty()) g_hud.DrawScript(g_renderer, ov);
+        }
         if (g_hudReady) g_hud.Brightness(g_renderer, g_menu.Settings().brightness);
 
         // ---- SA pause menu + the dev key list beside it ----

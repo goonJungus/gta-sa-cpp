@@ -252,6 +252,7 @@ void Traffic::Pursue(Vehicles& v, Drive& d, const Env& e) {
             const float rx = c.phys.active ? c.rot[0] : std::cos(c.heading), ry = c.phys.active ? c.rot[1] : std::sin(c.heading);
             e.peds->Unseat((size_t)pi, c.x - rx * 2.0f, c.y - ry * 2.0f, c.z);
             e.peds->SetAggro((size_t)pi, true);
+            e.peds->SetPolice((size_t)pi);
         }
         d.driverUid = 0;
         d.cop = false; d.parked = true; c.siren = false;   // left at the kerb
@@ -286,7 +287,7 @@ void Traffic::UpdateSwat(Vehicles& v, D3DRenderer& r, const Env& e) {
         m_swatTimer -= e.dt;
         if (m_swatTimer <= 0.0f && m_swatDropped < 4 && e.peds && e.peds->Ready()) {   // the next officer goes down the rope
             const int pi = e.peds->Spawn(r, -1, c.x, c.y, c.z - 2.0f, 0.0f);
-            if (pi >= 0) { e.peds->Drop((size_t)pi, c.x, c.y, c.z - 2.5f); e.peds->SetAggro((size_t)pi, true); }
+            if (pi >= 0) { e.peds->Drop((size_t)pi, c.x, c.y, c.z - 2.5f); e.peds->SetAggro((size_t)pi, true); e.peds->SetPolice((size_t)pi); }
             m_swatDropped++;
             m_swatTimer = 1.4f;
         }

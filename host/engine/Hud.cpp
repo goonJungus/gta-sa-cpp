@@ -445,6 +445,13 @@ void Hud::DrawScript(D3DRenderer& r, const ScriptOverlay& o) {
         const float y = o.wide > 0.5f ? sh - 62.0f * u : sh - 88.0f * u;
         Text(g, FeFont::SUBTITLES, sw / 2, y, o.subtitle, 0.58f, 1.2f, 0xFFFFFFFF, FeFont::CENTER, 1);
     }
+    if (!o.bustedWasted.empty() && o.bustedWastedAlpha > 0.0f) {
+        // CHud::DrawBustedWastedMessage (after the fade): gothic at 2.1, light grey, edge 3, its bottom 30 units
+        // above the middle of the screen (PrintStringFromBottom)
+        const float bottom = sh * 0.5f - 30.0f * u;
+        Text(g, FeFont::GOTHIC, sw / 2, bottom - m_font.Sy(2.1f) * 18.0f, o.bustedWasted, 2.1f, 2.1f,
+             Alpha(kLightGray, o.bustedWastedAlpha), FeFont::CENTER, 3);
+    }
     g.End();
 }
 

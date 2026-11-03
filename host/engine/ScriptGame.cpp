@@ -18,6 +18,8 @@
 #include "Garages.h"
 #include "Stats.h"
 #include "Vehicle.h"
+#include "GameLogic.h"
+#include "Markers3D.h"
 
 namespace {
 float Dist3(float ax, float ay, float az, float bx, float by, float bz) {
@@ -364,6 +366,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x00FE: {   // LOCATE_CHAR_ANY_MEANS_3D(char, x, y, z, rx, ry, rz, drawSphere)
         float x, y, z;
         c.result = CharPos(c.I(0), x, y, z) && std::fabs(x - c.F(1)) <= c.F(4) && std::fabs(y - c.F(2)) <= c.F(5) && std::fabs(z - c.F(3)) <= c.F(6);
+        if (c.I(7)) Highlight(c.F(1) - c.F(4), c.F(2) - c.F(5), c.F(1) + c.F(4), c.F(2) + c.F(5), c.F(3));
         return true;
     }
     // ---- cars ---------------------------------------------------------------------------
@@ -418,7 +421,7 @@ bool ScriptGame::Handle(ScmMachine::Call& c) {
     case 0x0873: return true;                                                // REMOVE_CAR_RECORDING
     case 0x0186: {   // ADD_BLIP_FOR_CAR(car) -> blip
         VehicleInstance* v = carAlive(c.I(0));
-        c.Out(1, v && scm && scm->host.addBlip ? scm->host.addBlip(v->x, v->y, v->z, 0, false) : 0);
+        c.Out(1, v && scm && scm->host.addBlip ? scm->host.addBlip(v->x, v->y, v->z, 0, false, false) : 0);
         return true;
     }
     // ---- mission trains -------------------------------------------------------------
@@ -497,6 +500,19 @@ bool ScriptGame::EntityPos(int kind, int h, float& x, float& y, float& z, bool& 
     return true;
 }
 
+// CTheScripts::HighlightImportantArea: the red ring of a locate or area check with its draw flag set, one marker
+// per area (the id from its corners).
+void ScriptGame::Highlight(float x1, float y1, float x2, float y2, float z) {
+    if (!markers) return;
+    uint32_t id = 0x5C000000u;
+    for (float v : {x1, y1, x2, y2}) { uint32_t b; std::memcpy(&b, &v, 4); id = (id ^ b) * 16777619u; }
+    markers->HighlightArea(id | 0x80000000u, x1, y1, x2, y2, z);
+}
+
+bool ScriptGame::OnMission() const {   // CTheScripts::IsPlayerOnAMission
+    return scm && m_missionFlag >= 0 && scm->Global((uint32_t)m_missionFlag) != 0;
+}
+
 // LOCATE_[STOPPED_]<subject>_<mode>_[<target>_]<2D|3D>: the subject is within the box (or sphere radii) around a point or another entity.
 bool ScriptGame::Locate(ScmMachine::Call& c, const std::string& n) {
     size_t p = 7;   // after "LOCATE_"
@@ -529,6 +545,7 @@ bool ScriptGame::Locate(ScmMachine::Call& c, const std::string& n) {
     if (targKind >= 0) { bool ic; if (!EntityPos(targKind, c.I(a), tx, ty, tz, ic)) { c.result = false; return true; } a++; }
     else { tx = c.F(a++); ty = c.F(a++); if (is3d) tz = c.F(a++); }
     const float rx = c.F(a++), ry = c.F(a++), rz = is3d ? c.F(a++) : 0.0f;
+    if (targKind < 0 && a < c.N() && c.I(a)) Highlight(tx - rx, ty - ry, tx + rx, ty + ry, is3d ? tz : -100.0f);   // the draw flag
     bool ok = std::fabs(sx - tx) <= rx && std::fabs(sy - ty) <= ry && (!is3d || std::fabs(sz - tz) <= rz);
     if (mode == 1 && inCar) ok = false;
     if (mode == 2 && !inCar && subjKind == 0) ok = false;
@@ -551,6 +568,7 @@ bool ScriptGame::InArea(ScmMachine::Call& c, const std::string& n) {
     size_t a = 1;
     const float x1 = c.F(a++), y1 = c.F(a++), z1 = is3d ? c.F(a++) : 0.0f;
     const float x2 = c.F(a++), y2 = c.F(a++), z2 = is3d ? c.F(a++) : 0.0f;
+    if (a < c.N() && c.I(a)) Highlight(x1, y1, x2, y2, is3d ? std::min(z1, z2) : -100.0f);   // the draw flag
     bool ok = x >= std::min(x1, x2) && x <= std::max(x1, x2) && y >= std::min(y1, y2) && y <= std::max(y1, y2) &&
               (!is3d || (z >= std::min(z1, z2) && z <= std::max(z1, z2)));
     if (onFoot && inCar) ok = false;
@@ -567,7 +585,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     switch (c.op) {
     // ---- remote controlled vehicles: the player drives the toy (CPlayerInfo::MakePlayerSafe / TakeRemoteControlledCar), here
     // from its seat, with the usual driving controls ----
-    case 0x010C: case 0x046E: {   // GIVE_REMOTE_CONTROLLED_CAR_TO_PLAYER(player, x, y, z, heading) -> car / ..._MODEL_..(…, model) -> car
+    case 0x010C: case 0x046E: {   // GIVE_REMOTE_CONTROLLED_CAR_TO_PLAYER(player, x, y, z, heading) -> car / ..._MODEL_..(..., model) -> car
         const bool withModel = c.op == 0x046E;
         if (!cars || !r) { c.Out(withModel ? 6 : 5, 0); return true; }
         const int model = withModel ? c.I(5) : 441;   // the RC Bandit
@@ -746,6 +764,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
             const Obj& o = m_objs[(size_t)c.I(0) - 1];
             c.result = std::fabs(o.x - c.F(1)) <= c.F(4) && std::fabs(o.y - c.F(2)) <= c.F(5) && std::fabs(o.z - c.F(3)) <= c.F(6);
         } else c.result = false;
+        if (c.I(7)) Highlight(c.F(1) - c.F(4), c.F(2) - c.F(5), c.F(1) + c.F(4), c.F(2) + c.F(5), c.F(3));
         return true;
     }
     case 0x0984: c.Out(1, c.I(0) >= 1 && (size_t)c.I(0) <= m_objs.size() ? m_objs[(size_t)c.I(0) - 1].model : -1); return true;   // GET_OBJECT_MODEL
@@ -776,7 +795,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0904: c.Out(1, 255); c.Out(2, 255); c.Out(3, 255); c.Out(4, 255); return true;        // GET_HUD_COLOUR: white
     // ---- save, input, audio and world switches with nothing behind them yet -------------------------
     case 0x03D8: case 0x043C: case 0x04F9: case 0x04FA: case 0x057E: case 0x07B4: case 0x07CC: case 0x0830: case 0x08DC: case 0x08F5:
-    case 0x0949: case 0x094A: case 0x097A: case 0x097B: case 0x0A41: case 0x0A43: return true;
+    case 0x0949: case 0x094A: case 0x097A: case 0x097B: case 0x0A43: return true;
     case 0x03D9: c.result = true; return true;                                                   // HAS_SAVE_GAME_FINISHED
     case 0x0494: c.Out(1, 0); c.Out(2, 0); c.Out(3, 0); c.Out(4, 0); return true;                 // GET_POSITION_OF_ANALOGUE_STICKS
     case 0x07B1: c.OutF(0, 0.0f); return true;                                                   // GET_BEAT_PROXIMITY
@@ -1008,11 +1027,18 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         return true;
     }
     // ---- plain switches with no game effect yet -------------------------------------------
-    case 0x042C: case 0x030D: case 0x0997: case 0x01F0: case 0x0111: case 0x06CF: case 0x0746: case 0x0180:   // totals, wanted, death state, timer bars, relationship, mission flag
+    case 0x042C: case 0x030D: case 0x0997: case 0x01F0: case 0x0111: case 0x06CF: case 0x0746:   // totals, wanted, death state, timer bars, relationship
     case 0x0914: case 0x0929: case 0x07D3: case 0x0884: case 0x0928: case 0x08E8: case 0x0363: case 0x03B7: case 0x090F:
     case 0x06C8: case 0x09B4: case 0x0814: case 0x08CA: case 0x0874: case 0x076A: case 0x09B7: case 0x04F8: case 0x0827:
-    case 0x016C: case 0x016D: case 0x02FA: case 0x0A17:
+    case 0x02FA: case 0x0A17:
         return true;
+    // ---- CRestart and the death / arrest penalties ------------------------------------------
+    case 0x016C: if (logic) logic->AddHospitalRestart(c.F(0), c.F(1), c.F(2), c.F(3), c.I(4)); return true;   // ADD_HOSPITAL_RESTART(x y z heading town)
+    case 0x016D: if (logic) logic->AddPoliceRestart(c.F(0), c.F(1), c.F(2), c.F(3), c.I(4)); return true;     // ADD_POLICE_RESTART(x y z heading town)
+    case 0x08DD: if (logic) logic->penaltyForDeath = c.I(0) != 0; return true;                               // SWITCH_DEATH_PENALTIES
+    case 0x08DE: if (logic) logic->penaltyForArrest = c.I(0) != 0; return true;                              // SWITCH_ARREST_PENALTIES
+    case 0x08DF: if (logic) logic->SetExtraHospitalRestart(c.F(0), c.F(1), c.F(2), c.F(3), c.F(4)); return true;   // SET_EXTRA_HOSPITAL_RESTART_POINT(x y z radius heading)
+    case 0x08E0: if (logic) logic->SetExtraPoliceRestart(c.F(0), c.F(1), c.F(2), c.F(3), c.F(4)); return true;     // SET_EXTRA_POLICE_STATION_RESTART_POINT
     case 0x07AF: c.Out(1, 0); return true;   // GET_PLAYER_GROUP
     case 0x010F: c.result = wantedLevel && wantedLevel() > c.I(1); return true;                // IS_WANTED_LEVEL_GREATER(player, level)
     case 0x010D: case 0x010E:                                                                  // ALTER_WANTED_LEVEL(_NO_DROP)(player, level)
@@ -1031,7 +1057,17 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0767: if (pop) pop->SetZonePopulationType(c.S(0), c.I(1)); return true;   // SET_ZONE_POPULATION_TYPE
     case 0x014C: if (carGens) carGens->SwitchScript(c.I(0), c.I(1), nowMs ? nowMs() : 0); return true;   // SWITCH_CAR_GENERATOR
     case 0x08AB: c.result = true; return true;                                                // HAS_STREAMED_SCRIPT_LOADED
-    case 0x0A40: c.Out(4, ++m_markers); return true;                                          // CREATE_USER_3D_MARKER
+    case 0x0A40: c.Out(4, markers ? markers->UserMarkerSet(c.F(0), c.F(1), c.F(2), c.I(3)) : -1); return true;   // CREATE_USER_3D_MARKER
+    case 0x0A41: if (markers) markers->UserMarkerDelete(c.I(0)); return true;                 // REMOVE_USER_3D_MARKER
+    case 0x0180: if (!c.args.empty() && c.args[0].type == 2) m_missionFlag = c.args[0].i; return true;   // DECLARE_MISSION_FLAG
+    case 0x06D5: {   // CREATE_CHECKPOINT(type, x, y, z, pointX, pointY, pointZ, radius) -> checkpoint
+        const float at[3] = {c.F(1), c.F(2), c.F(3)}, to[3] = {c.F(4), c.F(5), c.F(6)};
+        c.Out(8, markers ? (int32_t)markers->AddScriptCheckpoint(c.I(0), at, to, c.F(7)) : 0);
+        return true;
+    }
+    case 0x06D6: if (markers) markers->DeleteCheckpoint((uint32_t)c.I(0)); return true;      // DELETE_CHECKPOINT
+    case 0x07F3: { const float p[3] = {c.F(1), c.F(2), c.F(3)}; if (markers) markers->CheckpointPos((uint32_t)c.I(0), p); return true; }   // SET_CHECKPOINT_COORDS
+    case 0x0996: if (markers) markers->CheckpointHeading((uint32_t)c.I(0), c.F(1)); return true;   // SET_CHECKPOINT_HEADING
     case 0x044B: c.result = !(c.I(0) == kPlayer ? (playerInCar && playerInCar()) : m_charCar.count(c.I(0)) != 0); return true;   // IS_CHAR_ON_FOOT
     case 0x0400: {   // GET_OFFSET_FROM_OBJECT_IN_WORLD_COORDS(obj, ox, oy, oz) -> x, y, z
         float x = 0, y = 0, z = 0, h = 0;
@@ -1040,8 +1076,8 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
         c.OutF(4, x + c.F(1) * cs - c.F(2) * sn); c.OutF(5, y + c.F(1) * sn + c.F(2) * cs); c.OutF(6, z + c.F(3));
         return true;
     }
-    case 0x093A: case 0x0750: case 0x0382: case 0x08E0: case 0x08DF: case 0x08DE: case 0x08DD:
-        return true;   // SET_GARAGE_RESPRAY_FREE, CLOSE_GARAGE, SET_OBJECT_VISIBLE / COLLISION, restart points, penalties
+    case 0x093A: case 0x0750: case 0x0382:
+        return true;   // SET_GARAGE_RESPRAY_FREE, CLOSE_GARAGE, SET_OBJECT_VISIBLE / COLLISION
     // ---- pickups -----------------------------------------------------------------------------
     case 0x0213: c.Out(5, AddPickup(c.I(0), c.I(1), -1, c.F(2), c.F(3), c.F(4))); return true;                 // CREATE_PICKUP(model, type, x, y, z)
     case 0x032B: c.Out(6, AddPickup(c.I(0), c.I(1), c.I(2), c.F(3), c.F(4), c.F(5))); return true;             // CREATE_PICKUP_WITH_AMMO(model, type, ammo, x, y, z)
@@ -1097,7 +1133,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x070C: if (cars && carAlive(c.I(0))) cars->Damage(c.I(0) - 1, 1e6f); return true;   // EXPLODE_CAR_IN_CUTSCENE
     case 0x0187: {   // ADD_BLIP_FOR_CHAR(char) -> blip
         float x, y, z;
-        c.Out(1, CharPos(c.I(0), x, y, z) && scm && scm->host.addBlip ? scm->host.addBlip(x, y, z, 0, false) : 0);
+        c.Out(1, CharPos(c.I(0), x, y, z) && scm && scm->host.addBlip ? scm->host.addBlip(x, y, z, 0, false, false) : 0);
         return true;
     }
     case 0x01B2: if (c.I(0) == kPlayer && giveWeapon) giveWeapon(c.I(1), c.I(2)); return true;   // GIVE_WEAPON_TO_CHAR(char, weapon, ammo)
@@ -1133,7 +1169,8 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0733: case 0x0968: case 0x0998:   // ped roads, mission progress and pass bookkeeping, tunes, animation release, car missions, playback speed, talk
         return true;
     case 0x09D0: c.result = true; return true;    // IS_VEHICLE_ON_ALL_WHEELS
-    case 0x0674: case 0x0852: case 0x08AF: case 0x09F6: return true;   // CUSTOM_PLATE_FOR_NEXT_CAR, SET_CAR_CAN_BE_VISIBLY_DAMAGED, SET_CHAR_MAX_HEALTH, SET_CHAR_GET_OUT_UPSIDE_DOWN_CAR
+    case 0x0674: if (cars) cars->SetNextCarPlate(c.I(0), c.S(1)); return true;   // CUSTOM_PLATE_FOR_NEXT_CAR(model, text)
+    case 0x0852: case 0x08AF: case 0x09F6: return true;   // SET_CAR_CAN_BE_VISIBLY_DAMAGED, SET_CHAR_MAX_HEALTH, SET_CHAR_GET_OUT_UPSIDE_DOWN_CAR
     case 0x04EE: c.result = true; return true;   // HAS_ANIMATION_LOADED
     case 0x01F3: c.result = false; return true;   // IS_CAR_IN_AIR_PROPER
     case 0x0735: c.result = false; return true;   // IS_PS2_KEYBOARD_KEY_PRESSED

@@ -629,13 +629,13 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
         if (inum(0) == 1 && host.setPlayerPos) host.setPlayerPos(num(1), num(2), num(3));
         return true;
     case 0x018A:   // ADD_BLIP_FOR_COORD(x, y, z) -> blip
-        out(3, host.addBlip ? host.addBlip(num(0), num(1), num(2), 0, false) : 0);
+        out(3, host.addBlip ? host.addBlip(num(0), num(1), num(2), 0, false, false) : 0);
         return true;
     case 0x02A7:   // ADD_SPRITE_BLIP_FOR_CONTACT_POINT(x, y, z, sprite) -> blip
     case 0x02A8:   // ADD_SPRITE_BLIP_FOR_COORD(x, y, z, sprite) -> blip
     case 0x04CE:   // ADD_SHORT_RANGE_SPRITE_BLIP_FOR_CONTACT_POINT(x, y, z, sprite) -> blip
     case 0x0570:   // ADD_SHORT_RANGE_SPRITE_BLIP_FOR_COORD(x, y, z, sprite) -> blip
-        out(4, host.addBlip ? host.addBlip(num(0), num(1), num(2), inum(3), op == 0x04CE || op == 0x0570) : 0);
+        out(4, host.addBlip ? host.addBlip(num(0), num(1), num(2), inum(3), op == 0x04CE || op == 0x0570, op == 0x02A7 || op == 0x04CE) : 0);
         return true;
     case 0x0164:   // REMOVE_BLIP(blip)
         if (host.removeBlip) host.removeBlip(inum(0));
@@ -643,8 +643,8 @@ bool ScmMachine::Command(ScmThread& t, uint16_t op, std::vector<Arg>& args, bool
     case 0x018B:   // CHANGE_BLIP_DISPLAY(blip, mode)
         if (host.blipDisplay) host.blipDisplay(inum(0), inum(1));
         return true;
-    case 0x0256:   // IS_PLAYER_PLAYING(player): the player is always alive and in control here
-        result = true;
+    case 0x0256:   // IS_PLAYER_PLAYING(player): CPlayerInfo::m_nPlayerState == PLAYERSTATE_PLAYING
+        result = !host.playerPlaying || host.playerPlaying();
         return true;
     case 0x0417: {   // LOAD_AND_LAUNCH_MISSION_INTERNAL(index): the mission script becomes a thread of its own
         const ScmHeader& h = m_file.Header();
