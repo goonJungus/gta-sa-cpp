@@ -4828,6 +4828,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         }
                         g_vehicles.SetMouseFly((size_t)g_driveCar, g_flyMouseDX, g_flyMouseDY);
                     }
+                    {   // the car cheats: fly (cars and boats), drive on water, BMX mega jump
+                        VehicleInstance& dc = g_vehicles.Car((size_t)g_driveCar);
+                        dc.phys.cheatFly = Cheat::Active(Cheat::CarsFly) || (Cheat::Active(Cheat::BoatsFly) && g_vehicles.UsesBoatPhysics(dc.model));
+                        dc.phys.cheatWater = Cheat::Active(Cheat::CarsOnWater);
+                        dc.phys.cheatMegaJump = Cheat::Active(Cheat::MegaJump);
+                    }
                     if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust, gunUpDown)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
                                         [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },

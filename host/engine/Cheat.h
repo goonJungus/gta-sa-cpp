@@ -14,9 +14,9 @@ public:
         WeaponSet1 = 0, WeaponSet2, WeaponSet3, HealthArmorMoney, WantedUp, WantedDown,
         Sunny, ExtraSunny, Cloudy, Rainy, Foggy, FasterClock, FasterGameplay, SlowerGameplay,
         Mayhem, EverybodyAttacks, PedsArmed, Rhino, Bloodring, Rancher, HotringA, HotringB, Romero, Stretch,
-        Trashmaster, Caddy, BlowUpCars, InvisibleCars, Suicide = 29, PinkCars = 32, BlackCars,
+        Trashmaster, Caddy, BlowUpCars, InvisibleCars, Suicide = 29, PinkCars = 32, BlackCars, CarsOnWater, BoatsFly,
         Fat = 36, Muscle, Skinny, Elvis, Village, Beach, Gangs, GangLand, Ninja, LoveConquers,
-        CheapCars, FastCars, Hydra = 50, Vortex, Midnight = 55, Dusk, Storm, Sandstorm, Predator,
+        CheapCars, FastCars, CarsFly = 48, MegaJump, Hydra = 50, Vortex, Midnight = 55, Dusk, Storm, Sandstorm, Predator,
         InfiniteHealth = 61, InfiniteOxygen, Parachute, Jetpack, NotWanted, Wanted, MegaPunch = 67, Riot = 69, Funhouse, Adrenaline, Driveby = 73, GhostTown, Country,
         NeverHungry = 68, MaxRespect = 79, MaxSexAppeal, Stamina = 81, WeaponSkills, VehicleSkills, Hunter, Quad, Tanker, Dozer, StuntPlane, MonsterTruck,
         kCount = 92

@@ -989,7 +989,7 @@ void Vehicles::StepVehicle(size_t i, float ts, bool player, const VehicleWorld& 
     const HandlingData* h = nullptr;
     if (!Lookup(c.model, vm, h)) return;
     if (UsesBikePhysics(c.model)) { BikeStep(c, *vm, *h, ts, player, world); return; }
-    if (UsesBoatPhysics(c.model)) { BoatStep(c, *vm, *h, ts, player, world); return; }
+    if (UsesBoatPhysics(c.model)) { BoatStep(c, *vm, *h, ts, player, world); if (player) CheatPhysics(c, *h, ts, world); return; }
     // the car and the chain it tows: every ProcessControl (the links among them) first, then every move, as the
     // world's two passes do
     size_t chain[8];
@@ -1003,6 +1003,7 @@ void Vehicles::StepVehicle(size_t i, float ts, bool player, const VehicleWorld& 
     }
     for (int k = 0; k < n; k++) CarStep(m_cars[chain[k]], *vms[k], *hs[k], ts, k == 0 && player, world, false);
     for (int k = 0; k < n; k++) CarCollision(m_cars[chain[k]], *vms[k], *hs[k], ts, world);
+    if (player) CheatPhysics(c, *h, ts, world);
 }
 
 void Vehicles::SyncTowed(size_t i, float dt) {

@@ -667,3 +667,38 @@ void Vehicles::PlaneDamage(VehicleInstance& c, const HandlingData& h, const Vehi
     c.planeFireNode = part;
     c.planeFireMs = (float)(2000 + RandInt(2001));
 }
+
+// The cheats that bend the player's vehicle. cheatFly (CVehicle::FlyingControl via CAutomobile::ProcessFlyingCarStuff,
+// and CBoat's flag): gravity is cancelled while it is off the ground; gas and brake push along the nose, the
+// elevator keys pitch it, the wheel yaws and rolls it, and speed in the air gives lift. cheatWater (CAutomobile
+// 0x22): the surface holds the car up like ground.
+void Vehicles::CheatPhysics(VehicleInstance& c, const HandlingData& h, float ts, const VehicleWorld& world) {
+    CarPhys& p = c.phys;
+    if (!p.cheatFly && !p.cheatWater) return;
+    Body b = Load(c, h);
+    if (p.cheatFly) {
+        const bool onGround = p.numContactWheels > 2;
+        if (!onGround) b.mv.z += ts * 0.008f;   // no gravity in the air
+        const float push = p.inAccel - p.inBrake * 0.5f;
+        b.mv += b.fwd * (push * ts * 0.0016f);
+        const float speed = std::sqrt(b.mv.x * b.mv.x + b.mv.y * b.mv.y + b.mv.z * b.mv.z);
+        const float authority = std::min(speed / 0.5f, 1.0f);
+        b.ApplyTurnForce(b.right * (-p.inGunUpDown * b.turnMass * ts * 0.006f), b.fwd);     // pitch
+        if (onGround && p.inGunUpDown < 0.0f && speed > 0.2f) b.mv.z += ts * 0.012f;       // nose up at speed: it takes off
+        b.ApplyTurnForce(b.fwd * (-p.inSteer * b.turnMass * ts * 0.0016f * authority), b.up);    // roll into the turn
+        b.ApplyTurnForce(b.up * (-p.inSteer * b.turnMass * ts * 0.0010f * authority), b.fwd);    // and yaw
+        if (speed > 0.25f && !onGround) b.mv.z += ts * 0.0035f * std::min(1.0f, b.fwd.z + 0.4f) * authority;   // lift
+        const float damp = std::pow(0.985f, ts);
+        b.tv *= damp;
+    }
+    if (p.cheatWater && world.water) {
+        float wz = 0.0f;
+        if (world.water(b.pos.x, b.pos.y, &wz) && b.pos.z < wz + 0.35f) {
+            b.pos.z = wz + 0.35f;
+            if (b.mv.z < 0.0f) b.mv.z = 0.0f;
+            p.drowning = false;
+        }
+    }
+    Store(b, c);
+    SyncFromPhys(c, m_models.at(c.model));
+}

@@ -183,7 +183,7 @@ void Vehicles::BikeStep(VehicleInstance& c, const VehicleModel& vm, const Handli
             if (p.bmxHopLaunch > 0.0f) {   // CBmx::LaunchBunnyHopCB, both wheels on the ground
                 const bool front = p.wheelCounts[0] > 0.0f || p.wheelCounts[1] > 0.0f, rear = p.wheelCounts[2] > 0.0f || p.wheelCounts[3] > 0.0f;
                 if (front && rear) {
-                    const float power = (std::min(p.bmxHopLaunch / 25.0f, 1.0f) + 1.0f) * Stats::FatMuscleMod(6);
+                    const float power = (std::min(p.bmxHopLaunch / 25.0f, 1.0f) + 1.0f) * Stats::FatMuscleMod(6) * (p.cheatMegaJump ? 5.0f : 1.0f);   // CHEAT_MEGA_JUMP: the hop is five times as strong
                     b.mv += b.up * (0.06f * power);
                     b.ApplyTurnForce(b.up * (b.turnMass * 0.01f * power), b.fwd);
                 }

@@ -213,6 +213,7 @@ struct CarPhys {
     bool handbrake = false, burnout = false, hitWall = false;
     float tireTemp = 1.0f;
     int numContactWheels = 0, driveWheelsOnGround = 0;
+    bool cheatFly = false, cheatWater = false, cheatMegaJump = false;   // the cars fly / drive on water / BMX mega jump cheats (set by the host on the driven vehicle)
     int fakePhysics = 0;              // abandoned and at rest this many frames: speeds are zeroed (m_nFakePhysics)
     float avgForce[3] = {0, 0, 0}, avgTorque[3] = {0, 0, 0};   // m_vecForce / m_vecTorque: smoothed speeds for the rest test
     float inAccel = 0.0f, inBrake = 0.0f, inSteer = 0.0f;      // the pad this frame (accelerate, brake/reverse, -1 left .. 1 right)
@@ -648,6 +649,7 @@ private:
     void ProcessBomb(VehicleInstance& c, float dt, bool player);
     void PlaneStumpFire(VehicleInstance& c, float dt, const std::function<void(const float*)>& onFire) const;
     void BladeStrike(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const float pointIn[3], const float normalIn[3]);
+    void CheatPhysics(VehicleInstance& c, const HandlingData& h, float ts, const VehicleWorld& world);   // CCheat flags 0x30, 0x23 and 0x22
     void HeliFlyingCarStuff(VehicleInstance& c, const HandlingData& h, float ts, bool player, const VehicleWorld& world);
     void HeliRotors(VehicleInstance& c, float ts);
     void HeliBladeCollision(VehicleInstance& c, const VehicleModel& vm, const HandlingData& h, float ts, const VehicleWorld& world);
