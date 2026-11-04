@@ -63,7 +63,7 @@ void IdleCam::Reset() {   // CIdleCam::Reset
 }
 
 void IdleCam::LookAt(const Target& t, float out[3]) const {   // GetLookAtPositionOnTarget
-    out[0] = t.pos[0]; out[1] = t.pos[1]; out[2] = t.pos[2] + (t.ped ? 0.5f : 0.0f);
+    out[0] = t.pos[0]; out[1] = t.pos[1]; out[2] = t.pos[2] + (t.ped ? t.lookUp : 0.0f);
 }
 
 void IdleCam::SetTarget(const Target& t, const float eye[3], const float curFront[3]) {   // CIdleCam::SetTarget
@@ -125,8 +125,57 @@ void IdleCam::ProcessFOVZoom(float slerpT, const float eye[3], const LosFn& los)
     }
 }
 
+// CIdleCam::IsTargetValid: the player always; anything else 4 to 80 m from the camera, and once the turn
+// toward it is done in clear sight (it may be hidden for 14 frames before it is given up on).
+bool IdleCam::IsTargetValid(const Target& t, const float eye[3], const LosFn& los) {
+    if (!t.valid) return false;
+    if (t.player) return true;
+    float at[3];
+    LookAt(t, at);
+    const float dx = eye[0] - at[0], dy = eye[1] - at[1], dz = eye[2] - at[2];
+    const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (d < m_distTooClose || d > m_distTooFar) return false;
+    if (m_slerpTime >= 1.0f && los && !los(eye, at) && m_losCounter++ > m_losFramesToReject) return false;
+    return true;
+}
+
+// CIdleCam::ProcessTargetSelection
+void IdleCam::ProcessTargetSelection(const Target& player, const float eye[3], const float curFront[3], const LosFn& los,
+                                     InterestingEvents* events, const InterestingEvents::Frame* frame) {
+    float since = m_now - m_timeTargetSelected;
+    if (m_zoomState != 3 && m_losCounter < 1) since /= m_zoomedInTimeFactor;
+    const auto toPlayer = [&] { SetTarget(player, eye, curFront); m_forceZoomOut = true; };
+    if (since > m_timeMinLookAtSomething && events && frame) {
+        events->InvalidateNonVisible(*frame);
+        const InterestingEvents::Event* ev = events->Get(frame->now);
+        bool done = false;
+        if (!ev) {
+            if ((m_target.valid && IsTargetValid(m_target, eye, los)) || m_target.player) done = true;
+            else if (m_zoomState == 3) { toPlayer(); done = true; }
+        } else if (m_target.valid && m_target.ref == ev->ref) {
+            if (!IsTargetValid(m_target, eye, los)) events->Invalidate(ev);
+            done = true;
+        } else {
+            Target nt;
+            nt.valid = frame->resolve && frame->resolve(ev->ref, nt.pos, &nt.ped, &nt.lookUp);
+            nt.ref = ev->ref;
+            if (!IsTargetValid(nt, eye, los)) done = true;
+            else if (m_zoomState == 3) { SetTarget(nt, eye, curFront); done = true; }
+        }
+        if (!done) m_forceZoomOut = true;   // zoom out first, then it looks at the new thing
+    }
+    if (!m_target.valid) { m_forceZoomOut = true; toPlayer(); }
+    if (!IsTargetValid(m_target, eye, los) && since > m_timeMinLookAtSomething) {
+        if (m_zoomState == 3) SetTarget(player, eye, curFront);
+        m_forceZoomOut = true;
+        if (m_losCounter > 0) toPlayer();
+    }
+    if (m_losCounter > m_losFramesToReject) toPlayer();
+}
+
 bool IdleCam::Process(float dtMs, bool touched, const float eye[3], const float curFront[3], const Target& player,
-                      const LosFn& los, float front[3], float& fov) {
+                      const LosFn& los, float front[3], float& fov, InterestingEvents* events,
+                      const InterestingEvents::Frame* frame) {
     m_now += dtMs;
     // CIdleCam::ProcessIdleCamTicker: the time since the pad last changed
     if (touched) m_idleMs = 0.0f; else m_idleMs += dtMs;
@@ -140,9 +189,13 @@ bool IdleCam::Process(float dtMs, bool touched, const float eye[3], const float 
     }
     m_active = true;
 
-    // CIdleCam::ProcessTargetSelection with no interesting events: the player, always valid
-    if (!m_target.valid) { SetTarget(player, eye, curFront); m_forceZoomOut = true; }
-    else if (m_target.player) m_target = player;   // follow him as he is
+    // the target as it is now: the player where he stands, an event entity where it is (gone: no target)
+    if (m_target.valid && m_target.player) m_target = player;
+    else if (m_target.valid && frame && frame->resolve) {
+        const InterestingEvents::Ref r = m_target.ref;
+        m_target.valid = frame->resolve(r, m_target.pos, &m_target.ped, &m_target.lookUp);
+    }
+    ProcessTargetSelection(player, eye, curFront, los, events, frame);
 
     const float shake = std::min(1.0f, (m_now - m_timeStarted) / m_shakeBuildUp);
 

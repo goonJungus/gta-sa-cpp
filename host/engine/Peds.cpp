@@ -471,12 +471,31 @@ bool Peds::StealthKill(int actor) {
     return true;
 }
 
+int Peds::PedType(size_t i) const {
+    if (i >= m_actors.size()) return -1;
+    const auto it = m_info.find(m_actors[i].model);
+    if (it == m_info.end()) return -1;
+    const std::string& t = it->second.type;
+    if (t == "CIVMALE") return 4;
+    if (t == "CIVFEMALE") return 5;
+    if (t == "COP") return 6;
+    if (t.compare(0, 4, "GANG") == 0) return 6 + std::atoi(t.c_str() + 4);
+    if (t == "DEALER") return 17;
+    if (t == "MEDIC") return 18;
+    if (t == "FIREMAN") return 19;
+    if (t == "CRIMINAL") return 20;
+    if (t == "BUM") return 21;
+    if (t == "PROSTITUTE") return 22;
+    return -1;
+}
+
 bool Peds::Damage(int actor, float damage, bool head) {
     if (actor < 0 || (size_t)actor >= m_actors.size()) return false;
     Actor& a = m_actors[(size_t)actor];
     if (a.dead) return false;
     a.health -= head ? 1000.0f : damage * 1.5f;
     a.fleeTimer = 8.0f;
+    if (onDamage) onDamage(a.uid, a.health <= 0.0f);
     if (a.health > 0.0f) return false;
     a.dead = true; a.deadTime = 0.0f; a.animTime = 0.0f; a.walking = false;
     auto it = m_models.find(a.model);

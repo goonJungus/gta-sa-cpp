@@ -141,8 +141,8 @@ Source: CPathFind, CCarCtrl, CPopulation, CPopCycle, CWanted, CGangWars, CGarage
 - [ ] Animals and wildlife: dogs, cats, birds, sharks, dolphins, fish, cows, horses, ambient water life (w 1)
 - [ ] Prop physics gaps: toppling, uprooting, breakable parts, real COL shapes per prop (w 2)
 - [ ] Occlusion and cull zones, LOD timing, streaming of IPL groups and cutscene objects (CCullZones, COcclusion, CStreaming) (w 2)
-- [~] Replay feature (CReplay) and the idle camera (CIdleCam); done: CIdleCam and CHandShaker (90 s kick-in, eased turn, FOV zoom on far targets, hand shake); left: CReplay, idle camera targets from CInterestingEvents (w 1)
-- [ ] Interesting events and the ped awareness scanners (CInterestingEvents) (w 1)
+- [~] Replay feature (CReplay) and the idle camera (CIdleCam); done: CIdleCam and CHandShaker (90 s kick-in, eased turn, FOV zoom on far targets, hand shake); idle camera targets from CInterestingEvents (target selection, validity, 5 s minimum, zoom-out before a switch); left: CReplay (w 1)
+- [~] Interesting events (CInterestingEvents): the 8 slots with the retail priority and delay tables, Add (search circle, in-front test, line of sight, replacement rules), GetInterestingEvent, invalidation, the 500 ms scan of cops, criminals, prostitutes, gangs and cars; fed by explosions, fights, hurt and killed peds. Not fed yet: weapon fire, car crashes, helicopters, sunbathers, attractors, medics, road rage (no such behaviour yet). The ped awareness scanners (CEventScanner) are not ported (w 1)
 
 ## Gap list: story and scripts
 Source: main.scm, CRunningScript, CTheScripts, CStreamedScripts, CCutsceneMgr and the 100% checklist.

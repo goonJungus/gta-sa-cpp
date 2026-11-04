@@ -52,6 +52,7 @@ if(WIN32)
         host/engine/Vending.cpp
         host/engine/Shopping.cpp
         host/engine/IdleCam.cpp
+        host/engine/InterestingEvents.cpp
         host/engine/PlayerVending.cpp
         host/engine/Markers3D.cpp
         host/engine/Delirium.cpp

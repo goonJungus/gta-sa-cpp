@@ -28,6 +28,10 @@ public:
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return m_ready; }
     int ModelCount() const { return (int)m_pool.size(); }
+    // ePedType of a ped (peds.ide): 4 civilian man, 5 civilian woman, 6 cop, 7..16 the gangs, 20 criminal, 22 prostitute; -1 unknown.
+    int PedType(size_t i) const;
+    // CEventHandler::ComputeDamageResponse: a ped was hurt (uid, killed by it).
+    std::function<void(int uid, bool killed)> onDamage;
     // CStreaming::StreamPedsIntoRandomSlots: the models the next crowd peds are drawn from (the elvis, ninja,
     // beach party... cheats). Ids with no ped definition are dropped; an empty list is the normal civilian pool.
     int CrowdModelCount() const { return (int)m_crowdModels.size(); }

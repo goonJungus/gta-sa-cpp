@@ -71,6 +71,7 @@
 #include "Markers3D.h"
 #include "IdleCam.h"
 #include "Shopping.h"
+#include "InterestingEvents.h"
 #include "EntryExit.h"
 #include "WeaponInfo.h"
 #include "Speech.h"
@@ -98,6 +99,16 @@ static GameLogic g_logic;   // CGameLogic: Wasted / Busted and the restart point
 static Vending g_vending;   // vending_machine.scm: the drink and snack machines
 static Markers3D g_markers;   // C3dMarkers, user 3D markers, CCheckpoints
 static Shopping g_shop;   // CShopping: shopping.dat prices, shops and purchases
+static InterestingEvents g_events;   // CInterestingEvents: what the idle camera may watch
+static InterestingEvents::Frame g_evFrame;   // the camera and world as of the last frame, for the events the world reports
+static uint32_t g_eventMs = 0;
+static void FeedEvent(int type, int kind, int id, const float* at = nullptr) {   // CInterestingEvents::Add
+    InterestingEvents::Ref r;
+    r.kind = kind; r.id = id;
+    if (at) { r.pos[0] = at[0]; r.pos[1] = at[1]; r.pos[2] = at[2]; }
+    g_evFrame.now = g_eventMs;
+    g_events.Add(type, r, g_evFrame);
+}
 static IdleCam g_idleCam;   // CIdleCam: the camera that looks about after 90 s without input
 static bool g_inputTouched = false;   // CPad::LastTimeTouched: a key, a click, the wheel or the mouse moved since the last frame
 static float g_idleFov = 0.0f;        // the idle camera's FOV this frame (0: not running)
@@ -1748,6 +1759,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     g_shop.hooks.clearWantedAndParole = [] { g_wanted = 0; };
     g_shop.hooks.log = [](const char* m) { Log("%s", m); };
     g_shop.Init(GameDir());
+    g_peds.onDamage = [](int uid, bool killed) { FeedEvent(killed ? InterestingEvents::PedDead : InterestingEvents::PedDamaged, InterestingEvents::Ref::Ped, uid); };
     if (!scmRun) g_logic.AddRetailRestartPoints();   // the main script adds them itself (ADD_HOSPITAL_RESTART)
     g_logic.hooks.log = [](const char* s) { Log("%s", s); };
     g_logic.hooks.money = [] { return g_money; };
@@ -4277,6 +4289,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if ((s_statSave += dt) > 5.0f) { s_statSave = 0.0f; Stats::Save(g_iniPath); }
             }
             for (const Peds::Strike& st : g_peds.TakeStrikes()) {   // a ped out for CJ lands a punch
+                { const float at[3] = {st.x, st.y, playerZ - EYE_HEIGHT}; FeedEvent(InterestingEvents::Melee, InterestingEvents::Ref::Point, 0, at); }   // CTaskComplexKillPedOnFootMelee
                 if (g_cj.MeleeHit(st.x, st.y, playerX, playerY, 1)) g_cj.AddHealth(-8.0f);
                 if (getenv("GTA_TRAFFICDBG")) fprintf(stderr, "[RAGE] strike from %.1f %.1f, health now %.0f", st.x, st.y, g_cj.Health()), fputc(10, stderr);
             }
@@ -5081,12 +5094,68 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     pt.pos[0] = playerX; pt.pos[1] = playerY; pt.pos[2] = playerZ - EYE_HEIGHT + 1.0f;
                     IdleCam::LosFn los;
                     if (worldReady) los = [](const float* a, const float* b) { return g_world.RayCast(a[0], a[1], a[2], b[0], b[1], b[2]) >= 1.0f; };
+                    // CInterestingEvents: the camera and the world as the events see them this frame
+                    g_eventMs += (uint32_t)(dt * 1000.0f);
+                    g_evFrame.now = g_eventMs;
+                    for (int k = 0; k < 3; k++) g_evFrame.cam[k] = co.eye[k];
+                    g_evFrame.player[0] = playerX; g_evFrame.player[1] = playerY; g_evFrame.player[2] = pt.pos[2];
+                    g_evFrame.playerFwd[0] = std::cos(g_cj.Heading()); g_evFrame.playerFwd[1] = std::sin(g_cj.Heading());
+                    g_evFrame.los = los;
+                    g_evFrame.resolve = [px = playerX, py = playerY, pz = pt.pos[2]](const InterestingEvents::Ref& r, float pos[3], bool* ped, float* lookUp) {   // by value: it outlives this block
+                        *ped = false; *lookUp = 0.5f;
+                        switch (r.kind) {
+                        case InterestingEvents::Ref::Ped: {
+                            const int i = g_peds.FindUid(r.id);
+                            if (i < 0) return false;
+                            pos[0] = g_peds.X((size_t)i); pos[1] = g_peds.Y((size_t)i); pos[2] = g_peds.Z((size_t)i);
+                            *ped = true;
+                            const int t = g_peds.PedType((size_t)i);
+                            if (t == 5 || t == 22) *lookUp = 0.1f;   // GetLookAtPositionOnTarget: a woman is looked at a tenth up
+                            return true;
+                        }
+                        case InterestingEvents::Ref::Car:
+                            if (r.id < 0 || (size_t)r.id >= g_vehicles.Count()) return false;
+                            pos[0] = g_vehicles.Car((size_t)r.id).x; pos[1] = g_vehicles.Car((size_t)r.id).y; pos[2] = g_vehicles.Car((size_t)r.id).z;
+                            return true;
+                        case InterestingEvents::Ref::Player: pos[0] = px; pos[1] = py; pos[2] = pz; *ped = true; return true;
+                        case InterestingEvents::Ref::Point: pos[0] = r.pos[0]; pos[1] = r.pos[1]; pos[2] = r.pos[2]; return true;
+                        default: return false;
+                        }
+                    };
+                    if (g_events.ScanDue(g_eventMs) && worldReady) {   // ScanForNearbyEntities: the peds and cars around
+                        std::vector<InterestingEvents::Candidate> around;
+                        for (size_t pi = 0; pi < g_peds.Count(); pi++) {
+                            if (!g_peds.Alive(pi)) continue;
+                            const float dx = g_peds.X(pi) - playerX, dy = g_peds.Y(pi) - playerY;
+                            if (dx * dx + dy * dy > 70.0f * 70.0f) continue;
+                            InterestingEvents::Candidate c;
+                            c.ref.kind = InterestingEvents::Ref::Ped; c.ref.id = g_peds.Uid(pi);
+                            c.pos[0] = g_peds.X(pi); c.pos[1] = g_peds.Y(pi); c.pos[2] = g_peds.Z(pi);
+                            c.pedType = g_peds.PedType(pi);
+                            around.push_back(c);
+                        }
+                        for (size_t vi = 0; vi < g_vehicles.Count(); vi++) {
+                            const VehicleInstance& v = g_vehicles.Car(vi);
+                            if (v.wrecked) continue;
+                            const float dx = v.x - playerX, dy = v.y - playerY;
+                            if (dx * dx + dy * dy > 70.0f * 70.0f) continue;
+                            InterestingEvents::Candidate c;
+                            c.ref.kind = InterestingEvents::Ref::Car; c.ref.id = (int)vi;
+                            c.pos[0] = v.x; c.pos[1] = v.y; c.pos[2] = v.z;
+                            around.push_back(c);
+                        }
+                        g_events.Scan(g_evFrame, around);
+                    }
                     float idf[3], ifov = 70.0f;
                     const bool canIdle = !ci.aimWeapon && !g_scoped && !co.firstPerson && !g_freeCam;
                     if (!canIdle) g_idleCam.NotFollowingPed();
-                    else if (g_idleCam.Process(dt * 1000.0f, padTouched, co.eye, co.dir, pt, los, idf, ifov)) {
+                    else if (g_idleCam.Process(dt * 1000.0f, padTouched, co.eye, co.dir, pt, los, idf, ifov, &g_events, &g_evFrame)) {
                         for (int k = 0; k < 3; k++) co.dir[k] = idf[k];
                         g_idleFov = ifov;
+                        static int s_lastKind = -2, s_lastId = -2;
+                        const IdleCam::Target& ct = g_idleCam.Current();
+                        const int ck = ct.player ? 3 : ct.ref.kind, cid = ct.player ? 0 : ct.ref.id;
+                        if (ck != s_lastKind || cid != s_lastId) { s_lastKind = ck; s_lastId = cid; Log("IDLECAM target kind %d id %d at %.1f %.1f %.1f, fov %.0f, events used %d", ck, cid, ct.pos[0], ct.pos[1], ct.pos[2], ifov, g_events.Used()); }
                     }
                 }
                 if (getenv("GTA_CAMDBG") && frame % 30 == 0)
@@ -5631,6 +5700,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         if (g > -1e5f && std::fabs(g - p[2]) < r && g_fires.NumInRange(p, 2.0f) == 0) { const float fp[3] = {p[0], p[1], g}; g_fires.StartFire(fp, 0.8f, true, 7000.0f, 100); }
                     };
                     eh.trigger = [&](const float* p, float radius, float visible, float damage) {   // CWorld::TriggerExplosion
+                        FeedEvent(InterestingEvents::Explosion, InterestingEvents::Ref::Point, 0, p);   // CExplosion::AddExplosion
                         if (worldReady) g_world.DynExplosion(p, radius, visible);
                         int killed = 0;
                         for (size_t i = 0; i < g_peds.Count(); i++) {   // peds: min(1, 2 (R - d) / R) * 250
