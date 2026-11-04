@@ -19,6 +19,7 @@
 #include "Stats.h"
 #include "Vehicle.h"
 #include "GameLogic.h"
+#include "Shopping.h"
 #include "Markers3D.h"
 
 namespace {
@@ -976,7 +977,28 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x05AD: case 0x05AE: c.result = c.S(0) == c.S(1); return true;                       // IS_(L)VAR_TEXT_LABEL_EQUAL_TO_TEXT_LABEL
     case 0x08F9: case 0x08FA: c.result = c.S(0, 16) == c.S(1); return true;                   // IS_(L)VAR_TEXT_LABEL16_EQUAL_TO_TEXT_LABEL
     case 0x01C0: c.Out(1, wantedLevel ? wantedLevel() : 0); return true;                      // STORE_WANTED_LEVEL
-    case 0x07B0: c.Out(0, -1); return true;                                                   // GET_LOADED_SHOP: none
+    // ---- shops (CShopping) ----------------------------------------------------------------
+    case 0x075D: if (shop) shop->LoadPrices(c.S(0, 16)); return true;                          // LOAD_PRICES
+    case 0x075E: if (shop) shop->LoadShop(c.S(0, 16)); return true;                           // LOAD_SHOP
+    case 0x075F: c.Out(0, shop ? shop->NumItems() : 0); return true;                           // GET_NUMBER_OF_ITEMS_IN_SHOP
+    case 0x0760: c.Out(1, shop ? (int32_t)shop->ItemInShop(c.I(0)) : 0); return true;          // GET_ITEM_IN_SHOP
+    case 0x0761: c.Out(1, shop ? shop->GetPrice((uint32_t)c.I(0)) : 0); return true;           // GET_PRICE_OF_ITEM
+    case 0x0783: c.Out(2, shop ? (int32_t)shop->GetExtraInfo((uint32_t)c.I(0), c.I(1)) : 0); return true;   // GET_SHOPPING_EXTRA_INFO
+    case 0x078C: c.OutStr(1, shop ? shop->NameTag((uint32_t)c.I(0)) : std::string()); return true;          // GET_NAME_OF_ITEM
+    case 0x0790: if (shop) shop->Buy((uint32_t)c.I(0)); return true;                           // BUY_ITEM
+    case 0x0942: c.result = shop && shop->HasPlayerBought((uint32_t)c.I(0)); return true;      // HAS_PLAYER_BOUGHT_ITEM
+    case 0x07B0: {                                                                             // GET_LOADED_SHOP
+        std::string n = shop ? shop->ShopLoaded() : std::string();
+        for (char& ch : n) ch = (char)std::toupper((unsigned char)ch);
+        c.OutStr(0, n);
+        return true;
+    }
+    case 0x082F: if (shop) shop->SetCurrentProperty(c.I(0)); return true;                      // SET_CURRENT_BUYABLE_PROPERTY
+    case 0x087C: if (shop) shop->RemoveLoadedShop(); return true;                              // CLEAR_LOADED_SHOP
+    case 0x08C8: if (shop) shop->AddPriceModifier((uint32_t)c.I(0), c.I(1)); return true;      // ADD_PRICE_MODIFIER
+    case 0x08C9: if (shop) shop->RemovePriceModifier((uint32_t)c.I(0)); return true;           // REMOVE_PRICE_MODIFIER
+    case 0x096B: if (shop && shop->hooks.storeVehicleMods) shop->hooks.storeVehicleMods(); return true;     // STORE_CAR_MOD_STATE
+    case 0x096C: if (shop && shop->hooks.restoreVehicleMods) shop->hooks.restoreVehicleMods(); return true; // RESTORE_CAR_MOD_STATE
     // ---- stats ----------------------------------------------------------------------------
     case 0x0629: Stats::Set(c.I(0), (float)c.I(1)); return true;                             // SET_INT_STAT
     case 0x062A: Stats::Set(c.I(0), c.F(1)); return true;                                    // SET_FLOAT_STAT

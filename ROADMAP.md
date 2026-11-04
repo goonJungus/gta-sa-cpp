@@ -130,7 +130,7 @@ Source: CPathFind, CCarCtrl, CPopulation, CPopCycle, CWanted, CGangWars, CGarage
 - [ ] Shops and interiors: Ammu-Nation, food, clothes, tattoo, barber, casino, gym, pool halls, bars, strip clubs, safehouses (w 3)
 - [ ] Pickups: weapons, health, armour, money, hidden packages, oysters, horseshoes, snapshots, properties, asset icons (CPickups, CPickup) (w 2)
 - [ ] Properties and assets: buy 24 properties and 5 hotel suites, income, asset missions, safehouse saves and garages (w 3)
-- [ ] Shopping tables (CShopping): prices, items, buy flow (w 1)
+- [x] Shopping tables (CShopping): shopping.dat read in full (544 items, 25 shops), keys as retail (car mods by component model id, weapons by type, the rest by name hash), LOAD_PRICES / LOAD_SHOP / item, price, extra info and name tag lookups, BUY_ITEM (money, the two stat changes, budgets, clothes / haircut / tattoo / weapon / armour / food effects, parole on a new look), bought list, price modifiers, clothes try-on store and restore. The car mod store / restore and the fits-my-car filter wait for the mod shop mission (w 1)
 - [ ] Day and night effects on populations, shop hours, radio schedule, 24-7 stores (w 1)
 - [ ] Weather: rain, fog, thunderstorm, sandstorm, heat haze, wind, wet roads (CWeather, CWindModifiers, Fx) (w 2)
 - [~] Water: waves (done: the three swells of CalculateWavesOnlyForCoordinate on the 2 m lattice with the retail multiplier tables, from each poly's mean bigWaves / smallWaves, drawn as a displaced 4 m grid within 96 m of the camera and added to GetWaterLevel for boats and swimmers; left: per-vertex amplitudes, wave normals, glare), flowing rivers, volumetric clouds, water creatures (WaterCreature_c), underwater effects (CWaterLevel, CClouds) (w 3)

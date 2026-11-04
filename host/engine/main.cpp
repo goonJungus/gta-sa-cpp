@@ -70,6 +70,7 @@
 #include "Vending.h"
 #include "Markers3D.h"
 #include "IdleCam.h"
+#include "Shopping.h"
 #include "EntryExit.h"
 #include "WeaponInfo.h"
 #include "Speech.h"
@@ -96,6 +97,7 @@ static Pickups g_pickups;   // CPickups: 620 slots
 static GameLogic g_logic;   // CGameLogic: Wasted / Busted and the restart points (CRestart)
 static Vending g_vending;   // vending_machine.scm: the drink and snack machines
 static Markers3D g_markers;   // C3dMarkers, user 3D markers, CCheckpoints
+static Shopping g_shop;   // CShopping: shopping.dat prices, shops and purchases
 static IdleCam g_idleCam;   // CIdleCam: the camera that looks about after 90 s without input
 static bool g_inputTouched = false;   // CPad::LastTimeTouched: a key, a click, the wheel or the mouse moved since the last frame
 static float g_idleFov = 0.0f;        // the idle camera's FOV this frame (0: not running)
@@ -1646,8 +1648,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             Log("SCM: IS_PLAYER_WEARING part %d %s -> %d", part, tex, (int)w);
             return w;
         };
-        s_scm.host.storeClothes = [&] { if (cjReady) g_storedOutfit = g_cj.Outfit(); Log("SCM: clothes stored"); };
-        s_scm.host.restoreClothes = [&] { if (cjReady) g_cj.SetOutfit(g_storedOutfit); Log("SCM: clothes restored"); };
+        s_scm.host.storeClothes = [&] { if (cjReady) g_shop.StoreClothesState(); Log("SCM: clothes stored"); };   // CShopping::StoreClothesState
+        s_scm.host.restoreClothes = [&] { if (cjReady) g_shop.RestoreClothesState(); Log("SCM: clothes restored"); };
         if (const char* hex = getenv("GTA_SCMSNIP")) {   // dev: hex bytes run as a script thread, e.g. the clothes opcodes
             std::vector<uint8_t> code;
             for (const char* q = hex; q[0] && q[1]; q += 2) { char b[3] = {q[0], q[1], 0}; code.push_back((uint8_t)strtoul(b, nullptr, 16)); }
@@ -1662,7 +1664,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         s_scm.host.setTime = [&](int h, int m) { g_gameSeconds = h * 3600.0f + m * 60.0f; Log("SCM: time of day %02d:%02d", h, m); };
         g_sg.scm = &s_scm; g_sg.peds = &g_peds; g_sg.cars = &g_vehicles; g_sg.r = &g_renderer; g_sg.hud = &g_hud; g_sg.trains = &g_trains;
         g_sg.wantedLevel = [] { return g_wanted; }; g_sg.setWantedLevel = [](int w) { g_wanted = w; };
-        g_sg.pickups = &g_pickups; g_sg.logic = &g_logic; g_sg.markers = &g_markers; g_sg.enex = &g_enex; g_sg.carGens = &g_carGens; g_sg.garages = &g_garages; g_sg.pop = &g_pop;
+        g_sg.pickups = &g_pickups; g_sg.logic = &g_logic; g_sg.shop = &g_shop; g_sg.markers = &g_markers; g_sg.enex = &g_enex; g_sg.carGens = &g_carGens; g_sg.garages = &g_garages; g_sg.pop = &g_pop;
         g_sg.getArea = [] { return g_world.Area(); };
         g_sg.setArea = [](int a) { Log("SCRIPT: area %d", a); g_world.SetArea(a); g_enex.ForceArea(a); }; g_sg.nowMs = [] { return (uint32_t)g_bulletMs; };
         g_sg.playerInCar = [] { return g_driveCar >= 0; };
@@ -1737,6 +1739,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     const float GROUND_Z = 9.0f;     // safety-net grass plane; below lowest retail ground (~9.13)
     // ---- CGameLogic / CRestart: Wasted and Busted ----
     g_logic.Init(GameDir());
+    g_shop.hooks.money = [] { return g_money; };
+    g_shop.hooks.addMoney = [](int n) { g_money += n; };
+    g_shop.hooks.outfit = [&] { return g_cj.Outfit(); };
+    g_shop.hooks.setOutfit = [&](const PedClothesDesc& d) { g_cj.SetOutfit(d); };
+    g_shop.hooks.giveWeapon = [&](int w, int a) { if (cjReady) { g_cj.GiveWeapon(w, a); g_cj.SelectGun(g_cj.GunIndexOfType(w)); } };
+    g_shop.hooks.fillArmour = [&] { g_cj.SetArmor(100.0f); };
+    g_shop.hooks.clearWantedAndParole = [] { g_wanted = 0; };
+    g_shop.hooks.log = [](const char* m) { Log("%s", m); };
+    g_shop.Init(GameDir());
     if (!scmRun) g_logic.AddRetailRestartPoints();   // the main script adds them itself (ADD_HOSPITAL_RESTART)
     g_logic.hooks.log = [](const char* s) { Log("%s", s); };
     g_logic.hooks.money = [] { return g_money; };
@@ -3825,6 +3836,26 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         q += used;
                         while (*q == ';') q++;
                     }
+                }
+                if (const char* st = getenv("GTA_SHOPTEST"); st && frame == 12) {   // dev: "shop[:buyIndex[:buyIndex]]" loads the shop, lists it and buys those items
+                    std::string spec = st;
+                    std::vector<int> buys;
+                    const size_t c1 = spec.find(':');
+                    std::string shopName = spec.substr(0, c1);
+                    for (size_t q = c1; q != std::string::npos;) { buys.push_back(atoi(spec.c_str() + q + 1)); q = spec.find(':', q + 1); }
+                    g_shop.LoadShop(shopName);
+                    Log("SHOPTEST %s: %d items, money %d", shopName.c_str(), g_shop.NumItems(), g_money);
+                    for (int k = 0; k < g_shop.NumItems() && k < 6; k++) {
+                        const uint32_t key = g_shop.ItemInShop(k);
+                        Log("SHOPTEST   item %d key %u tag %s price %d extra %u/%u", k, key, g_shop.NameTag(key).c_str(), g_shop.GetPrice(key), g_shop.GetExtraInfo(key, 0), g_shop.GetExtraInfo(key, 1));
+                    }
+                    for (int bi : buys) if (bi >= 0 && bi < g_shop.NumItems()) {
+                        const uint32_t key = g_shop.ItemInShop(bi);
+                        g_shop.Buy(key);
+                        Log("SHOPTEST bought %d (%s): money %d, bought flag %d, respect %.1f fat %.1f appearance %.1f", bi, g_shop.NameTag(key).c_str(), g_money, (int)g_shop.HasPlayerBought(key), Stats::Get(Stats::STAT_CLOTHES_RESPECT), Stats::Get(Stats::STAT_FAT), Stats::Get(Stats::STAT_APPEARANCE));
+                    }
+                    g_shop.LoadShop("bought");
+                    Log("SHOPTEST bought list: %d items", g_shop.NumItems());
                 }
                 if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
                 if (getenv("GTA_ADRENALINE") && frame == 5) { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }

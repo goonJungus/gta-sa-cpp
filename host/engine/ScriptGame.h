@@ -26,6 +26,7 @@ class EntryExit;
 class Vehicles;
 class CarGenerators;
 class GameLogic;
+class Shopping;
 class Markers3D;
 
 // The camera the script placed (CCamera in fixed mode). main applies it over the player camera.
@@ -56,7 +57,8 @@ public:
     D3DRenderer* r = nullptr;
     Hud* hud = nullptr;
     Pickups* pickups = nullptr;
-    GameLogic* logic = nullptr;         // CGameLogic / CRestart: death, arrest and the restart points
+    GameLogic* logic = nullptr;
+    Shopping* shop = nullptr;                                    // CShopping: the shop scripts' prices, items and purchases         // CGameLogic / CRestart: death, arrest and the restart points
     Markers3D* markers = nullptr;       // C3dMarkers / CCheckpoints: locate rings, user markers, checkpoints
     bool OnMission() const;             // the DECLARE_MISSION_FLAG variable is set
     // A car or char blip: the entity's position now and its cone height and size (false: a coord blip, or gone).

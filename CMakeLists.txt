@@ -50,6 +50,7 @@ if(WIN32)
         host/engine/Speech.cpp
         host/engine/GameLogic.cpp
         host/engine/Vending.cpp
+        host/engine/Shopping.cpp
         host/engine/IdleCam.cpp
         host/engine/PlayerVending.cpp
         host/engine/Markers3D.cpp
