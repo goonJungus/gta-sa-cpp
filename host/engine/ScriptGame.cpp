@@ -818,7 +818,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x0904: c.Out(1, 255); c.Out(2, 255); c.Out(3, 255); c.Out(4, 255); return true;        // GET_HUD_COLOUR: white
     // ---- save, input, audio and world switches with nothing behind them yet -------------------------
     case 0x03D8: case 0x043C: case 0x04F9: case 0x04FA: case 0x057E: case 0x07B4: case 0x07CC: case 0x0830: case 0x08DC: case 0x08F5:
-    case 0x0949: case 0x094A: case 0x097A: case 0x097B: case 0x0A43: return true;
+    case 0x0949: case 0x097A: case 0x097B: case 0x0A43: return true;
     case 0x03D9: c.result = true; return true;                                                   // HAS_SAVE_GAME_FINISHED
     case 0x0494: c.Out(1, 0); c.Out(2, 0); c.Out(3, 0); c.Out(4, 0); return true;                 // GET_POSITION_OF_ANALOGUE_STICKS
     case 0x07B1: c.OutF(0, 0.0f); return true;                                                   // GET_BEAT_PROXIMITY
@@ -1136,6 +1136,11 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     // ---- pickups -----------------------------------------------------------------------------
     case 0x0213: c.Out(5, AddPickup(c.I(0), c.I(1), -1, c.F(2), c.F(3), c.F(4))); return true;                 // CREATE_PICKUP(model, type, x, y, z)
     case 0x032B: c.Out(6, AddPickup(c.I(0), c.I(1), c.I(2), c.F(3), c.F(4), c.F(5))); return true;             // CREATE_PICKUP_WITH_AMMO(model, type, ammo, x, y, z)
+    case 0x094A: {   // UPDATE_PICKUP_MONEY_PER_DAY(pickup, amount)
+        const int h = c.I(0);
+        if (pickups && h >= 1 && (size_t)h <= m_pickups.size()) pickups->SetMoneyPerDay(m_pickups[(size_t)h - 1].slot, c.I(1));
+        return true;
+    }
     case 0x0958: c.Out(3, AddPickup(1253, Pickups::TypeSnapshot, 0, c.F(0), c.F(1), c.F(2))); return true;         // CREATE_SNAPSHOT_PICKUP
     case 0x0959: c.Out(3, AddPickup(954, Pickups::Once, 0, c.F(0), c.F(1), c.F(2))); return true;             // CREATE_HORSESHOE_PICKUP
     case 0x095A: c.Out(3, AddPickup(953, Pickups::Once, 0, c.F(0), c.F(1), c.F(2))); return true;              // CREATE_OYSTER_PICKUP

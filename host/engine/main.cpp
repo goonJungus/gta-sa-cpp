@@ -3896,6 +3896,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     Stats::Set(Stats::STAT_TOTAL_OYSTERS, 50.0f); Stats::Set(Stats::STAT_TOTAL_HORSESHOES, 50.0f);
                     const float o[3] = {playerX + 0.9f, playerY, fz}, h[3] = {playerX - 0.9f, playerY, fz}, k[3] = {playerX, playerY + 0.9f, fz}, pr[3] = {playerX, playerY - 0.9f, fz};
                     g_pickups.Add(o, Pickups::Oyster, 0, Pickups::Once, 0, false, (uint32_t)g_bulletMs);
+                    { const float ar[3] = {playerX + 0.5f, playerY + 0.5f, fz}; g_pickups.SetMoneyPerDay(g_pickups.Add(ar, Pickups::Cash, 0, Pickups::AssetRevenue, 0, false, (uint32_t)g_bulletMs), 144000); }   // 100 a game minute
                     g_pickups.Add(h, Pickups::Horseshoe, 0, Pickups::Once, 0, false, (uint32_t)g_bulletMs);
                     g_pickups.Add(k, Pickups::Package, 0, Pickups::Collectable1, 0, false, (uint32_t)g_bulletMs);
                     g_pickups.SetExtra(g_pickups.Add(pr, Pickups::PropertyForSale, 0, Pickups::TypePropertyForSale, 5000, false, (uint32_t)g_bulletMs), "PROP_1", 5000);
@@ -4382,6 +4383,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (worldReady && g_paths.Ready() && !getenv("GTA_NOTRAFFIC") && (!g_scriptedRun || getenv("GTA_TRAFFICNEAR"))) {   // road traffic around the player
                 Traffic::Env te;
                 te.dt = dt; te.px = playerX; te.py = playerY; te.pz = playerZ;
+                te.carClass = Cheat::Active(Cheat::CheapCars) ? 1 : Cheat::Active(Cheat::FastCars) ? 2 : -1;   // CStreaming::ReclassifyLoadedCars
                 te.paintAll = Cheat::Active(Cheat::PinkCars) ? 126 : Cheat::Active(Cheat::BlackCars) ? 0 : -1;
                 te.camFx = cosf(yaw); te.camFy = sinf(yaw);
                 te.wanted = g_wanted;
@@ -4402,7 +4404,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     playerX = fc.x + 5.0f; playerY = fc.y + 5.0f; playerZ = fc.z + 5.0f + EYE_HEIGHT;
                     yaw = atan2f(fc.y - playerY, fc.x - playerX);
                 }
-                g_vehicles.onCrash = [&](const float* pos, float hard, int) {
+                g_vehicles.onCrash = [&](const float* pos, float hard, int car) {
+                    FeedEvent(InterestingEvents::CarCrash, car >= 0 ? InterestingEvents::Ref::Car : InterestingEvents::Ref::Point, car, pos);   // CAutomobile::VehicleDamage
                     const float dx = pos[0] - playerX, dy = pos[1] - playerY;
                     const float dd = sqrtf(dx * dx + dy * dy);
                     g_audio.CarCrash(hard, dd, std::clamp((dx * sinf(yaw) - dy * cosf(yaw)) / std::max(dd, 1.0f), -1.0f, 1.0f));
@@ -5180,6 +5183,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             if (dx * dx + dy * dy > 70.0f * 70.0f) continue;
                             InterestingEvents::Candidate c;
                             c.ref.kind = InterestingEvents::Ref::Car; c.ref.id = (int)vi;
+                            c.aircraft = g_vehicles.UsesHeliPhysics(v.model);
                             c.pos[0] = v.x; c.pos[1] = v.y; c.pos[2] = v.z;
                             around.push_back(c);
                         }
@@ -5918,6 +5922,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         };
                         pe.giveMoney = [&](int a) { g_money += a; };
                         pe.money = g_money;
+                        pe.gameMinutes = dt;   // 1 real second is a game minute
                         pe.onMission = g_sg.OnMission();
                         pe.helpNumber = [&](const char* k, int n) {   // a help text with its ~1~ filled in
                             if (!g_hudReady) return;

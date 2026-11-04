@@ -92,7 +92,7 @@ void InterestingEvents::Scan(const Frame& f, const std::vector<Candidate>& aroun
     m_lastScan = f.now;
     for (const Candidate& c : around) {
         int type;
-        if (c.pedType < 0) type = Vehicle;
+        if (c.pedType < 0) type = c.aircraft ? Helicopter : Vehicle;
         else if (c.pedType == 6) type = Cop;
         else if (c.pedType == 20) type = Criminal;
         else if (c.pedType == 22) type = Prostitute;

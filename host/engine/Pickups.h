@@ -34,6 +34,7 @@ public:
         bool disabled = false, empty = false, helpShown = false, skipLogged = false;
         std::string text;                   // a property pickup's help text key
         int price = 0;                      // a for-sale property's price (m_nAmmo)
+        float revenue = 0.0f, perDay = 0.0f;   // an asset revenue pickup: what it has earned and what it earns a game day
     };
 
     struct Env {
@@ -42,6 +43,7 @@ public:
         float health = 100, maxHealth = 100, armour = 0, maxArmour = 100;
         int wanted = 0;
         int money = 0;
+        float gameMinutes = 0.0f;             // game minutes since the last update (CPickups::PassTime)
         bool onMission = false;               // CTheScripts::IsPlayerOnAMission
         bool onJetpack = false;
         bool collectKey = false;              // CPickups::CollectPickupBuffer
@@ -69,6 +71,7 @@ public:
     void Update(uint32_t nowMs, Env& env);
     const Slot& At(int i) const { return m_s[i]; }
     void Remove(int i) { if (i >= 0 && i < kSlots) m_s[i] = Slot(); }   // CPickup::Remove
+    void SetMoneyPerDay(int i, int amount) { if (i >= 0 && i < kSlots) m_s[i].perDay = (float)amount; }   // UPDATE_PICKUP_MONEY_PER_DAY
     void SetExtra(int i, const std::string& text, int price) { if (i >= 0 && i < kSlots) { m_s[i].text = text; m_s[i].price = price; } }
     // CPickups::PictureTaken: the snapshot pickup nearest the camera, within (90 / fov) * 20 m and in view, is
     // collected. Returns its slot, -1 when no picture was of one.

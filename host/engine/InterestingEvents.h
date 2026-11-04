@@ -47,6 +47,7 @@ public:
         Ref ref;
         float pos[3] = {0, 0, 0};
         int pedType = -1;                 // ePedType, -1 for a vehicle
+        bool aircraft = false;            // a helicopter
     };
 
     InterestingEvents();                                     // the constructor's tables

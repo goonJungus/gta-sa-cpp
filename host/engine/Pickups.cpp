@@ -108,6 +108,17 @@ void Pickups::Update(uint32_t nowMs, Env& e) {
             }
             continue;
         }
+        if (s.type == AssetRevenue) {   // PICKUP_ASSET_REVENUE: the property earns by the day; walking in takes what it has made
+            s.revenue += s.perDay * e.gameMinutes / 1440.0f;
+            const float rx = e.player[0] - s.pos[0], ry = e.player[1] - s.pos[1];
+            if (e.onFoot && e.alive && fabsf(e.player[2] - s.pos[2]) < kPickHeight && rx * rx + ry * ry < kPickRadius2 && s.revenue >= 1.0f) {
+                const int take = (int)s.revenue;
+                if (e.giveMoney) e.giveMoney(take);
+                s.revenue -= (float)take;
+                log("REVENUE", i, take, 0);
+            }
+            continue;
+        }
         const float dx = e.player[0] - s.pos[0], dy = e.player[1] - s.pos[1];
         const float d2 = sqrtf(dx * dx + dy * dy), dz = fabsf(e.player[2] - s.pos[2]);
         bool picked = false;
