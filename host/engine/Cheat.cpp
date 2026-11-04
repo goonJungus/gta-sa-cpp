@@ -7,27 +7,42 @@ namespace {
 constexpr int kStringSize = 30;   // CCheat::CHEAT_STRING_SIZE
 constexpr int kMinHash = 6;       // CCheat::CHEAT_MIN_HASH_SIZE
 
-struct Entry { uint32_t hash; Cheat::Id id; };
-// m_aCheatHashKeys rows that have an implementation here.
-constexpr Entry kCheats[] = {
-    {0xadfa640a, Cheat::Jetpack},           // CHEAT_GET_JETPACK
-    {0xeeccea2b, Cheat::HealthArmorMoney},  // CHEAT_HEALTH_ARMOR_250K
-    {0x3a577325, Cheat::Fat},               // BTCDBCB
-    {0xd4966d59, Cheat::Muscle},            // JYSDSOD
-    {0x5fd1b49d, Cheat::Skinny},            // KVGYZQK
-    {0xcf5fda18, Cheat::WeaponSkills},      // EHIBXQS
-    {0xf01286e9, Cheat::VehicleSkills},     // VKYPQCF
-    {0x680416b1, Cheat::Stamina},           // CHEAT_MAX_STAMINA (row between the confirmed weapon / vehicle skill rows)
-    {0x8ca870dd, Cheat::Adrenaline},        // IAVENJQ typed (m_aCheatHashKeys labels around the wanted rows are shifted in the decomp)
+// CCheat::m_aCheatHashKeys (gta_sa.exe 0x8a5b78..): row = eCheats. A zero row has no typable code.
+constexpr uint32_t kHash[Cheat::kCount] = {
+    0xde4b237d, 0xb22a28d1, 0x5a783fae, 0xeeccea2b,
+    0x42af1e28, 0x555fc201, 0x2a845345, 0xe1ef01ea,
+    0x771b83fc, 0x5bf12848, 0x44453a17, 0xfcff1d08,
+    0xb69e8532, 0x8b828076, 0xdd6ed9e9, 0xa290fd8c,
+    0x3484b5a7, 0x43db914e, 0xdbc0dd65, 0x00000000,
+    0xd08a30fe, 0x37bf1b4e, 0xb5d40866, 0xe63b0d99,
+    0x675b8945, 0x4987d5ee, 0x2e8f84e8, 0x1a9aa3d6,
+    0xe842f3bc, 0x0d5c6a4e, 0x74d4fcb1, 0xb01d13b8,
+    0x66516ebc, 0x4b137e45, 0x00000000, 0x78520e33,
+    0x3a577325, 0xd4966d59, 0x5fd1b49d, 0xa7613f99,
+    0x1792d871, 0xcbc579df, 0x4fedccff, 0x44b34866,
+    0x2ef877db, 0x2781e797, 0x2bc1a045, 0xb2afe368,
+    0xfa8dd45b, 0x8ded75bd, 0x1a5526bc, 0xa48a770b,
+    0xb07d3b32, 0x80c1e54b, 0x5dad0087, 0x7f80b950,
+    0x6c0fa650, 0xf46f2fa4, 0x70164385, 0x00000000,
+    0x885d0b50, 0x151bdcb3, 0xadfa640a, 0xe57f96ce,
+    0x040cf761, 0xe1b33eb9, 0xfeda77f7, 0x8ca870dd,
+    0x9a629401, 0xf53ef5a5, 0xf2aa0c1d, 0xf36345a8,
+    0x8990d5e1, 0xb7013b1b, 0xcaec94ee, 0x31f0c3cc,
+    0xb3b3e72a, 0xc25cdbff, 0xd5cf4eff, 0x680416b1,
+    0xcf5fda18, 0xf01286e9, 0xa841cc0a, 0x31ea09cf,
+    0xe958788a, 0x02c83a7c, 0xe49c3ed4, 0x171ba8cc,
+    0x86988dae, 0x2bdd2fa1, 0x00000000, 0x00000000,
 };
 
 char g_string[kStringSize] = {0};
-std::atomic<int> g_hit{0};
+std::atomic<int> g_hit{-1};
 uint32_t g_table[256];
-bool g_megaPunch = false;
 float g_adrenaline = 0.0f;   // seconds left
 bool g_ready = false;
 }  // namespace
+
+bool Cheat::s_active[Cheat::kCount] = {};
+bool Cheat::s_cheated = false;
 
 uint32_t Cheat::Key(const char* s, int n) {
     if (!g_ready) {
@@ -55,21 +70,20 @@ void Cheat::Push(char c) {
     int size = kMinHash;
     for (int i = kMinHash; i < kStringSize; i++, size++) {
         const uint32_t hash = Key(g_string, size);
-        for (const Entry& e : kCheats)
-            if (e.hash == hash) {
-                g_hit = (int)e.id;
+        for (int k = 0; k < kCount; k++)
+            if (kHash[k] && kHash[k] == hash) {
+                g_hit = k;
                 g_string[0] = 0;
                 return;
             }
     }
 }
 
-Cheat::Id Cheat::Take() {
-    return (Id)g_hit.exchange(0);
-}
+int Cheat::Take() { return g_hit.exchange(-1); }
+void Cheat::Trigger(int i) { if (i >= 0 && i < kCount) g_hit = i; }
 
-bool Cheat::MegaPunchOn() { return g_megaPunch; }
-void Cheat::ToggleMegaPunch() { g_megaPunch = !g_megaPunch; }
+bool Cheat::MegaPunchOn() { return s_active[MegaPunch]; }
+void Cheat::ToggleMegaPunch() { s_active[MegaPunch] = !s_active[MegaPunch]; }
 bool Cheat::AdrenalineOn() { return g_adrenaline > 0.0f; }
 void Cheat::StartAdrenaline() { g_adrenaline = 20.0f; }
 void Cheat::ClearAdrenaline() { g_adrenaline = 0.0f; }

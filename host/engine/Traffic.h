@@ -20,6 +20,7 @@ public:
         float camFx = 0, camFy = 1;         // the camera's forward, flat
         int playerCar = -1;
         int wanted = 0;                     // the player's wanted level (stars)
+        int paintAll = -1;                  // the pink (126) / black (0) traffic cheats: every new car in that carcols colour
         Peds* peds = nullptr;               // the drivers
         const PopCycle* pop = nullptr;      // which cars, and how many, for the zone and the hour
         float hour = 12.0f;

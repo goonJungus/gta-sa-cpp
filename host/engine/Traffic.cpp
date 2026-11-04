@@ -94,6 +94,7 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         if (ci < 0) continue;
         VehicleInstance& c = v.Car((size_t)ci);
         c.recycle = true; c.engineOn = true; c.hasDriver = true;
+        if (e.paintAll >= 0) for (int k = 0; k < 4; k++) c.paint[k] = e.paintAll;
         Drive d;
         d.car = ci; d.from = a; d.to = to; d.sx = sx; d.sy = sy; d.dx = dx; d.dy = dy; d.len = segLen;
         d.nextTo = nextTo; d.nx = nx; d.ny = ny; d.ndx = ndx; d.ndy = ndy; d.haveNext = true;

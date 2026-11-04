@@ -277,6 +277,7 @@ static int   g_gameDay     = 0;         // days elapsed (moon phase)
 static bool   g_weatherAuto  = true;
 static size_t g_weatherPrev  = 0;
 static float  g_weatherBlend = 1.0f;    // 0 = still the previous weather, 1 = arrived
+static float  g_cheatTimeScale = 1.0f;  // CTimer::ms_fTimeScale: the faster / slower gameplay cheats halve or double it (0.25 .. 4)
 static float  g_weatherTimer = 0.0f;    // game hours until the next forecast change
 static int    g_weatherRegion = -1;
 static uint32_t g_weatherRng = 12345u;
@@ -2688,7 +2689,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 }
             }
             g_logic.Update(dt, g_cj.Dead(), arrest, playerX, playerY, feet + 1.0f);
-            g_logic.UpdateHunger(((int)(g_gameSeconds / 3600.0f)) % 24, false);
+            g_logic.UpdateHunger(((int)(g_gameSeconds / 3600.0f)) % 24, Cheat::Active(Cheat::NeverHungry));
             static bool s_vendInit = false;
             if (!s_vendInit) { s_vendInit = true; g_vending.Init(g_world); Log("VENDING: %zu machines", g_vending.Count()); }
             const bool vendUse = (RawGameKey('F') & 0x8000) != 0 && !g_menu.IsOpen();
@@ -2995,13 +2996,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
         }
         // Pause menu = frozen simulation, rendering keeps running.
+        if (g_cheatTimeScale != 1.0f) dt = std::min(dt * g_cheatTimeScale, 0.25f);   // the faster / slower gameplay cheats
         if (g_devPaused) dt = 0.0f;
         else if (g_wheelOpen) dt *= 0.2f;   // GTA V: the world crawls while you choose a weapon
 
         // ---- Time of day: sky colours, sun, fog + draw distance ----
         float fogStart = 400.0f, fogEnd = 2500.0f;
         float clockHour = 12.0f;
-        if (g_timeFlow && playMode) g_gameSeconds += dt * 60.0f;  // 1 real s = 1 game min
+        // CClock::Update: the midnight and dusk cheats hold the clock; the faster clock cheat ticks a minute every frame
+        if (g_timeFlow && playMode && !Cheat::Active(Cheat::Midnight) && !Cheat::Active(Cheat::Dusk))
+            g_gameSeconds += (Cheat::Active(Cheat::FasterClock) && dt > 0.0f) ? 60.0f : dt * 60.0f;  // 1 real s = 1 game min
         while (g_gameSeconds >= 86400.0f) { g_gameSeconds -= 86400.0f; g_gameDay++; }
         if (g_timecycOk) {
             clockHour = fmodf(g_gameSeconds / 3600.0f, 24.0f);
@@ -3813,46 +3817,185 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     if (!getenv("GTA_OUTFIT")) SaveOutfit(saved);
                 }
                 if (const char* ty = getenv("GTA_TYPE"); ty && frame >= 10 && (size_t)(frame - 10) < strlen(ty)) Cheat::Push(ty[frame - 10]);   // dev: type a cheat, one letter a frame
+                if (const char* ci = getenv("GTA_CHEAT")) {   // dev: "frame:slot;frame:slot" runs those cheat slots (eCheats rows) on those frames
+                    for (const char* q = ci; *q;) {
+                        int fr = 0, sl = 0, used = 0;
+                        if (sscanf(q, "%d:%d%n", &fr, &sl, &used) < 2) break;
+                        if (fr == frame) Cheat::Trigger(sl);
+                        q += used;
+                        while (*q == ';') q++;
+                    }
+                }
                 if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
                 if (getenv("GTA_ADRENALINE") && frame == 5) { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }
                 { const bool was = Cheat::AdrenalineOn(); Cheat::Tick(dt); if (was && !Cheat::AdrenalineOn()) Log("CHEAT adrenaline ended"); }
                 if (getenv("GTA_JETPACK") && frame == 5) g_cj.StartJetpack();   // dev: the jetpack without typing the cheat
-                const Cheat::Id cheatHit = Cheat::Take();
-                switch (cheatHit) {   // CCheat::AddToCheatString hit
-                case Cheat::Jetpack:
-                    if (!g_cj.Jetpacking()) g_cj.StartJetpack();
-                    if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get("CHEAT1"), 3.0f);
-                    break;
-                case Cheat::Adrenaline:   // CCheat::AdrenalineCheat toggles it
-                    if (Cheat::AdrenalineOn()) Cheat::ClearAdrenaline();
-                    else { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }   // ResetSprintEnergy
-                    Log("CHEAT adrenaline %d", (int)Cheat::AdrenalineOn());
-                    if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get("CHEAT1"), 3.0f);
-                    break;
-                case Cheat::Fat: case Cheat::Muscle: case Cheat::Skinny: case Cheat::WeaponSkills: case Cheat::VehicleSkills: case Cheat::Stamina: {
-                    switch (cheatHit) {   // CCheat::FatCheat / MuscleCheat / SkinnyCheat / WeaponSkillsCheat / VehicleSkillsCheat
-                    case Cheat::Fat: Stats::Set(Stats::STAT_FAT, 1000.0f); break;
-                    case Cheat::Muscle: Stats::Set(Stats::STAT_MUSCLE, 1000.0f); break;
-                    case Cheat::Stamina: Stats::Set(Stats::STAT_STAMINA, 1000.0f); break;
-                    case Cheat::Skinny: Stats::Set(Stats::STAT_FAT, 0.0f); Stats::Set(Stats::STAT_MUSCLE, 0.0f); break;
-                    case Cheat::WeaponSkills:
-                        for (int st = Stats::STAT_PISTOL_SKILL; st <= Stats::STAT_RIFLE_SKILL; st++) Stats::Set(st, 1000.0f);
+                if (const int cheatIdx = Cheat::Take(); cheatIdx >= 0) {   // CCheat::AddToCheatString hit
+                    const bool wasOn = Cheat::Active(cheatIdx);
+                    if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get(wasOn ? "CHEAT8" : "CHEAT1"), 3.0f);   // CHEAT8 when it was already on
+                    Stats::Increment(Stats::STAT_TIMES_CHEATED, 1.0f);
+                    Cheat::MarkCheated();
+                    Log("CHEAT %d", cheatIdx);
+                    // A cheat's function toggles its own flag; the ones with no function (infinite health, never hungry...) are plain toggles.
+                    bool toggled = true;
+                    auto giveSet = [&](const int (*set)[2], int n) {
+                        for (int k = 0; k < n; k++) g_cj.GiveWeapon(set[k][0], std::max(1, set[k][1]));
+                    };
+                    auto forceWeather = [&](const char* name) {   // CWeather::ForceWeatherNow
+                        const int w = g_timecyc.FindWeather(name);
+                        if (w < 0) return;
+                        g_weatherPrev = g_weatherIdx = (size_t)w; g_weatherBlend = 1.0f; g_weatherAuto = false;
+                        Log("CHEAT weather %s", name);
+                    };
+                    // CCheat::VehicleCheat: the car a bound-sphere radius plus 2 m in front of CJ, sideways to him, unlocked.
+                    auto vehicleCheat = [&](int model) -> int {
+                        if (!g_vehicles.Ready() || g_vehicles.Count() > 50 || g_driveCar >= 0) return -1;
+                        float minY = 0, maxY = 0, minZ = 0;
+                        const float fa = g_cj.Heading();
+                        const float px = playerX, py = playerY, feet = playerZ - EYE_HEIGHT;
+                        const int ci = g_vehicles.Spawn(g_renderer, model, px, py, feet + 1.0f, fa);
+                        if (ci < 0) { Log("CHEAT vehicle %d not available", model); return -1; }
+                        float len = 4.0f;
+                        if (g_vehicles.ModelBounds(model, &minY, &maxY, &minZ)) len = std::max(1.0f, maxY - minY);
+                        const float d = len * 0.5f * 1.2f + 2.0f;
+                        VehicleInstance& c = g_vehicles.Car((size_t)ci);
+                        c.x = px + std::cos(fa) * d; c.y = py + std::sin(fa) * d;
+                        float gz = g_world.GetGroundHeight(c.x, c.y, feet + 2.0f);
+                        if (float wz; g_water.Ready() && g_water.GetWaterLevel(c.x, c.y, &wz) && wz > gz) gz = wz;
+                        c.z = gz < -500.0f ? feet : gz - minZ;
+                        c.locked = false;
+                        Log("CHEAT vehicle %d at %.1f %.1f %.1f", model, c.x, c.y, c.z);
+                        return ci;
+                    };
+                    auto dress = [&](std::initializer_list<std::tuple<const char*, const char*, int>> parts) {   // CPedClothesDesc::SetTextureAndModel, then RebuildPlayer
+                        PedClothesDesc d = g_cj.Outfit();
+                        for (const auto& p : parts) d.SetTextureAndModel(std::get<0>(p), std::get<1>(p), (ClothesTexturePart)std::get<2>(p));
+                        g_cj.SetOutfit(d);
+                    };
+                    auto pedModels = [&]() {   // CStreaming::StreamPedsIntoRandomSlots: the crowd draws from the active cheats' models
+                        static const struct { int flag; std::vector<int> ids; } kSets[] = {
+                            {Cheat::Elvis, {82, 83, 84}}, {Cheat::Village, {27, 161, 287, 284, 248}},
+                            {Cheat::Beach, {18, 45, 138, 139, 140}}, {Cheat::Gangs, {102, 103, 104, 105, 106, 108, 109, 110}},
+                            {Cheat::Ninja, {117, 118, 120}}, {Cheat::LoveConquers, {249, 63, 64, 75, 238, 85, 207}},
+                            {Cheat::Funhouse, {167, 205, 264}}, {Cheat::Country, {196, 197, 198, 157, 158, 159, 160, 161}}};
+                        std::vector<int> all;
+                        for (const auto& s : kSets) if (Cheat::Active(s.flag)) all.insert(all.end(), s.ids.begin(), s.ids.end());
+                        g_peds.SetCrowdModels(all);
+                        Log("CHEAT crowd models: asked %zu, usable %d", all.size(), g_peds.CrowdModelCount());
+                    };
+                    auto clearSpecials = [&](int except) {   // CCheat::HandleSpecialCheats: the themes shut each other off
+                        for (int f : {(int)Cheat::Beach, (int)Cheat::CheapCars, (int)Cheat::FastCars, (int)Cheat::Funhouse, (int)Cheat::Country})
+                            if (f != except) Cheat::SetActive(f, false);
+                    };
+                    switch (cheatIdx) {
+                    case Cheat::WeaponSet1: { static const int s[][2] = {{1, 1}, {5, 1}, {18, 10}, {22, 100}, {25, 50}, {28, 150}, {30, 120}, {33, 25}, {35, 200}, {41, 200}}; giveSet(s, 10); toggled = false; break; }
+                    case Cheat::WeaponSet2: { static const int s[][2] = {{4, 1}, {16, 10}, {24, 40}, {26, 40}, {32, 150}, {31, 150}, {34, 21}, {37, 500}, {42, 200}}; giveSet(s, 9); toggled = false; break; }
+                    case Cheat::WeaponSet3: { static const int s[][2] = {{9, 1}, {39, 5}, {23, 40}, {27, 30}, {29, 100}, {31, 150}, {36, 200}}; giveSet(s, 7); toggled = false; break; }
+                    case Cheat::HealthArmorMoney: g_money += 250000; g_cj.RestoreVitals(); toggled = false; break;   // + HealthCheat
+                    case Cheat::WantedUp: g_wanted = std::min(6, g_wanted + 2); toggled = false; break;   // CPlayerPed::CheatWantedLevel
+                    case Cheat::WantedDown: g_wanted = 0; toggled = false; break;
+                    case Cheat::Sunny: forceWeather("SUNNY_LA"); toggled = false; break;
+                    case Cheat::ExtraSunny: forceWeather("EXTRASUNNY_LA"); toggled = false; break;
+                    case Cheat::Cloudy: forceWeather("CLOUDY_LA"); toggled = false; break;
+                    case Cheat::Rainy: forceWeather("RAINY_COUNTRYSIDE"); toggled = false; break;
+                    case Cheat::Foggy: forceWeather("FOGGY_SF"); toggled = false; break;
+                    case Cheat::Storm: forceWeather("RAINY_COUNTRYSIDE"); toggled = false; break;   // + Rain = Wind = 1
+                    case Cheat::Sandstorm: forceWeather("SANDSTORM_DESERT"); toggled = false; break;
+                    case Cheat::FasterGameplay: if (g_cheatTimeScale < 4.0f) g_cheatTimeScale *= 2.0f; toggled = false; break;   // CTimer::ms_fTimeScale
+                    case Cheat::SlowerGameplay: if (g_cheatTimeScale > 0.25f) g_cheatTimeScale *= 0.5f; toggled = false; break;
+                    case Cheat::Rhino: vehicleCheat(432); toggled = false; break;
+                    case Cheat::Bloodring: vehicleCheat(504); toggled = false; break;
+                    case Cheat::Rancher: vehicleCheat(505); toggled = false; break;
+                    case Cheat::HotringA: vehicleCheat(502); toggled = false; break;
+                    case Cheat::HotringB: vehicleCheat(503); toggled = false; break;
+                    case Cheat::Romero: vehicleCheat(442); toggled = false; break;
+                    case Cheat::Stretch: vehicleCheat(409); toggled = false; break;
+                    case Cheat::Trashmaster: vehicleCheat(408); toggled = false; break;
+                    case Cheat::Caddy: vehicleCheat(457); toggled = false; break;
+                    case Cheat::Hydra: vehicleCheat(520); toggled = false; break;
+                    case Cheat::Vortex: vehicleCheat(539); toggled = false; break;
+                    case Cheat::Hunter: vehicleCheat(425); toggled = false; break;
+                    case Cheat::Quad: vehicleCheat(471); toggled = false; break;
+                    case Cheat::Dozer: vehicleCheat(486); toggled = false; break;
+                    case Cheat::StuntPlane: vehicleCheat(513); toggled = false; break;
+                    case Cheat::MonsterTruck: vehicleCheat(556); toggled = false; break;
+                    case Cheat::Tanker: {   // the Petrol Tanker cab with its trailer hooked on behind
+                        const int cab = vehicleCheat(514);
+                        if (cab >= 0) {
+                            const VehicleInstance cc = g_vehicles.Car((size_t)cab);
+                            const int tr = g_vehicles.Spawn(g_renderer, 584, cc.x, cc.y, cc.z, cc.heading);
+                            if (tr >= 0) g_vehicles.AttachTrailer((size_t)tr, (size_t)cab);
+                        }
+                        toggled = false;
                         break;
-                    default:
-                        for (int st : {Stats::STAT_DRIVING_SKILL, Stats::STAT_FLYING_SKILL, Stats::STAT_BIKE_SKILL, Stats::STAT_CYCLING_SKILL}) Stats::Set(st, 1000.0f);
                     }
-                    if (cheatHit >= Cheat::Fat && cheatHit <= Cheat::Skinny && g_driveCar < 0)   // RebuildPlayer unless driving
-                        g_cj.SetBodyShape(Stats::Get(Stats::STAT_FAT) / 1000.0f, Stats::Get(Stats::STAT_MUSCLE) / 1000.0f);
-                    Log("CHEAT stats fat %.0f muscle %.0f stamina %.0f pistol %.0f driving %.0f", Stats::Get(Stats::STAT_FAT), Stats::Get(Stats::STAT_MUSCLE), Stats::Get(Stats::STAT_STAMINA), Stats::Get(Stats::STAT_PISTOL_SKILL), Stats::Get(Stats::STAT_DRIVING_SKILL));
-                    break;
+                    case Cheat::BlowUpCars:   // CVehicle::BlowUpCar on every car: UpdateDamage blows a burning car up once its burn time passes 5 s
+                        for (size_t i = 0; i < g_vehicles.Count(); i++) { VehicleInstance& bc = g_vehicles.Car(i); if (!bc.wrecked) { bc.health = 0.0f; bc.burnTime = 5.01f; } }
+                        toggled = false; break;
+                    case Cheat::Suicide: g_cj.Hurt(1000.0f); toggled = false; break;   // 1000 damage from nobody
+                    case Cheat::PinkCars: if (Cheat::Toggle(cheatIdx)) Cheat::SetActive(Cheat::BlackCars, false); toggled = false; break;
+                    case Cheat::BlackCars: if (Cheat::Toggle(cheatIdx)) Cheat::SetActive(Cheat::PinkCars, false); toggled = false; break;
+                    case Cheat::Fat: Stats::Set(Stats::STAT_FAT, 1000.0f); if (g_driveCar < 0) g_cj.SetBodyShape(1.0f, Stats::Get(Stats::STAT_MUSCLE) / 1000.0f); toggled = false; break;
+                    case Cheat::Muscle: Stats::Set(Stats::STAT_MUSCLE, 1000.0f); if (g_driveCar < 0) g_cj.SetBodyShape(Stats::Get(Stats::STAT_FAT) / 1000.0f, 1.0f); toggled = false; break;
+                    case Cheat::Skinny: Stats::Set(Stats::STAT_FAT, 0.0f); Stats::Set(Stats::STAT_MUSCLE, 0.0f); if (g_driveCar < 0) g_cj.SetBodyShape(0.0f, 0.0f); toggled = false; break;
+                    case Cheat::Stamina: Stats::Set(Stats::STAT_STAMINA, 1000.0f); toggled = false; break;
+                    case Cheat::WeaponSkills: for (int st = Stats::STAT_PISTOL_SKILL; st <= Stats::STAT_RIFLE_SKILL; st++) Stats::Set(st, 1000.0f); toggled = false; break;
+                    case Cheat::VehicleSkills: for (int st : {Stats::STAT_DRIVING_SKILL, Stats::STAT_FLYING_SKILL, Stats::STAT_BIKE_SKILL, Stats::STAT_CYCLING_SKILL}) Stats::Set(st, 1000.0f); toggled = false; break;
+                    case Cheat::Elvis: case Cheat::Village: case Cheat::Gangs: Cheat::Toggle(cheatIdx); pedModels(); toggled = false; break;
+                    case Cheat::Beach:
+                        if (Cheat::Toggle(cheatIdx)) dress({{"torso", "torso", 0}, {"shortskhaki", "shorts", 2}, {"flipflop", "flipflop", 3}, {"glasses04dark", "glasses04", 15}});
+                        pedModels(); toggled = false; break;
+                    case Cheat::Funhouse:
+                        if (Cheat::Toggle(cheatIdx)) {
+                            dress({{"torso", "torso", 0}, {"legsheart", "legs", 2}, {"timberhike", "bask1", 3}, {"groucho", "grouchos", 15}, {"hairpink", "head", 1}});
+                            clearSpecials(Cheat::Funhouse);
+                            Cheat::SetActive(Cheat::Country, false);
+                            forceWeather("EXTRASUNNY_LA");
+                        }
+                        pedModels(); toggled = false; break;
+                    case Cheat::Country:
+                        if (Cheat::Toggle(cheatIdx)) {
+                            dress({{"timberfawn", "bask1", 3}, {"captruck", "captruck", 16}, {"countrytr", "countrytr", 17}});
+                            clearSpecials(Cheat::Country);
+                            Cheat::SetActive(Cheat::Funhouse, false);
+                        }
+                        pedModels(); toggled = false; break;
+                    case Cheat::LoveConquers:
+                        if (Cheat::Toggle(cheatIdx)) dress({{"gimpleg", "gimpleg", 17}});
+                        pedModels(); toggled = false; break;
+                    case Cheat::Ninja:
+                        if (Cheat::Toggle(cheatIdx)) {
+                            clearSpecials(-1);
+                            Cheat::SetActive(Cheat::Country, false);
+                            Cheat::SetActive(Cheat::BlackCars, true); Cheat::SetActive(Cheat::PinkCars, false);
+                            g_cj.GiveWeapon(8, 1);   // the katana
+                        }
+                        pedModels(); toggled = false; break;
+                    case Cheat::CheapCars: if (Cheat::Toggle(cheatIdx)) clearSpecials(Cheat::CheapCars); toggled = false; break;
+                    case Cheat::FastCars: if (Cheat::Toggle(cheatIdx)) clearSpecials(Cheat::FastCars); toggled = false; break;
+                    case Cheat::Midnight: if (Cheat::Toggle(cheatIdx)) { g_gameSeconds = 0.0f; Cheat::SetActive(Cheat::Dusk, false); } toggled = false; break;
+                    case Cheat::Dusk: if (Cheat::Toggle(cheatIdx)) { g_gameSeconds = 21.0f * 3600.0f; Cheat::SetActive(Cheat::Midnight, false); } toggled = false; break;
+                    case Cheat::Parachute: g_cj.GiveWeapon(46, 1); toggled = false; break;
+                    case Cheat::Jetpack: if (!g_cj.Jetpacking()) g_cj.StartJetpack(); toggled = false; break;
+                    case Cheat::NotWanted: g_wanted = 0; break;   // + the flag
+                    case Cheat::Wanted: g_wanted = 6; toggled = false; break;
+                    case Cheat::Driveby: if (Cheat::Toggle(cheatIdx)) g_cj.GiveWeapon(28, 150); toggled = false; break;
+                    case Cheat::Adrenaline:   // CCheat::AdrenalineCheat toggles it
+                        if (Cheat::AdrenalineOn()) Cheat::ClearAdrenaline();
+                        else { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }   // ResetSprintEnergy
+                        toggled = false; break;
+                    default: break;
+                    }
+                    if (toggled) Cheat::Toggle(cheatIdx);   // m_aCheatsActive = !m_aCheatsActive
+                    Log("CHEAT %d -> flag %d, time scale %.2f, wanted %d, health %.0f, money %d, clock %.2f h", cheatIdx, (int)Cheat::Active(cheatIdx), g_cheatTimeScale, g_wanted, g_cj.Health(), g_money, g_gameSeconds / 3600.0f);
                 }
-                case Cheat::HealthArmorMoney:
-                    g_cj.RestoreVitals();
-                    g_money += 250000;
-                    if (g_hudReady) g_hud.ShowMessage(g_hud.Text().Get("CHEAT1"), 3.0f);
-                    break;
-                default: break;
-                }
+                // What the active flags do every frame
+                g_cj.SetCheatFlags(Cheat::Active(Cheat::InfiniteHealth), Cheat::Active(Cheat::InfiniteOxygen));
+                if (Cheat::Active(Cheat::NotWanted)) g_wanted = 0;
+                if (Cheat::Active(Cheat::MaxRespect)) Stats::Set(Stats::STAT_RESPECT, 1000.0f);
+                if (Cheat::Active(Cheat::MaxSexAppeal)) Stats::Set(Stats::STAT_SEX_APPEAL, 1000.0f);
+                if (Cheat::Active(Cheat::Mayhem) || Cheat::Active(Cheat::EverybodyAttacks))   // the crowd turns on CJ
+                    for (size_t pi = 0; pi < g_peds.Count(); pi++) if (g_peds.Alive(pi) && !g_peds.Aggressive(pi)) g_peds.SetAggro(pi, true);
                 pin.climbScan = climbScan;
                 pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
                 if (worldReady) pin.groundAt = [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); };
@@ -4156,6 +4299,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             if (worldReady && g_paths.Ready() && !getenv("GTA_NOTRAFFIC") && (!g_scriptedRun || getenv("GTA_TRAFFICNEAR"))) {   // road traffic around the player
                 Traffic::Env te;
                 te.dt = dt; te.px = playerX; te.py = playerY; te.pz = playerZ;
+                te.paintAll = Cheat::Active(Cheat::PinkCars) ? 126 : Cheat::Active(Cheat::BlackCars) ? 0 : -1;
                 te.camFx = cosf(yaw); te.camFy = sinf(yaw);
                 te.wanted = g_wanted;
                 te.playerCar = g_driveCar >= 0 ? g_driveCar : (g_vehTransEnter ? g_vehTransCar : -1);   // jacked once CJ opens the door

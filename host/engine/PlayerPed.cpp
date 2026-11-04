@@ -1428,7 +1428,7 @@ void PlayerPed::Update(const Input& inRaw) {
         // CTaskSimpleSwim: the drain per step is swim_under speed * blend + 1 while that clip plays
         float mult = 1.0f;
         if (const Assoc* su = Get(Clip("swim_under")); su && !m_vehicleDrowning) mult = su->speed * su->blend + 1.0f;
-        m_breath = std::max(0.0f, m_breath - dt * 50.0f * mult);   // CPlayerPed::HandlePlayerBreath
+        m_breath = m_cheatBreath ? m_breathMax : std::max(0.0f, m_breath - dt * 50.0f * mult);   // CPlayerPed::HandlePlayerBreath (CHEAT_INFINITE_OXYGEN skips the drain)
         if (getenv("GTA_STATDBG") && (m_breathLog++ % 50) == 0) std::fprintf(stderr, "[BREATH] mult %.3f breath %.1f\n", mult, m_breath);
         if (m_breath <= 0.0f) Hurt(dt * 12.0f);
     } else {

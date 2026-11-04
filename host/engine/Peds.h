@@ -28,6 +28,10 @@ public:
     void Shutdown(D3DRenderer& r);
     bool Ready() const { return m_ready; }
     int ModelCount() const { return (int)m_pool.size(); }
+    // CStreaming::StreamPedsIntoRandomSlots: the models the next crowd peds are drawn from (the elvis, ninja,
+    // beach party... cheats). Ids with no ped definition are dropped; an empty list is the normal civilian pool.
+    int CrowdModelCount() const { return (int)m_crowdModels.size(); }
+    void SetCrowdModels(const std::vector<int>& ids) { m_crowdModels.clear(); for (int id : ids) if (m_info.count(id)) m_crowdModels.push_back(id); }
 
     // Spawn a civilian (model id from the pool, -1 picks one at random). Returns the actor index or -1.
     int Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading);
@@ -260,6 +264,7 @@ private:
     std::string m_dir;
     std::unordered_map<int, PedInfo> m_info;
     std::vector<int> m_pool;
+    std::vector<int> m_crowdModels;   // SetCrowdModels
     std::unordered_map<int, Model> m_models;
     std::unordered_map<std::string, AnimClip> m_clips;
     std::unordered_map<std::string, std::vector<std::string>> m_groups;   // animation group -> clip names

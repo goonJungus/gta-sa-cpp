@@ -241,7 +241,7 @@ Peds::Model* Peds::GetModel(D3DRenderer& r, int id) {
 
 int Peds::Spawn(D3DRenderer& r, int id, float x, float y, float z, float heading) {
     if (!m_ready) return -1;
-    if (id < 0) id = m_pool[(size_t)Rand((int)m_pool.size())];
+    if (id < 0) id = m_crowdModels.empty() ? m_pool[(size_t)Rand((int)m_pool.size())] : m_crowdModels[(size_t)Rand((int)m_crowdModels.size())];
     if (!GetModel(r, id)) return -1;
     Actor a;
     a.uid = m_nextUid++;

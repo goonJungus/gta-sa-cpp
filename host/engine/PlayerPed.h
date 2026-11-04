@@ -322,6 +322,8 @@ public:
     void SetBreathMax(float v) { if (!m_breathInit) { m_breathInit = true; m_breath = v; } m_breathMax = v; m_breath = std::min(m_breath, v); }
     bool ShowBreath() const { return m_swimming && m_swimState == SwimState::Under || m_breath < m_breathMax * 0.999f; }
     void Hurt(float amount);            // armor first, then health
+    // CHEAT_INFINITE_HEALTH (ComputeWillKillPed ignores the damage) and CHEAT_INFINITE_OXYGEN (HandlePlayerBreath refills).
+    void SetCheatFlags(bool infiniteHealth, bool infiniteBreath) { m_cheatHealth = infiniteHealth; m_cheatBreath = infiniteBreath; }
     void SetArmor(float a) { m_armor = a; }
     void RestoreVitals() { m_health = m_maxHealth; m_armor = 100.0f; }   // CHEAT_HEALTH_ARMOR_MONEY
     float DamageFlash() const { return m_damageFlash; }       // 1 right after a hit, fades out
@@ -532,6 +534,7 @@ private:
     void LoadVendingCan(D3DRenderer& r, ImgLoader& gtaInt);
     void DrawVendingCan(D3DRenderer& r, const float w[4][4]);
     bool m_breathInit = false;
+    bool m_cheatHealth = false, m_cheatBreath = false;
     int m_breathLog = 0;
     float m_health = 100.0f, m_maxHealth = 100.0f, m_armor = 0.0f, m_breath = 1150.0f, m_damageFlash = 0.0f;
     bool m_reloading = false, m_firing = false, m_shotDone = false, m_fireQueued = false;

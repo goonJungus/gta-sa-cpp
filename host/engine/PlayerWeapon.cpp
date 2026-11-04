@@ -602,7 +602,7 @@ IDirect3DTexture9* PlayerPed::GunIcon() const { return WeaponIndex() >= 0 ? m_gu
 
 // Armor soaks the hit first, like CPed::InflictDamage.
 void PlayerPed::Hurt(float amount) {
-    if (amount <= 0.0f || m_health <= 0.0f) return;
+    if (amount <= 0.0f || m_health <= 0.0f || m_cheatHealth) return;
     const float soak = std::min(m_armor, amount);
     m_armor -= soak;
     m_health = std::max(0.0f, m_health - (amount - soak));
