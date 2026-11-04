@@ -569,6 +569,10 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
                 }
             } else continue;
         }
+        if (a.acq.Hates(0) && !a.aggro && !a.dead && !a.police) {   // a hater of the player type goes for him once he is near
+            const float hx = a.x - player.x, hy = a.y - player.y;
+            if (hx * hx + hy * hy < 50.0f * 50.0f) { a.aggro = true; a.fleeTimer = 0.0f; }
+        }
         if (a.aggro) {   // out for the player
             a.animTime += dt;
             a.attackTimer -= dt;

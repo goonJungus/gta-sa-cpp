@@ -290,7 +290,7 @@ Each decomp class family that has no line above. Source: decomp `src/<Class>` fo
 - [ ] CBreakManager and break objects (breakable world props) (w 2)
 - [ ] CCranes, CBridge, CMovingThings, CEscalators, CAnimatedBuilding, CDoor, CPlaneBanners, CRope and CRopes (w 3)
 - [ ] CSpecialFX: bright lights, cinematic fx, shiny texts, mirrors, light points, search lights (CSearchLight), CPointLights (w 2)
-- [ ] CMentalState, CPlayerRelationshipRecorder, CAcquaintance, CPlayerInfo full (w 1)
+- [~] CMentalState, CPlayerRelationshipRecorder, CAcquaintance, CPlayerInfo: done: CAcquaintance (the five masks, a type moves out of the others), SET / CLEAR / CLEAR_ALL_CHAR_RELATIONSHIPS on peds (a ped that hates the player type comes after him), CMentalState::IncrementAnger, CPlayerRelationshipRecorder (as retail, it only writes once seeded); left: CMentalState::Process events, nothing raises a ped's anger yet, CPlayerInfo process leftovers (w 1)
 - [ ] CHandShaker, CVehicleScanner, CEntityScanner, CObjectScanner, CVehiclePotentialCollisionScanner and other scanners (w 1)
 - [x] CSpecialPlateHandler and the number plates (numplate.dat), car plate textures; CUSTOM_PLATE_FOR_NEXT_CAR (w 1)
 - [ ] CCredits and the credits sequence, CLoadMonitor, CLocalisation (w 1)

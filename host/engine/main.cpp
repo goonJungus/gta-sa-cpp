@@ -3879,6 +3879,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     g_pickups.Add(k, Pickups::Package, 0, Pickups::Collectable1, 0, false, (uint32_t)g_bulletMs);
                     g_pickups.SetExtra(g_pickups.Add(pr, Pickups::PropertyForSale, 0, Pickups::TypePropertyForSale, 5000, false, (uint32_t)g_bulletMs), "PROP_1", 5000);
                 }
+                if (getenv("GTA_HATE") && (frame == 30 || frame == 120)) {   // dev: every ped comes to hate the player type (SET_CHAR_RELATIONSHIP hate), then count who is after him
+                    int n = 0, aggro = 0;
+                    for (size_t pi = 0; pi < g_peds.Count(); pi++) {
+                        if (frame == 30) { if (Acquaintance* aq = g_peds.AcquaintanceOf(g_peds.Uid(pi))) aq->SetAs(Acquaintance::Hate, PedTypeFlag(0)); }
+                        n++; aggro += g_peds.Aggressive(pi) ? 1 : 0;
+                    }
+                    Log("HATE frame %d: %d peds, %d after the player", frame, n, aggro);
+                }
                 if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
                 if (getenv("GTA_ADRENALINE") && frame == 5) { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }
                 { const bool was = Cheat::AdrenalineOn(); Cheat::Tick(dt); if (was && !Cheat::AdrenalineOn()) Log("CHEAT adrenaline ended"); }

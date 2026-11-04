@@ -977,6 +977,17 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     case 0x05AD: case 0x05AE: c.result = c.S(0) == c.S(1); return true;                       // IS_(L)VAR_TEXT_LABEL_EQUAL_TO_TEXT_LABEL
     case 0x08F9: case 0x08FA: c.result = c.S(0, 16) == c.S(1); return true;                   // IS_(L)VAR_TEXT_LABEL16_EQUAL_TO_TEXT_LABEL
     case 0x01C0: c.Out(1, wantedLevel ? wantedLevel() : 0); return true;                      // STORE_WANTED_LEVEL
+    // ---- what a ped thinks of others (CAcquaintance) ---------------------------------------
+    case 0x077A: case 0x077B: case 0x077C: {   // SET_CHAR_RELATIONSHIP(char, relationship, ped type) / CLEAR_CHAR_RELATIONSHIP / CLEAR_ALL_CHAR_RELATIONSHIPS(char, relationship)
+        const int pi = CharIndex(c.I(0));
+        if (pi < 0 || !peds) return true;
+        Acquaintance* a = peds->AcquaintanceOf(peds->Uid((size_t)pi));
+        if (!a) return true;
+        if (c.op == 0x077A) a->SetAs(c.I(1), PedTypeFlag(c.I(2)));
+        else if (c.op == 0x077B) a->ClearAs(c.I(1), PedTypeFlag(c.I(2)));
+        else a->Clear(c.I(1));
+        return true;
+    }
     // ---- shops (CShopping) ----------------------------------------------------------------
     case 0x075D: if (shop) shop->LoadPrices(c.S(0, 16)); return true;                          // LOAD_PRICES
     case 0x075E: if (shop) shop->LoadShop(c.S(0, 16)); return true;                           // LOAD_SHOP
@@ -1242,7 +1253,7 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     // flags and settings with nothing to act on yet
     case 0x020A: case 0x0245: case 0x02E2: case 0x038B: case 0x039E: case 0x03EF: case 0x03F5: case 0x041E:
     case 0x0446: case 0x04E0: case 0x0526: case 0x053F: case 0x0568: case 0x0587: case 0x0605: case 0x060B:
-    case 0x06AB: case 0x0713: case 0x0732: case 0x077A: case 0x07A1: case 0x07DD: case 0x08C6: case 0x09D2:
+    case 0x06AB: case 0x0713: case 0x0732: case 0x07A1: case 0x07DD: case 0x08C6: case 0x09D2:
     case 0x0802:
         return true;
     default: break;

@@ -4,6 +4,7 @@
 // civilians that stand or wander on the ground; no AI beyond walking, no reactions yet.
 
 #include <cstdint>
+#include "PedMind.h"
 #include <algorithm>
 #include <functional>
 #include <string>
@@ -30,6 +31,10 @@ public:
     int ModelCount() const { return (int)m_pool.size(); }
     // ePedType of a ped (peds.ide): 4 civilian man, 5 civilian woman, 6 cop, 7..16 the gangs, 20 criminal, 22 prostitute; -1 unknown.
     int PedType(size_t i) const;
+    // CPed::m_acquaintance and its mental state: who this ped hates (a ped that hates the player's type, 0,
+    // goes for him) and how angry it has got. Null for a ped that is gone.
+    Acquaintance* AcquaintanceOf(int uid) { const int i = FindUid(uid); return i < 0 ? nullptr : &m_actors[(size_t)i].acq; }
+    MentalState* MindOf(int uid) { const int i = FindUid(uid); return i < 0 ? nullptr : &m_actors[(size_t)i].mind; }
     // CEventHandler::ComputeDamageResponse: a ped was hurt (uid, killed by it).
     std::function<void(int uid, bool killed)> onDamage;
     // CStreaming::StreamPedsIntoRandomSlots: the models the next crowd peds are drawn from (the elvis, ninja,
@@ -230,6 +235,8 @@ private:
         int gspeed = 0;                   // 0 walk, 1 run
         bool hidden = false;              // inside a car
         bool aggro = false;               // out for the player: runs at him and hits
+        Acquaintance acq;                 // respect / like / ignore / dislike / hate, as ped type masks
+        MentalState mind;                 // CMentalState
         bool police = false;              // CCopPed
         bool arresting = false;           // CTaskSimpleArrestPed: holding the player at gunpoint
         float arrestTime = 0.0f, arrestX = 0.0f, arrestY = 0.0f;
