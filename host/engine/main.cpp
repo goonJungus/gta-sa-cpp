@@ -3930,7 +3930,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const VehicleInstance& mc = g_vehicles.Car((size_t)g_driveCar);
                     const float mp[3] = {mc.x, mc.y, mc.z};
                     g_pickups.Add(mp, Pickups::Info, 0, Pickups::MineInactive, 0, false, (uint32_t)g_bulletMs);
-                    const float pp[3] = {mc.x + 6.0f, mc.y, mc.z + 8.0f};
+                    const float pp[3] = {mc.x + (getenv("GTA_MINETEST")[0] == (char)50 ? 0.0f : 6.0f), mc.y, mc.z + (getenv("GTA_MINETEST")[0] == (char)50 ? 0.0f : 8.0f)};   // "2": right under the boat
                     g_pickups.Add(pp, Pickups::Package, 0, Pickups::FloatingPackage, 0, false, (uint32_t)g_bulletMs);
                 }
                 if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
