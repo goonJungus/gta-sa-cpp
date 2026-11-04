@@ -510,6 +510,7 @@ bool Peds::Damage(int actor, float damage, bool head) {
 
 void Peds::Update(float dt, const std::function<float(float, float, float)>& groundAt,
                   const std::function<bool(float, float, float, float, float)>& blocked, const Player& player) {
+    m_clockMs += (uint32_t)(dt * 1000.0f);
     for (size_t ai = 0; ai < m_actors.size(); ai++) {
         Actor& a = m_actors[ai];
         auto it = m_models.find(a.model);
@@ -568,6 +569,12 @@ void Peds::Update(float dt, const std::function<float(float, float, float)>& gro
                     if (gu != m_clips.end()) { a.hitClip = &gu->second; a.hitTime = 0.0f; }
                 }
             } else continue;
+        }
+        // CMentalState: crowding the player builds anger (at most once in three seconds); past 49 the ped has had enough
+        if (!a.dead && !a.police && !a.aggro) {
+            const float bx = a.x - player.x, by = a.y - player.y;
+            if (bx * bx + by * by < 0.9f * 0.9f) a.mind.IncrementAnger(m_clockMs, 1);
+            if (a.mind.anger > 0x31) { a.aggro = true; a.fleeTimer = 0.0f; }
         }
         if (a.acq.Hates(0) && !a.aggro && !a.dead && !a.police) {   // a hater of the player type goes for him once he is near
             const float hx = a.x - player.x, hy = a.y - player.y;

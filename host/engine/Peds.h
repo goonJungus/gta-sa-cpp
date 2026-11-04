@@ -276,6 +276,7 @@ private:
     std::unordered_map<int, PedInfo> m_info;
     std::vector<int> m_pool;
     std::vector<int> m_crowdModels;   // SetCrowdModels
+    uint32_t m_clockMs = 0;           // the ped clock the mental state counts three-second gaps on
     std::unordered_map<int, Model> m_models;
     std::unordered_map<std::string, AnimClip> m_clips;
     std::unordered_map<std::string, std::vector<std::string>> m_groups;   // animation group -> clip names

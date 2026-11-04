@@ -3909,6 +3909,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     }
                     Log("HATE frame %d: %d peds, %d after the player", frame, n, aggro);
                 }
+                if (getenv("GTA_ANGER") && (frame == 20 || frame == 400)) {   // dev: a ped crowds CJ with its anger at 48; it turns on him after the next bump
+                    static int s_angerUid = 0;
+                    if (frame == 20) {
+                        const int n = g_peds.Spawn(g_renderer, -1, playerX + 0.3f, playerY, playerZ - EYE_HEIGHT, 0.0f);
+                        if (n >= 0) { s_angerUid = g_peds.Uid((size_t)n); g_peds.MindOf(s_angerUid)->anger = 49; g_peds.SetScripted((size_t)n, true); }
+                    }
+                    const int i = g_peds.FindUid(s_angerUid);
+                    Log("ANGER frame %d: ped %d anger %d aggressive %d", frame, s_angerUid, i >= 0 ? (int)g_peds.MindOf(s_angerUid)->anger : -1, i >= 0 ? (int)g_peds.Aggressive((size_t)i) : -1);
+                }
                 if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
                 if (getenv("GTA_ADRENALINE") && frame == 5) { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }
                 { const bool was = Cheat::AdrenalineOn(); Cheat::Tick(dt); if (was && !Cheat::AdrenalineOn()) Log("CHEAT adrenaline ended"); }
