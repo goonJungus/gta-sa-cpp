@@ -441,6 +441,7 @@ public:
     size_t Count() const { return m_cars.size(); }
     VehicleInstance& Car(size_t i) { return m_cars[i]; }
     void Draw(D3DRenderer& r);
+    void SetInvisible(bool on) { m_invisible = on; }   // the invisible cars cheat (CAutomobile::Render skips)
     // The clock and weather the lights read (CClock, CWeather::Foggyness / WetRoads).
     struct LightEnv { int hour = 12, minute = 0; float foggy = 0.0f, wet = 0.0f; };
     // CVehicle::GetVehicleLightsStatus.
@@ -725,6 +726,7 @@ private:
     std::unordered_map<std::string, IDirect3DTexture9*> m_customPlates;
     std::unordered_map<int, std::string> m_nextPlate;   // model -> CUSTOM_PLATE_FOR_NEXT_CAR text
     IDirect3DTexture9* CreatePlateTexture(D3DRenderer& r, const char* text);
+    bool m_invisible = false;
     std::vector<std::array<uint8_t, 3>> m_colours;                  // carcols.dat colour table
     std::unordered_map<std::string, std::string> m_upgradeLinks;    // carmods.dat link pairs (a left wing and its right twin)
     std::unordered_map<std::string, std::vector<std::array<int, 4>>> m_carColours;   // model name -> allowed paint sets

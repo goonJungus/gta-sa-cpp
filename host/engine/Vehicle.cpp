@@ -1018,6 +1018,7 @@ void Vehicles::Draw(D3DRenderer& r) {
     if (!dev) return;
     // The paint is the vertex colour: let it drive the ambient term too, or the bright ambient washes it out.
     dev->SetRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_COLOR1);
+    if (m_invisible) return;
     for (const VehicleInstance& c : m_cars) {
         if (c.removed) continue;
         auto it = m_models.find(c.model);

@@ -3938,7 +3938,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             {Cheat::Elvis, {82, 83, 84}}, {Cheat::Village, {27, 161, 287, 284, 248}},
                             {Cheat::Beach, {18, 45, 138, 139, 140}}, {Cheat::Gangs, {102, 103, 104, 105, 106, 108, 109, 110}},
                             {Cheat::Ninja, {117, 118, 120}}, {Cheat::LoveConquers, {249, 63, 64, 75, 238, 85, 207}},
-                            {Cheat::Funhouse, {167, 205, 264}}, {Cheat::Country, {196, 197, 198, 157, 158, 159, 160, 161}}};
+                            {Cheat::GangLand, {102, 103, 104, 105, 106, 108, 109, 110}}, {Cheat::Funhouse, {167, 205, 264}}, {Cheat::Country, {196, 197, 198, 157, 158, 159, 160, 161}}};
                         std::vector<int> all;
                         for (const auto& s : kSets) if (Cheat::Active(s.flag)) all.insert(all.end(), s.ids.begin(), s.ids.end());
                         g_peds.SetCrowdModels(all);
@@ -4002,7 +4002,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     case Cheat::Stamina: Stats::Set(Stats::STAT_STAMINA, 1000.0f); toggled = false; break;
                     case Cheat::WeaponSkills: for (int st = Stats::STAT_PISTOL_SKILL; st <= Stats::STAT_RIFLE_SKILL; st++) Stats::Set(st, 1000.0f); toggled = false; break;
                     case Cheat::VehicleSkills: for (int st : {Stats::STAT_DRIVING_SKILL, Stats::STAT_FLYING_SKILL, Stats::STAT_BIKE_SKILL, Stats::STAT_CYCLING_SKILL}) Stats::Set(st, 1000.0f); toggled = false; break;
-                    case Cheat::Elvis: case Cheat::Village: case Cheat::Gangs: Cheat::Toggle(cheatIdx); pedModels(); toggled = false; break;
+                    case Cheat::Elvis: case Cheat::Village: case Cheat::Gangs: case Cheat::GangLand: Cheat::Toggle(cheatIdx); pedModels(); toggled = false; break;
                     case Cheat::Beach:
                         if (Cheat::Toggle(cheatIdx)) dress({{"torso", "torso", 0}, {"shortskhaki", "shorts", 2}, {"flipflop", "flipflop", 3}, {"glasses04dark", "glasses04", 15}});
                         pedModels(); toggled = false; break;
@@ -4055,7 +4055,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 if (Cheat::Active(Cheat::NotWanted)) g_wanted = 0;
                 if (Cheat::Active(Cheat::MaxRespect)) Stats::Set(Stats::STAT_RESPECT, 1000.0f);
                 if (Cheat::Active(Cheat::MaxSexAppeal)) Stats::Set(Stats::STAT_SEX_APPEAL, 1000.0f);
-                if (Cheat::Active(Cheat::Mayhem) || Cheat::Active(Cheat::EverybodyAttacks))   // the crowd turns on CJ
+                if (Cheat::Active(Cheat::Mayhem) || Cheat::Active(Cheat::EverybodyAttacks) || Cheat::Active(Cheat::Riot))   // the crowd turns on CJ
                     for (size_t pi = 0; pi < g_peds.Count(); pi++) if (g_peds.Alive(pi) && !g_peds.Aggressive(pi)) g_peds.SetAggro(pi, true);
                 pin.climbScan = climbScan;
                 pin.footIk = pin.rewrite && !getenv("GTA_NOFOOTIK");
@@ -4180,7 +4180,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
 
             if (DevKeyPressed('O')) { g_crowdTarget = g_crowdTarget ? 0 : 12; Log("DEV: crowd target %d", g_crowdTarget); }
-            g_peds.Populate(g_renderer, playerX, playerY, playerZ - EYE_HEIGHT, g_crowdTarget,
+            g_peds.Populate(g_renderer, playerX, playerY, playerZ - EYE_HEIGHT, Cheat::Active(Cheat::GhostTown) ? 0 : g_crowdTarget,
                             [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); });
             if (g_crowdTarget && (frame % 60) == 0) Log("PEDS: %zu actors", g_peds.Count());
             g_peds.Update(dt, [](float x, float y, float z) { return g_world.GetGroundHeight(x, y, z); },
@@ -4375,7 +4375,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const float t = g_world.RayCast(x, y, z + 6.0f, x, y, z - 8.0f);
                     return t < 1.0f ? z + 6.0f - t * 14.0f : -1e9f;
                 };
-                g_traffic.Update(g_vehicles, g_renderer, g_paths, te);
+                if (!Cheat::Active(Cheat::GhostTown)) g_traffic.Update(g_vehicles, g_renderer, g_paths, te);   // ghost town: no new traffic
                 if (getenv("GTA_TRAFFICFOLLOW") && g_traffic.FirstCar() >= 0) {   // dev: hover 7 m off the first traffic car, looking at it
                     const VehicleInstance& fc = g_vehicles.Car((size_t)g_traffic.FirstCar());
                     playerX = fc.x + 5.0f; playerY = fc.y + 5.0f; playerZ = fc.z + 5.0f + EYE_HEIGHT;
@@ -5379,6 +5379,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             // transparent pass, so glass/fences in front of it depth-test
             // against it instead of the old "player drawn over everything".
             drawPlayerBox();
+            g_vehicles.SetInvisible(Cheat::Active(Cheat::InvisibleCars));
             g_vehicles.Draw(g_renderer);
             g_peds.Draw(g_renderer);
             if (scmRun) g_sg.DrawCutscene(g_renderer);
