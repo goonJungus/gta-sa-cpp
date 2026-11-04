@@ -20,6 +20,7 @@ public:
         float camFx = 0, camFy = 1;         // the camera's forward, flat
         int playerCar = -1;
         int wanted = 0;                     // the player's wanted level (stars)
+        bool madDrivers = false;            // the aggressive drivers cheat: half the new cars go for the player
         int carClass = -1;                  // the cheap (poor family, 1) / fast (rich family 2, executive 3) traffic cheats; -1 any
         int paintAll = -1;                  // the pink (126) / black (0) traffic cheats: every new car in that carcols colour
         Peds* peds = nullptr;               // the drivers
@@ -57,6 +58,7 @@ private:
         float yieldT = 0.0f;                // seconds spent giving way at a junction
         float blockedT = 0.0f, passT = 0.0f;   // held up behind a slow car this long; overtaking for this much longer
         bool cop = false;                   // a police car after the player
+        bool mad = false;                   // a civilian out to ram him (the aggressive drivers cheat): same chase, the driver is no officer
         bool parked = false;                // abandoned: the driver left it where it stopped
         bool bail = false;                  // the driver gets out when the shock is over
         float stuck = 0.0f, idle = 0.0f, age = 0.0f;   // stuck: pushing but not moving; idle: not moving at all

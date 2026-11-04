@@ -4393,6 +4393,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                 Traffic::Env te;
                 te.dt = dt; te.px = playerX; te.py = playerY; te.pz = playerZ;
                 te.carClass = Cheat::Active(Cheat::CheapCars) ? 1 : Cheat::Active(Cheat::FastCars) ? 2 : -1;   // CStreaming::ReclassifyLoadedCars
+                te.madDrivers = Cheat::Active(Cheat::AggressiveDrivers);
                 te.paintAll = Cheat::Active(Cheat::PinkCars) ? 126 : Cheat::Active(Cheat::BlackCars) ? 0 : -1;
                 te.camFx = cosf(yaw); te.camFy = sinf(yaw);
                 te.wanted = g_wanted;

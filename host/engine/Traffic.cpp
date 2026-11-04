@@ -87,6 +87,15 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
             model = e.pop->PickCar(e.pop->TypeAt(px, py, n->z), e.hour, e.weekend, Rand(), Rand(),
                                    [&](int id) { const VehicleInfo* vi = v.Info(id); return vi && v.UsesCarPhysics(id) && !v.IsTrailer(id) && (e.carClass < 0 || vi->vclass == e.carClass || (e.carClass == 2 && vi->vclass == 3)); });
         if (model < 0) model = kModels[(size_t)(Rand() * (float)(sizeof(kModels) / sizeof(kModels[0]))) % (sizeof(kModels) / sizeof(kModels[0]))];
+        if (e.carClass >= 0 && forceModel < 0) {   // the cheap / fast cheats: only cars of that class, from every model there is
+            const auto fits = [&](int id) { const VehicleInfo* vi = v.Info(id); return vi && v.UsesCarPhysics(id) && !v.IsTrailer(id) && (vi->vclass == e.carClass || (e.carClass == 2 && vi->vclass == 3)); };
+            if (!fits(model)) {
+                for (int tries = 0; tries < 40; tries++) {
+                    const int id = 400 + (int)(Rand() * 212.0f) % 212;
+                    if (fits(id)) { model = id; break; }
+                }
+            }
+        }
         if (!v.Info(model)) continue;
         const float gz = e.ground ? e.ground(px, py, n->z + (tn ? (tn->z - n->z) * frac : 0.0f)) : -1e9f;
         const float z = gz > -1e5f ? gz : n->z + (tn ? (tn->z - n->z) * frac : 0.0f);
@@ -94,6 +103,7 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         if (ci < 0) continue;
         VehicleInstance& c = v.Car((size_t)ci);
         c.recycle = true; c.engineOn = true; c.hasDriver = true;
+        if (std::getenv("GTA_TRAFFICDBG")) std::fprintf(stderr, "[TSPAWN] model %d class %d%s", model, v.Info(model) ? v.Info(model)->vclass : -1, "");
         if (e.paintAll >= 0) for (int k = 0; k < 4; k++) c.paint[k] = e.paintAll;
         Drive d;
         d.car = ci; d.from = a; d.to = to; d.sx = sx; d.sy = sy; d.dx = dx; d.dy = dy; d.len = segLen;
@@ -101,6 +111,7 @@ bool Traffic::Spawn(Vehicles& v, D3DRenderer& r, const PathNodes& paths, const E
         d.tl = tl; d.tlDir = tlDir; d.ntl = ntl; d.ntlDir = ntlDir;
         d.cruise = (n->highway ? 20.0f : 10.0f) + 5.0f * Rand();
         if (forceModel >= 0) { d.cop = true; c.siren = true; }
+        else if (e.madDrivers && Rand() < 0.5f) { d.cop = true; d.mad = true; if (std::getenv("GTA_TRAFFICDBG")) std::fprintf(stderr, "[MAD] car %d goes for the player%s", d.car, ""); }   // CCarCtrl: a mad driver chase
         c.vx = ux * d.cruise * 0.8f; c.vy = uy * d.cruise * 0.8f;
         if (e.peds && e.peds->Ready()) {   // a driver, any civilian of the pool
             const int pi = e.peds->Spawn(r, -1, px, py, z, 0.0f);
@@ -253,7 +264,7 @@ void Traffic::Pursue(Vehicles& v, Drive& d, const Env& e) {
             const float rx = c.phys.active ? c.rot[0] : std::cos(c.heading), ry = c.phys.active ? c.rot[1] : std::sin(c.heading);
             e.peds->Unseat((size_t)pi, c.x - rx * 2.0f, c.y - ry * 2.0f, c.z);
             e.peds->SetAggro((size_t)pi, true);
-            e.peds->SetPolice((size_t)pi);
+            if (!d.mad) e.peds->SetPolice((size_t)pi);
         }
         d.driverUid = 0;
         d.cop = false; d.parked = true; c.siren = false;   // left at the kerb
