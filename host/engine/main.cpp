@@ -5567,7 +5567,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_menuReady && cjReady) {
             if (!g_menu.IsOpen() && !g_devPaused) {
                 evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
-                if (!evShots.empty()) FeedEvent(InterestingEvents::Gunfire, InterestingEvents::Ref::Player, 0);   // CWeapon::FireInstantHit: the shooter
+                if (evShots > 0) FeedEvent(InterestingEvents::Gunfire, InterestingEvents::Ref::Player, 0);   // CWeapon::FireInstantHit: the shooter
                 Stats::Increment(Stats::STAT_BULLETS_FIRED, (float)evShots);
                 {   // CTaskSimpleFight strike: the sphere against the crowd
                     PlayerPed::Strike sk;
