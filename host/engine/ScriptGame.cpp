@@ -1125,9 +1125,21 @@ bool ScriptGame::HandleMore(ScmMachine::Call& c) {
     // ---- pickups -----------------------------------------------------------------------------
     case 0x0213: c.Out(5, AddPickup(c.I(0), c.I(1), -1, c.F(2), c.F(3), c.F(4))); return true;                 // CREATE_PICKUP(model, type, x, y, z)
     case 0x032B: c.Out(6, AddPickup(c.I(0), c.I(1), c.I(2), c.F(3), c.F(4), c.F(5))); return true;             // CREATE_PICKUP_WITH_AMMO(model, type, ammo, x, y, z)
-    case 0x0958: case 0x0959: case 0x095A: c.Out(3, AddPickup(-1, 0, 0, c.F(0), c.F(1), c.F(2))); return true;   // CREATE_SNAPSHOT / HORSESHOE / OYSTER pickup
-    case 0x0517: { c.Out(4, AddPickup(-2, 0, 0, c.F(0), c.F(1), c.F(2))); return true; }                       // CREATE_LOCKED_PROPERTY_PICKUP(x, y, z, text)
-    case 0x0518: c.Out(5, AddPickup(-1, 0, 0, c.F(0), c.F(1), c.F(2))); return true;                           // CREATE_FORSALE_PROPERTY_PICKUP(x, y, z, price, text)
+    case 0x0958: c.Out(3, AddPickup(1253, Pickups::TypeSnapshot, 0, c.F(0), c.F(1), c.F(2))); return true;         // CREATE_SNAPSHOT_PICKUP
+    case 0x0959: c.Out(3, AddPickup(954, Pickups::Once, 0, c.F(0), c.F(1), c.F(2))); return true;             // CREATE_HORSESHOE_PICKUP
+    case 0x095A: c.Out(3, AddPickup(953, Pickups::Once, 0, c.F(0), c.F(1), c.F(2))); return true;              // CREATE_OYSTER_PICKUP
+    case 0x0517: {   // CREATE_LOCKED_PROPERTY_PICKUP(x, y, z, text)
+        const int h = AddPickup(1272, Pickups::TypePropertyLocked, 0, c.F(0), c.F(1), c.F(2));
+        if (pickups && h >= 1) pickups->SetExtra(m_pickups[(size_t)h - 1].slot, c.S(3), 0);
+        c.Out(4, h);
+        return true;
+    }
+    case 0x0518: {   // CREATE_FORSALE_PROPERTY_PICKUP(x, y, z, price, text)
+        const int h = AddPickup(1273, Pickups::TypePropertyForSale, c.I(3), c.F(0), c.F(1), c.F(2));
+        if (pickups && h >= 1) pickups->SetExtra(m_pickups[(size_t)h - 1].slot, c.S(4), c.I(3));
+        c.Out(5, h);
+        return true;
+    }
     case 0x0214: {   // HAS_PICKUP_BEEN_COLLECTED
         const int h = c.I(0);
         c.result = h >= 1 && (size_t)h <= m_pickups.size() && m_pickups[(size_t)h - 1].collected;
@@ -1262,6 +1274,12 @@ int ScriptGame::AddPickup(int model, int type, int ammo, float x, float y, float
         else if (model == 1239) kind = Pickups::Info;
         else if (model == 1212 || model == 1274) kind = Pickups::Cash;
         else if (model == 370) kind = Pickups::Jetpack;
+        else if (model == 953) kind = Pickups::Oyster;
+        else if (model == 954) kind = Pickups::Horseshoe;
+        else if (model == 1276) kind = Pickups::Package;
+        else if (model == 1253) kind = Pickups::Snapshot;
+        else if (model == 1272) kind = Pickups::PropertyLocked;
+        else if (model == 1273) kind = Pickups::PropertyForSale;
         if (kind >= 0) {
             const float pos[3] = {x, y, z};
             p.slot = pickups->Add(pos, kind, weapon, type, ammo < 0 ? 0 : ammo, false, nowMs());

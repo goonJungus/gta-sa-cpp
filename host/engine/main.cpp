@@ -290,6 +290,7 @@ static int   g_gameDay     = 0;         // days elapsed (moon phase)
 static bool   g_weatherAuto  = true;
 static size_t g_weatherPrev  = 0;
 static float  g_weatherBlend = 1.0f;    // 0 = still the previous weather, 1 = arrived
+static float  g_lastFov = 70.0f;        // the camera's field of view as of the last frame
 static float  g_cheatTimeScale = 1.0f;  // CTimer::ms_fTimeScale: the faster / slower gameplay cheats halve or double it (0.25 .. 4)
 static float  g_weatherTimer = 0.0f;    // game hours until the next forecast change
 static int    g_weatherRegion = -1;
@@ -3869,6 +3870,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     g_shop.LoadShop("bought");
                     Log("SHOPTEST bought list: %d items", g_shop.NumItems());
                 }
+                if (getenv("GTA_COLLECT") && frame == 12) {   // dev: an oyster, a horseshoe, a package and a for-sale property at CJ's feet
+                    const float fz = playerZ - EYE_HEIGHT + 0.5f;
+                    Stats::Set(Stats::STAT_TOTAL_OYSTERS, 50.0f); Stats::Set(Stats::STAT_TOTAL_HORSESHOES, 50.0f);
+                    const float o[3] = {playerX + 0.9f, playerY, fz}, h[3] = {playerX - 0.9f, playerY, fz}, k[3] = {playerX, playerY + 0.9f, fz}, pr[3] = {playerX, playerY - 0.9f, fz};
+                    g_pickups.Add(o, Pickups::Oyster, 0, Pickups::Once, 0, false, (uint32_t)g_bulletMs);
+                    g_pickups.Add(h, Pickups::Horseshoe, 0, Pickups::Once, 0, false, (uint32_t)g_bulletMs);
+                    g_pickups.Add(k, Pickups::Package, 0, Pickups::Collectable1, 0, false, (uint32_t)g_bulletMs);
+                    g_pickups.SetExtra(g_pickups.Add(pr, Pickups::PropertyForSale, 0, Pickups::TypePropertyForSale, 5000, false, (uint32_t)g_bulletMs), "PROP_1", 5000);
+                }
                 if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
                 if (getenv("GTA_ADRENALINE") && frame == 5) { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }
                 { const bool was = Cheat::AdrenalineOn(); Cheat::Tick(dt); if (was && !Cheat::AdrenalineOn()) Log("CHEAT adrenaline ended"); }
@@ -5277,6 +5287,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
             }
             float wantFov = (g_menu.Settings().movementStyle == 1 ? g_menu.Settings().fov : 70.0f) + s_fovKick;
             if (g_idleFov > 0.0f) wantFov = g_idleFov;   // CIdleCam::ProcessFOVZoom sets the camera's FOV
+            g_lastFov = wantFov;
             if (scmRun && g_sg.cam.active && g_sg.cam.cutscene && g_sg.cam.fov > 1.0f) wantFov = g_sg.cam.fov;   // the cutscene's own FOV
             if (g_camFovScale != 1.0f)   // the aim camera's weapon zoom, the car camera's speed widening
                 wantFov = 2.0f * atanf(tanf(wantFov * 3.14159265f / 360.0f) * g_camFovScale) * 180.0f / 3.14159265f;
@@ -5875,6 +5886,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             g_hud.ShowMessage(t.c_str(), 5.0f);
                         };
                         pe.giveMoney = [&](int a) { g_money += a; };
+                        pe.money = g_money;
+                        pe.onMission = g_sg.OnMission();
+                        pe.helpNumber = [&](const char* k, int n) {   // a help text with its ~1~ filled in
+                            if (!g_hudReady) return;
+                            std::string t = g_hud.Text().Get(k);
+                            for (size_t at; (at = t.find("~1~")) != std::string::npos;) t.replace(at, 3, std::to_string(n));
+                            g_hud.ShowMessage(t.c_str(), 1.0f);
+                        };
                         pe.goodie = [&](int kind) {
                             switch (kind) {
                             case Pickups::Health: g_cj.AddHealth(g_cj.MaxHealth()); break;
@@ -5882,6 +5901,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             case Pickups::Adrenaline: Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); break;   // ResetSprintEnergy
                             case Pickups::Bribe: g_wanted = std::max(0, g_wanted - 1); Stats::Increment(Stats::STAT_NUMBER_OF_POLICE_BRIBES, 1.0f); break;
                             case Pickups::Jetpack: g_cj.StartJetpack(); break;
+                            case Pickups::Oyster: case Pickups::Horseshoe: {   // CPickups::PickedUpOyster / PickedUpHorseShoe: a hundred dollars, and the whole set pays a hundred thousand
+                                const bool oyster = kind == Pickups::Oyster;
+                                const int got = oyster ? Stats::STAT_OYSTERS_COLLECTED : Stats::STAT_HORSESHOES_COLLECTED, total = oyster ? Stats::STAT_TOTAL_OYSTERS : Stats::STAT_TOTAL_HORSESHOES;
+                                Stats::Increment(got, 1.0f);
+                                if (!oyster && Stats::Get(total) > 0.0f) Stats::Increment(Stats::STAT_LUCK, 1000.0f / Stats::Get(total));
+                                g_money += 100;
+                                const bool all = Stats::Get(total) == Stats::Get(got);
+                                if (all) g_money += 100000;
+                                if (g_hudReady) {
+                                    std::string t = g_hud.Text().Get(all ? (oyster ? "OY_ALL" : "HO_ALL") : (oyster ? "OY_ONE" : "HO_ONE"));
+                                    for (size_t at; (at = t.find("~1~")) != std::string::npos;) t.replace(at, 3, std::to_string((int)(Stats::Get(total) - Stats::Get(got))));
+                                    g_hud.ShowMessage(t.c_str(), 5.0f);
+                                }
+                                Log("COLLECTABLE %s %.0f of %.0f", oyster ? "oyster" : "horseshoe", Stats::Get(got), Stats::Get(total));
+                                break;
+                            }
                             default: break;
                             }
                         };
@@ -6006,6 +6041,24 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                             s_lastPhoto = now;
                             g_camFlash = 0.8f;
                             Log("PHOTO %d", ++g_photos);
+                            {   // CPickups::PictureTaken: a snapshot pickup in the frame is collected
+                                float cf[3];
+                                CrosshairRay(yaw, pitch, cf);
+                                const float cam3[3] = {camPosX, camPosY, camPosZ};
+                                const float fovNow = g_lastFov;
+                                const int ps = g_pickups.PictureTaken(cam3, fovNow, [&](const float* at) {
+                                    const float vx = at[0] - cam3[0], vy = at[1] - cam3[1], vz = at[2] - cam3[2];
+                                    const float vl = std::sqrt(vx * vx + vy * vy + vz * vz);
+                                    if (vl < 0.01f) return true;
+                                    if ((vx * cf[0] + vy * cf[1] + vz * cf[2]) / vl < std::cos(fovNow * 0.5f * 0.0174533f * 1.3f)) return false;   // in the frame
+                                    return !worldReady || g_world.RayCast(cam3[0], cam3[1], cam3[2], at[0], at[1], at[2]) >= 1.0f;
+                                });
+                                if (ps >= 0) {
+                                    g_money += 100;
+                                    Stats::Increment(Stats::STAT_SNAPSHOTS_TAKEN, 1.0f);
+                                    Log("SNAPSHOT slot %d: %.0f of %.0f", ps, Stats::Get(Stats::STAT_SNAPSHOTS_TAKEN), Stats::Get(Stats::STAT_TOTAL_SNAPSHOTS));
+                                }
+                            }
                         }
                         continue;
                     }

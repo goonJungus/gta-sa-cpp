@@ -27,6 +27,12 @@ const KindModel kKindModel[Pickups::kKinds] = {
     {"bribe", "icons9"},               // 1247
     {"bonus", "icons6"},               // 1248
     {nullptr, nullptr},                // Jetpack: drawn by the player's pack model
+    {"CJ_OYSTER", "shell_pick"},       // 953
+    {"cj_horse_Shoe", "Horse_shoe_pick"},   // 954
+    {"package1", "package1"},          // 1276
+    {"camerapickup", "icons"},         // 1253
+    {"property_locked", "icons4"},     // 1272
+    {"property_fsale", "icons3"},      // 1273
 };
 }  // namespace
 
@@ -73,6 +79,23 @@ void Pickups::CreateSomeMoney(const float pos[3], int amount, uint32_t nowMs) {
     }
 }
 
+int Pickups::PictureTaken(const float cam[3], float fovDeg, const std::function<bool(const float*)>& visible) {
+    int best = -1;
+    float bestD = 999999.9f;
+    const float reach = (90.0f / std::max(fovDeg, 1.0f)) * 20.0f;
+    for (int i = 0; i < kSlots; i++) {
+        const Slot& s = m_s[i];
+        if (!s.used || s.type != TypeSnapshot) continue;
+        const float dx = s.pos[0] - cam[0], dy = s.pos[1] - cam[1], dz = s.pos[2] - cam[2];
+        const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+        if (d >= reach || d >= bestD) continue;
+        if (visible && !visible(s.pos)) continue;
+        best = i; bestD = d;
+    }
+    if (best >= 0) m_s[best] = Slot();
+    return best;
+}
+
 void Pickups::Update(uint32_t nowMs, Env& e) {
     auto log = [&](const char* what, int i, int a, int b) { if (e.log) e.log(what, i, a, b); };
     for (int i = 0; i < kSlots; i++) {
@@ -90,6 +113,23 @@ void Pickups::Update(uint32_t nowMs, Env& e) {
         bool picked = false;
         if (s.kind == Bribe) picked = (e.onFoot ? (dz < kPickHeight && d2 * d2 < kPickRadius2) : (dz < kPickHeight && d2 < 2.0f)) && e.alive;
         else picked = e.onFoot && e.alive && dz < kPickHeight && d2 * d2 < kPickRadius2;
+        // the photograph target is collected by a picture, never by touch
+        if (s.kind == Snapshot) picked = false;
+        if (s.kind == PropertyLocked || s.kind == PropertyForSale) {   // CPickup::Update: PICKUP_PROPERTY_LOCKED / _FORSALE
+            const bool touching = e.onFoot && e.alive && dz < kPickHeight && d2 * d2 < kPickRadius2;
+            picked = false;
+            if (!touching) { s.helpShown = false; }
+            else if (s.kind == PropertyLocked) {
+                if (!s.helpShown) { s.helpShown = true; if (e.help && !s.text.empty()) e.help(s.text.c_str()); log("PROPERTY LOCKED", i, 0, 0); }
+            } else {
+                if (e.helpNumber && !s.text.empty()) e.helpNumber(s.text.c_str(), s.price);   // the property's name and price
+                if (e.collectKey) {
+                    if (e.onMission) { if (e.help) e.help("PROP_2"); }
+                    else if (e.money < s.price) { if (e.help) e.help("PROP_1"); }
+                    else { log("PROPERTY BOUGHT", i, s.price, 0); if (e.help) e.help(""); s = Slot(); continue; }   // the script takes the money
+                }
+            }
+        }
         const bool isWeapon = s.kind == Weapon;
         const bool cashType = s.type == Money || s.type == MoneyDoesntDisappear;
         if (picked && !cashType && isWeapon && s.weapon > 0) {
@@ -230,6 +270,7 @@ void Pickups::Draw(D3DRenderer& r, uint32_t nowMs, const float cam[3],
         const float a = (float)(nowMs & 0x7ff) * 0.0030566407f;
         const Model& m = m_model[s.kind];
         float sc = 1.0f;
+        if (m.meshes.empty() && s.kind != Weapon && s.kind != Jetpack) continue;
         if (s.kind != Weapon && s.kind != Jetpack) sc = (std::max(1.2f / m.maxDim, 1.0f) - 1.0f) * 0.6f + 1.0f;
         const float c = cosf(a) * sc, sn = sinf(a) * sc;
         float w[4][4] = {{c, sn, 0, 0}, {-sn, c, 0, 0}, {0, 0, sc, 0}, {s.pos[0], s.pos[1], s.pos[2], 1}};

@@ -18,10 +18,13 @@ public:
     // ePickupType (the ones that exist without scripts)
     enum Type {
         OnStreet = 2, Once = 3, OnceTimeout = 4, OnceTimeoutSlow = 5, Money = 8,
-        OnStreetSlow = 15, MoneyDoesntDisappear = 19, OnceForMission = 22,
+        Collectable1 = 6, OnStreetSlow = 15, AssetRevenue = 16, TypePropertyLocked = 17, TypePropertyForSale = 18,
+        MoneyDoesntDisappear = 19, TypeSnapshot = 20, OnceForMission = 22,
     };
     // What the model is: MI_PICKUP_* or a weapon.
-    enum Kind { Weapon, Cash, Health, Armour, Adrenaline, Info, Bribe, Bonus, Jetpack, kKinds };
+    // Oyster, Horseshoe, Package: the collectables (CPickups::PickedUpOyster / PickedUpHorseShoe, the hidden packages);
+    // Snapshot: a photograph target (CPickups::PictureTaken); the two property icons.
+    enum Kind { Weapon, Cash, Health, Armour, Adrenaline, Info, Bribe, Bonus, Jetpack, Oyster, Horseshoe, Package, Snapshot, PropertyLocked, PropertyForSale, kKinds };
 
     struct Slot {
         bool used = false;
@@ -29,6 +32,8 @@ public:
         float pos[3] = {0, 0, 0};
         uint32_t regenMs = 0;               // m_nRegenerationTime: expiry or respawn time
         bool disabled = false, empty = false, helpShown = false, skipLogged = false;
+        std::string text;                   // a property pickup's help text key
+        int price = 0;                      // a for-sale property's price (m_nAmmo)
     };
 
     struct Env {
@@ -36,6 +41,8 @@ public:
         bool alive = true, onFoot = true;
         float health = 100, maxHealth = 100, armour = 0, maxArmour = 100;
         int wanted = 0;
+        int money = 0;
+        bool onMission = false;               // CTheScripts::IsPlayerOnAMission
         bool onJetpack = false;
         bool collectKey = false;              // CPickups::CollectPickupBuffer
         uint32_t msSinceHsLos = 100000;       // CPlayerData::m_nLastHSMissileLOSTime age
@@ -49,6 +56,7 @@ public:
         std::function<void(int weapon, int ammo)> grantAmmo;     // CPed::GrantAmmo: into the weapon of that slot
         std::function<void()> reloadSlot;                  // pedWeapon.Reload() after the extract
         std::function<void(const char* key)> help;
+        std::function<void(const char* key, int number)> helpNumber;   // a help text with ~1~ filled in
         std::function<void(int amount)> giveMoney;
         std::function<void(int kind)> goodie;              // Health, Armour, Adrenaline, Info, Bribe, Bonus, Jetpack
         std::function<void(const char* what, int slot, int a, int b)> log;
@@ -61,7 +69,10 @@ public:
     void Update(uint32_t nowMs, Env& env);
     const Slot& At(int i) const { return m_s[i]; }
     void Remove(int i) { if (i >= 0 && i < kSlots) m_s[i] = Slot(); }   // CPickup::Remove
-    int Used() const;
+    void SetExtra(int i, const std::string& text, int price) { if (i >= 0 && i < kSlots) { m_s[i].text = text; m_s[i].price = price; } }
+    // CPickups::PictureTaken: the snapshot pickup nearest the camera, within (90 / fov) * 20 m and in view, is
+    // collected. Returns its slot, -1 when no picture was of one.
+    int PictureTaken(const float cam[3], float fovDeg, const std::function<bool(const float* at)>& visible);    int Used() const;
     // CPickups::CreateSomeMoney: wads of cash around a position (z already above the ground).
     void CreateSomeMoney(const float pos[3], int amount, uint32_t nowMs);
     // The AmmoForWeapon_OnStreet table.
