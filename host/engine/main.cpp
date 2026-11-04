@@ -108,6 +108,7 @@ static void FeedEvent(int type, int kind, int id, const float* at = nullptr) {  
     if (at) { r.pos[0] = at[0]; r.pos[1] = at[1]; r.pos[2] = at[2]; }
     g_evFrame.now = g_eventMs;
     g_events.Add(type, r, g_evFrame);
+    if (type == InterestingEvents::CarCrash) std::fprintf(stderr, "[EVENT] car crash (kind %d id %d), events used %d%s", kind, id, g_events.Used(), "");
 }
 static IdleCam g_idleCam;   // CIdleCam: the camera that looks about after 90 s without input
 static bool g_inputTouched = false;   // CPad::LastTimeTouched: a key, a click, the wheel or the mouse moved since the last frame
@@ -3918,6 +3919,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     const int i = g_peds.FindUid(s_angerUid);
                     Log("ANGER frame %d: ped %d anger %d aggressive %d", frame, s_angerUid, i >= 0 ? (int)g_peds.MindOf(s_angerUid)->anger : -1, i >= 0 ? (int)g_peds.Aggressive((size_t)i) : -1);
                 }
+                if (getenv("GTA_MODTEST") && frame == 20 && g_driveCar >= 0) {   // dev: STORE_CAR_MOD_STATE, fit a mod, RESTORE_CAR_MOD_STATE
+                    g_shop.hooks.storeVehicleMods();
+                    const bool added = g_vehicles.AddUpgrade(g_renderer, (size_t)g_driveCar, "rf_lr_sv1");
+                    Log("MODTEST fitted %d: upgrades %zu", (int)added, g_vehicles.Car((size_t)g_driveCar).upgrades.size());
+                    g_shop.hooks.restoreVehicleMods();
+                    Log("MODTEST restored: upgrades %zu", g_vehicles.Car((size_t)g_driveCar).upgrades.size());
+                }
                 if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
                 if (getenv("GTA_ADRENALINE") && frame == 5) { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }
                 { const bool was = Cheat::AdrenalineOn(); Cheat::Tick(dt); if (was && !Cheat::AdrenalineOn()) Log("CHEAT adrenaline ended"); }
@@ -4415,7 +4423,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     yaw = atan2f(fc.y - playerY, fc.x - playerX);
                 }
                 g_vehicles.onCrash = [&](const float* pos, float hard, int car) {
-                    FeedEvent(InterestingEvents::CarCrash, car >= 0 ? InterestingEvents::Ref::Car : InterestingEvents::Ref::Point, car, pos);   // CAutomobile::VehicleDamage
+                    (void)car; FeedEvent(InterestingEvents::CarCrash, InterestingEvents::Ref::Point, 0, pos);   // where it hit   // CAutomobile::VehicleDamage
                     const float dx = pos[0] - playerX, dy = pos[1] - playerY;
                     const float dd = sqrtf(dx * dx + dy * dy);
                     g_audio.CarCrash(hard, dd, std::clamp((dx * sinf(yaw) - dy * cosf(yaw)) / std::max(dd, 1.0f), -1.0f, 1.0f));
