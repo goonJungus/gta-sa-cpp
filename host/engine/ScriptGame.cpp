@@ -1296,6 +1296,7 @@ int ScriptGame::AddPickup(int model, int type, int ammo, float x, float y, float
         else if (model == 1253) kind = Pickups::Snapshot;
         else if (model == 1272) kind = Pickups::PropertyLocked;
         else if (model == 1273) kind = Pickups::PropertyForSale;
+        if (kind < 0 && type >= Pickups::MineInactive && type <= Pickups::FloatingPackageFloating) kind = type >= Pickups::FloatingPackage ? Pickups::Package : Pickups::Info;
         if (kind >= 0) {
             const float pos[3] = {x, y, z};
             p.slot = pickups->Add(pos, kind, weapon, type, ammo < 0 ? 0 : ammo, false, nowMs());

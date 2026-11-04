@@ -108,6 +108,34 @@ void Pickups::Update(uint32_t nowMs, Env& e) {
             }
             continue;
         }
+        if (s.type >= MineInactive && s.type <= FloatingPackageFloating) {   // CPickup::Update: mines and the floating package
+            float wz = 0.0f;
+            const bool water = e.waterAt && e.waterAt(s.pos[0], s.pos[1], &wz);
+            if (s.type == NauticalMineInactive || s.type == NauticalMineArmed || s.type == FloatingPackageFloating) { if (water) s.pos[2] = wz + 0.6f; }
+            switch (s.type) {
+            case MineInactive: case NauticalMineInactive:   // the player's car near it arms it, for ten seconds
+                if (e.vehicleTouching && e.vehicleTouching(s.pos, 2.0f, true)) { s.type = s.type == MineInactive ? MineArmed : NauticalMineArmed; s.regenMs = nowMs + 10000; log("MINE ARMED", i, 0, 0); }
+                break;
+            case MineArmed: case NauticalMineArmed:   // then any car touching it sets it off
+                if (nowMs > s.regenMs && e.vehicleTouching && e.vehicleTouching(s.pos, 2.0f, false)) {
+                    if (e.explodeMine) e.explodeMine(s.pos);
+                    log("MINE EXPLODED", i, 0, 0);
+                    s = Slot();
+                    continue;
+                }
+                break;
+            case FloatingPackage:   // falls until it reaches the water
+                s.vz -= e.dt * 50.0f * 0.01f;
+                s.pos[2] += s.vz * e.dt * 50.0f;
+                if (water && s.pos[2] <= wz) { s.type = FloatingPackageFloating; log("PACKAGE FLOATING", i, 0, 0); }
+                break;
+            case FloatingPackageFloating:   // a boat touching it picks it up
+                if (e.vehicleTouching && e.vehicleTouching(s.pos, 2.0f, true)) { log("PACKAGE TAKEN", i, 0, 0); s = Slot(); continue; }
+                break;
+            default: break;
+            }
+            continue;
+        }
         if (s.type == AssetRevenue) {   // PICKUP_ASSET_REVENUE: the property earns by the day; walking in takes what it has made
             s.revenue += s.perDay * e.gameMinutes / 1440.0f;
             const float rx = e.player[0] - s.pos[0], ry = e.player[1] - s.pos[1];

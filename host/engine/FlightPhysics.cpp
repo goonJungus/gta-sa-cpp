@@ -674,8 +674,14 @@ void Vehicles::PlaneDamage(VehicleInstance& c, const HandlingData& h, const Vehi
 // 0x22): the surface holds the car up like ground.
 void Vehicles::CheatPhysics(VehicleInstance& c, const HandlingData& h, float ts, const VehicleWorld& world) {
     CarPhys& p = c.phys;
-    if (!p.cheatFly && !p.cheatWater) return;
+    if (!p.inHornJust) p.boostLatched = false;
+    if (!p.cheatFly && !p.cheatWater && !p.cheatBoost) return;
     Body b = Load(c, h);
+    if (p.cheatBoost && p.inHornJust && !p.boostLatched && p.numContactWheels > 0) {   // CAutomobile::BoostJumpControl: the horn jumps the car
+        p.boostLatched = true;
+        b.ApplyMoveForce(V3(0.0f, 0.0f, 1.0f) * (b.mass * 0.15f));
+        b.ApplyTurnForce(b.up * (b.turnMass * 0.01f), b.fwd);
+    }
     if (p.cheatFly) {
         const bool onGround = p.numContactWheels > 2;
         if (!onGround) b.mv.z += ts * 0.008f;   // no gravity in the air

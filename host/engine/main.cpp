@@ -3926,6 +3926,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                     g_shop.hooks.restoreVehicleMods();
                     Log("MODTEST restored: upgrades %zu", g_vehicles.Car((size_t)g_driveCar).upgrades.size());
                 }
+                if (getenv("GTA_MINETEST") && frame == 15 && g_driveCar >= 0) {   // dev: a mine under the car (arms, then blows after ten seconds), a package falling to the water 6 m off
+                    const VehicleInstance& mc = g_vehicles.Car((size_t)g_driveCar);
+                    const float mp[3] = {mc.x, mc.y, mc.z};
+                    g_pickups.Add(mp, Pickups::Info, 0, Pickups::MineInactive, 0, false, (uint32_t)g_bulletMs);
+                    const float pp[3] = {mc.x + 6.0f, mc.y, mc.z + 8.0f};
+                    g_pickups.Add(pp, Pickups::Package, 0, Pickups::FloatingPackage, 0, false, (uint32_t)g_bulletMs);
+                }
                 if (getenv("GTA_MEGAPUNCH") && frame == 5) Cheat::ToggleMegaPunch();   // dev: the cheat without typing it
                 if (getenv("GTA_ADRENALINE") && frame == 5) { Cheat::StartAdrenaline(); g_timeCanRun = Stats::FatMuscleMod(7); }
                 { const bool was = Cheat::AdrenalineOn(); Cheat::Tick(dt); if (was && !Cheat::AdrenalineOn()) Log("CHEAT adrenaline ended"); }
@@ -4842,6 +4849,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         dc.phys.cheatFly = Cheat::Active(Cheat::CarsFly) || (Cheat::Active(Cheat::BoatsFly) && g_vehicles.UsesBoatPhysics(dc.model));
                         dc.phys.cheatWater = Cheat::Active(Cheat::CarsOnWater);
                         dc.phys.cheatMegaJump = Cheat::Active(Cheat::MegaJump);
+                        dc.phys.cheatBoost = Cheat::Active(Cheat::BoostJump);
                     }
                     if (!onRails && !(worldReady && g_vehicles.ProcessCar((size_t)g_driveCar, dt, th, br, st, hb, CarWorld(), leanFwd, skid, gearJust, gunUpDown)))
                         g_vehicles.Step((size_t)g_driveCar, dt, th, br, st, hb,   // bikes, boats and aircraft keep the simple model for now
@@ -5946,6 +5954,19 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
                         };
                         pe.giveMoney = [&](int a) { g_money += a; };
                         pe.money = g_money;
+                        pe.dt = dt;
+                        pe.vehicleTouching = [&](const float* pos, float r, bool playerOnly) {
+                            for (size_t vi = 0; vi < g_vehicles.Count(); vi++) {
+                                if (playerOnly && (int)vi != g_driveCar) continue;
+                                const VehicleInstance& v = g_vehicles.Car(vi);
+                                if (v.removed) continue;
+                                const float dx = v.x - pos[0], dy = v.y - pos[1], dz = v.z - pos[2];
+                                if (dx * dx + dy * dy + dz * dz < (r + 1.5f) * (r + 1.5f)) return true;   // the car's body is about 1.5 m round
+                            }
+                            return false;
+                        };
+                        pe.waterAt = [&](float x, float y, float* z) { return g_water.Ready() && g_water.GetWaterLevel(x, y, z); };
+                        pe.explodeMine = [&](const float* p) { ExplHooks* unused = nullptr; (void)unused; g_carBooms.push_back({p[0], p[1], p[2]}); };   // EXPLOSION_MINE
                         pe.gameMinutes = dt;   // 1 real second is a game minute
                         pe.onMission = g_sg.OnMission();
                         pe.helpNumber = [&](const char* k, int n) {   // a help text with its ~1~ filled in

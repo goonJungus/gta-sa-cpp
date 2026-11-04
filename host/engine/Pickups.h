@@ -18,7 +18,8 @@ public:
     // ePickupType (the ones that exist without scripts)
     enum Type {
         OnStreet = 2, Once = 3, OnceTimeout = 4, OnceTimeoutSlow = 5, Money = 8,
-        Collectable1 = 6, OnStreetSlow = 15, AssetRevenue = 16, TypePropertyLocked = 17, TypePropertyForSale = 18,
+        Collectable1 = 6, MineInactive = 9, MineArmed = 10, NauticalMineInactive = 11, NauticalMineArmed = 12,
+        FloatingPackage = 13, FloatingPackageFloating = 14, OnStreetSlow = 15, AssetRevenue = 16, TypePropertyLocked = 17, TypePropertyForSale = 18,
         MoneyDoesntDisappear = 19, TypeSnapshot = 20, OnceForMission = 22,
     };
     // What the model is: MI_PICKUP_* or a weapon.
@@ -34,6 +35,7 @@ public:
         bool disabled = false, empty = false, helpShown = false, skipLogged = false;
         std::string text;                   // a property pickup's help text key
         int price = 0;                      // a for-sale property's price (m_nAmmo)
+        float vz = 0.0f;                    // a floating package falling to the water
         float revenue = 0.0f, perDay = 0.0f;   // an asset revenue pickup: what it has earned and what it earns a game day
     };
 
@@ -58,7 +60,13 @@ public:
         std::function<void(int weapon, int ammo)> grantAmmo;     // CPed::GrantAmmo: into the weapon of that slot
         std::function<void()> reloadSlot;                  // pedWeapon.Reload() after the extract
         std::function<void(const char* key)> help;
-        std::function<void(const char* key, int number)> helpNumber;   // a help text with ~1~ filled in
+        std::function<void(const char* key, int number)> helpNumber;
+        // mines and floating packages: a car (any, or the player's) with a sphere of r around pos touching it,
+        // the water surface under (x, y), and the blast
+        std::function<bool(const float* pos, float r, bool playerOnly)> vehicleTouching;
+        std::function<bool(float x, float y, float* z)> waterAt;
+        std::function<void(const float* pos)> explodeMine;
+        float dt = 0.0f;   // a help text with ~1~ filled in
         std::function<void(int amount)> giveMoney;
         std::function<void(int kind)> goodie;              // Health, Armour, Adrenaline, Info, Bribe, Bonus, Jetpack
         std::function<void(const char* what, int slot, int a, int b)> log;
