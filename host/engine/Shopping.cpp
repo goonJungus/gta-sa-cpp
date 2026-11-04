@@ -72,6 +72,18 @@ bool Shopping::Init(const std::string& gameDir) {
             if (t.size() >= 2 && std::isdigit((unsigned char)t[0][0])) m_componentIds[Lower(t[1])] = std::atoi(t[0].c_str());
         }
     }
+    {   // carmods.dat "mods": a row per car, the components it can have
+        std::ifstream cf(gameDir + "/data/carmods.dat");
+        std::string cl;
+        bool inMods = false;
+        while (std::getline(cf, cl)) {
+            const auto t = Tokens(cl);
+            if (t.empty()) continue;
+            if (!inMods) { inMods = Lower(t[0]) == "mods"; continue; }
+            if (Lower(t[0]) == "end") break;
+            for (size_t k = 1; k < t.size(); k++) m_carMods[Lower(t[0])].insert(Lower(t[k]));
+        }
+    }
     std::ifstream f(gameDir + "/data/shopping.dat");
     if (!f) return false;
     std::vector<std::string> stack;   // the open sections
@@ -121,6 +133,19 @@ uint32_t Shopping::KeyOf(const std::string& name, const std::string& section) co
     return Clothes::Key(name.c_str());
 }
 
+// The player's car can take a component when carmods.dat lists it for that car; the wheels, the stereo and the
+// hydraulics are every car's. On foot (no car name) everything is listed.
+bool Shopping::ModFits(uint32_t key) const {
+    const std::string car = hooks.playerCarName ? Lower(hooks.playerCarName()) : std::string();
+    if (car.empty()) return true;
+    std::string comp;
+    for (const auto& c : m_componentIds) if ((uint32_t)c.second == key) { comp = c.first; break; }
+    if (comp.empty()) return false;
+    if (comp.compare(0, 6, "wheel_") == 0 || comp == "stereo" || comp == "hydralics") return true;
+    auto it = m_carMods.find(car);
+    return it != m_carMods.end() && it->second.count(comp) != 0;
+}
+
 int Shopping::FindItem(uint32_t key) const {
     for (size_t i = 0; i < m_items.size(); i++) if (m_items[i].key == key) return (int)i;
     return -1;
@@ -158,7 +183,7 @@ void Shopping::LoadShop(const std::string& shop) {
     m_contents.clear();
     for (const std::string& name : it->second.items) {
         const uint32_t key = KeyOf(name, m_section);
-        if (m_section == "carmods" && hooks.modFitsVehicle && !hooks.modFitsVehicle(key)) continue;
+        if (m_section == "carmods" && !ModFits(key)) continue;
         m_contents.push_back(key);
     }
 }

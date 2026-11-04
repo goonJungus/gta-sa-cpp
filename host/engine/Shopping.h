@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,7 @@ public:
         std::function<void()> fillArmour;
         std::function<void()> clearWantedAndParole;                 // CWanted::ClearWantedLevelAndGoOnParole
         std::function<void()> storeVehicleMods, restoreVehicleMods; // CShopping::StoreVehicleMods / RestoreVehicleMods
-        std::function<bool(uint32_t key)> modFitsVehicle;           // a car mod shop lists only what the player's car takes
+        std::function<std::string()> playerCarName;                 // the dff name of the car the player is in, "" when on foot
         std::function<void(const char*)> log;
     };
     Hooks hooks;
@@ -84,6 +85,8 @@ private:
     std::vector<Item> m_items;
     std::map<std::string, std::vector<Row>> m_sections;   // lower-cased section name -> its rows
     std::map<std::string, ShopDef> m_shops;               // lower-cased shop name
+    std::map<std::string, std::set<std::string>> m_carMods;   // carmods.dat "mods": car dff name -> its components
+    bool ModFits(uint32_t key) const;                      // a car mod shop lists only what the player's car takes
     std::map<std::string, int> m_componentIds;            // veh_mods.ide: component name -> model id
     std::vector<std::pair<uint32_t, int>> m_modifiers;    // ms_priceModifiers
     std::vector<Row> m_rows;                              // ms_prices: the loaded price section

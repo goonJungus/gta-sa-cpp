@@ -1757,6 +1757,27 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     g_shop.hooks.setOutfit = [&](const PedClothesDesc& d) { g_cj.SetOutfit(d); };
     g_shop.hooks.giveWeapon = [&](int w, int a) { if (cjReady) { g_cj.GiveWeapon(w, a); g_cj.SelectGun(g_cj.GunIndexOfType(w)); } };
     g_shop.hooks.fillArmour = [&] { g_cj.SetArmor(100.0f); };
+    g_shop.hooks.playerCarName = [&]() -> std::string {   // CVehicleModelInfo upgrade lists are by the car's name
+        if (g_driveCar < 0 || (size_t)g_driveCar >= g_vehicles.Count()) return std::string();
+        const VehicleInfo* vi = g_vehicles.Info(g_vehicles.Car((size_t)g_driveCar).model);
+        return vi ? vi->dff : std::string();
+    };
+    static std::vector<VehicleInstance::Upgrade> s_storedUpgrades;   // STORE_CAR_MOD_STATE / RESTORE_CAR_MOD_STATE
+    static int s_storedPaint[4] = {0, 0, 0, 0};
+    static int s_storedCar = -1;
+    g_shop.hooks.storeVehicleMods = [&] {
+        if (g_driveCar < 0 || (size_t)g_driveCar >= g_vehicles.Count()) { s_storedCar = -1; return; }
+        const VehicleInstance& c = g_vehicles.Car((size_t)g_driveCar);
+        s_storedCar = g_driveCar; s_storedUpgrades = c.upgrades;
+        for (int k = 0; k < 4; k++) s_storedPaint[k] = c.paint[k];
+    };
+    g_shop.hooks.restoreVehicleMods = [&] {
+        if (s_storedCar < 0 || (size_t)s_storedCar >= g_vehicles.Count()) return;
+        VehicleInstance& c = g_vehicles.Car((size_t)s_storedCar);
+        c.upgrades = s_storedUpgrades;
+        for (int k = 0; k < 4; k++) c.paint[k] = s_storedPaint[k];
+        s_storedCar = -1;
+    };
     g_shop.hooks.clearWantedAndParole = [] { g_wanted = 0; };
     g_shop.hooks.log = [](const char* m) { Log("%s", m); };
     g_shop.Init(GameDir());
@@ -5546,6 +5567,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
         if (g_menuReady && cjReady) {
             if (!g_menu.IsOpen() && !g_devPaused) {
                 evShots = g_cj.TakeShotEvents(); evDry = g_cj.TakeDryEvents(); evReload = g_cj.TakeReloadEvents();
+                if (!evShots.empty()) FeedEvent(InterestingEvents::Gunfire, InterestingEvents::Ref::Player, 0);   // CWeapon::FireInstantHit: the shooter
                 Stats::Increment(Stats::STAT_BULLETS_FIRED, (float)evShots);
                 {   // CTaskSimpleFight strike: the sphere against the crowd
                     PlayerPed::Strike sk;
